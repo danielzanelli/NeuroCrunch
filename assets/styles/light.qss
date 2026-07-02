@@ -1,0 +1,88 @@
+QMainWindow {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+QWidget {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+QPushButton {
+    background-color: #f0f0f0;
+    color: #000000;
+    border: 1px solid #cccccc;
+    padding: 5px;
+    border-radius: 3px;
+}
+
+QPushButton:hover {
+    background-color: #e0e0e0;
+}
+
+QPushButton:pressed {
+    background-color: #d0d0d0;
+}
+
+QTableWidget {
+    background-color: #ffffff;
+    color: #000000;
+    gridline-color: #cccccc;
+}
+
+QTableWidget QWidget {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+QTableWidget::item {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+QHeaderView::section {
+    background-color: #f0f0f0;
+    color: #000000;
+    padding: 5px;
+    border: 1px solid #cccccc;
+}
+
+QTreeWidget {
+    background-color: #ffffff;
+    color: #000000;
+    gridline-color: #cccccc;
+}
+
+QTextBrowser {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+QScrollArea {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+QTabWidget {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+QTabBar::tab {
+    background-color: #f0f0f0;
+    color: #000000;
+    padding: 5px;
+}
+
+QTabBar::tab:selected {
+    background-color: #e0e0e0;
+}
+
+QFrame {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+PlotWidget {
+    background-color: #ffffff;
+}

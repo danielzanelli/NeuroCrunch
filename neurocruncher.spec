@@ -13,6 +13,7 @@ a = Analysis(
     datas=[
         ('assets', 'assets'),  # Include all assets
         ('scripts', 'scripts'),  # Include bundled official analysis scripts
+        ('schemas', 'schemas'),  # Include plugin manifest JSON Schema
         ('version.json', '.'),  # Include version metadata for the updater
     ],
     hiddenimports=[

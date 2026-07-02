@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danielzanelli/NeuroCrunch/schemas/plugin_manifest.schema.json",
+  "title": "NeuroCrunch Plugin Manifest",
+  "description": "Schema for the manifest.json that must accompany every official or community script. See README.md > Plugin / Script Standard.",
+  "type": "object",
+  "required": ["id", "name", "description", "version", "author", "category", "entry_point"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "description": "Unique script identifier, must match the containing folder name."
+    },
+    "name": { "$ref": "#/definitions/localizedString" },
+    "description": { "$ref": "#/definitions/localizedString" },
+    "version": { "type": "string" },
+    "author": { "type": "string" },
+    "category": { "type": "string" },
+    "entry_point": {
+      "type": "string",
+      "description": "Relative path (within the script folder) to the Python entry point, e.g. main.py."
+    },
+    "parameters": {
+      "type": "array",
+      "default": [],
+      "items": { "$ref": "#/definitions/parameter" }
+    },
+    "outputs": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": { "$ref": "#/definitions/localizedString" }
+    }
+  },
+  "definitions": {
+    "localizedString": {
+      "description": "A bare string, or a map of locale code (e.g. 'es', 'en') to string.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string" }
+        }
+      ]
+    },
+    "parameter": {
+      "type": "object",
+      "required": ["name", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["string", "int", "float", "bool", "file", "directory", "choice", "text"]
+        },
+        "label": { "$ref": "#/definitions/localizedString" },
+        "description": { "$ref": "#/definitions/localizedString" },
+        "required": { "type": "boolean" },
+        "default": {},
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "decimals": { "type": "integer" },
+        "extensions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "options": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "link": {
+          "type": "string",
+          "description": "Reference to a previous script's output as '{script_id}.{output_key}'."
+        }
+      }
+    }
+  }
+}

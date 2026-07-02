@@ -18,7 +18,8 @@ warnings.filterwarnings('ignore')
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QTreeWidgetItem, QTableWidgetItem, QMenu, QVBoxLayout, QLineEdit,
-    QHBoxLayout, QPushButton, QSlider, QLabel, QWidget, QDialog, QSpinBox, QMessageBox, QCheckBox
+    QHBoxLayout, QPushButton, QSlider, QLabel, QWidget, QDialog, QSpinBox, QMessageBox,
+    QComboBox
 )
 from PySide6.QtCore import QCoreApplication, QUrl, Qt, QTimer, QThread, Signal, QRect, QPoint
 from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut, QTextCursor, QPainter, QPen, QColor, QPolygon, QBrush
@@ -30,7 +31,7 @@ from tkinter.filedialog import askopenfilename, askdirectory, asksaveasfilename
 from mainwindow import Ui_MainWindow
 from dark_mode_manager import DarkModeManager
 from plugin_manager import PluginManager
-from param_dialog import ParamDialog, is_script_configured
+from param_dialog import ParamDialog
 
 
 MAX_PLOT_COLUMNS = 100  # Maximum number of columns allowed to plot at once
@@ -111,6 +112,7 @@ class NeuroCrunch(QMainWindow):
         self.plugins = self.plugin_manager.discover_scripts(self.scripts_folder, self.user_plugins_folder)
         self.scripts = sorted(self.plugins.keys())
         self.config = {}
+        self._refreshing_table = False
         # Minimal in-memory pipeline context for Phase 3 linked-parameter pre-filling.
         # Shape: { script_id: { output_key: value } }
         # Populated by the script runner (Phase 4); kept empty until then.
@@ -133,6 +135,8 @@ class NeuroCrunch(QMainWindow):
         # Button connections
         self.ui.btn_open_folder.clicked.connect(self.select_local_folder)
         self.ui.btn_refresh.clicked.connect(self.refresh_local_folder)
+        self.ui.btn_save_config.clicked.connect(self.save_config)
+        self.ui.btn_load_config.clicked.connect(self.load_config)
 
         # File viewer context menu
         self.ui.file_viewer.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -141,6 +145,7 @@ class NeuroCrunch(QMainWindow):
 
         # Scripts table — double-click a row to open the parameter configuration dialog
         self.ui.table_data_columns.cellDoubleClicked.connect(self.open_param_dialog)
+        self.ui.table_data_columns.itemChanged.connect(self._on_checkbox_item_changed)
 
         
         self.print('Programa inicializado - ' + datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
@@ -434,27 +439,37 @@ class NeuroCrunch(QMainWindow):
         """
         table = self.ui.table_data_columns
 
-        # Ensure the table has 5 columns (the .ui file generates only 4).
-        if table.columnCount() < 5:
-            table.setColumnCount(5)
-            table.setHorizontalHeaderItem(4, QTableWidgetItem('Configurado'))
-
+        self._refreshing_table = True
+        table.blockSignals(True)
         table.setRowCount(0)
         table.setColumnWidth(0, 140)
         table.setColumnWidth(1, 140)
         table.setColumnWidth(2, 60)
         table.setColumnWidth(3, 60)
-        table.setColumnWidth(4, 90)
 
+        # Ensure every script has a config entry before computing selection counts
         for script in self.scripts:
             if script not in self.config:
                 self.config[script] = {
                     'ejecutar': False,
                     'parametros': {},
-                    'ultima_modificacion': datetime.datetime.now().strftime('%Y/%m/%d - %H:%M'),
+                    'ultima_modificacion': None,
                     'orden_ejecucion': None
                 }
 
+        # Scripts can only run if they have been configured; clear stale ejecutar flags
+        for s in self.scripts:
+            if self.config[s]['ultima_modificacion'] is None:
+                self.config[s]['ejecutar'] = False
+                self.config[s]['orden_ejecucion'] = None
+
+        # Number of scripts marked for execution; clear any orders that exceed that count
+        n_selected = sum(1 for s in self.scripts if self.config[s]['ejecutar'])
+        for s in self.scripts:
+            if (self.config[s]['orden_ejecucion'] or 0) > n_selected:
+                self.config[s]['orden_ejecucion'] = None
+
+        for script in self.scripts:
             plugin_info = self.plugins[script]
 
             row_position = table.rowCount()
@@ -472,46 +487,40 @@ class NeuroCrunch(QMainWindow):
             )
             table.setItem(row_position, 0, script_item)
 
-            # Last modification timestamp
+            # Configuration timestamp — "-" until the user saves parameters
             timestamp_item = QTableWidgetItem()
-            timestamp_item.setText(self.config[script]['ultima_modificacion'])
+            ts = self.config[script]['ultima_modificacion']
+            timestamp_item.setText(ts if ts is not None else '-')
             timestamp_item.setTextAlignment(Qt.AlignCenter)
             table.setItem(row_position, 1, timestamp_item)
 
-            # Checkbox for execution
-            checkbox = QCheckBox()
-            checkbox.setCheckState(Qt.Checked if self.config[script]['ejecutar'] else Qt.Unchecked)
-            container = QWidget()
-            layout = QHBoxLayout(container)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(checkbox)
-            table.setCellWidget(row_position, 2, container)
-
-            # Order of execution
-            order_item = QTableWidgetItem()
-            order_item.setTextAlignment(Qt.AlignCenter)
-            order_text = str(self.config[script]['orden_ejecucion']) if self.config[script]['orden_ejecucion'] is not None else '-'
-            order_item.setText(order_text)
-            table.setItem(row_position, 3, order_item)
-
-            # Configured status — green background when all required params are set
-            configured = is_script_configured(plugin_info, self.config[script].get('parametros', {}))
-            status_item = QTableWidgetItem()
-            status_item.setTextAlignment(Qt.AlignCenter)
-            if not plugin_info.parameters:
-                # Script has no declared parameters — mark as N/A
-                status_item.setText('—')
-                status_item.setToolTip('Este script no tiene parámetros configurables')
-            elif configured:
-                status_item.setText('✓')
-                status_item.setBackground(QColor('#4CAF50'))
-                status_item.setForeground(QColor('#FFFFFF'))
-                status_item.setToolTip('Todos los parámetros requeridos han sido configurados')
+            # Checkbox for execution (Selección) — only interactive when the script has been configured
+            checkbox_item = QTableWidgetItem()
+            is_configured = self.config[script]['ultima_modificacion'] is not None
+            if is_configured:
+                checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             else:
-                status_item.setText('—')
-                status_item.setToolTip('Doble clic para configurar los parámetros requeridos')
-            table.setItem(row_position, 4, status_item)
+                checkbox_item.setFlags(Qt.ItemIsEnabled)  # visible but not checkable
+            checkbox_item.setCheckState(Qt.Checked if self.config[script]['ejecutar'] else Qt.Unchecked)
+            table.setItem(row_position, 2, checkbox_item)
+
+            # Order dropdown — positions 1..n_selected; disabled when script is not selected
+            order_combo = QComboBox()
+            order_combo.addItem('—')
+            if self.config[script]['ejecutar']:
+                for i in range(1, n_selected + 1):
+                    order_combo.addItem(str(i))
+                order_val = self.config[script]['orden_ejecucion']
+                if order_val is not None and 1 <= order_val <= n_selected:
+                    order_combo.setCurrentIndex(order_val)
+                else:
+                    order_combo.setCurrentIndex(0)
+            else:
+                order_combo.setEnabled(False)
+            order_combo.currentIndexChanged.connect(
+                lambda idx, sid=script: self._on_combobox_order_changed(sid, idx)
+            )
+            table.setCellWidget(row_position, 3, order_combo)
 
 
 
@@ -521,13 +530,94 @@ class NeuroCrunch(QMainWindow):
 
 
 
-    def open_param_dialog(self, row: int, _column: int) -> None:
+        table.blockSignals(False)
+        self._refreshing_table = False
+
+    def _on_combobox_order_changed(self, script_id: str, index: int) -> None:
+        """Handle order dropdown selection changes."""
+        if self._refreshing_table:
+            return
+
+        new_order = None if index == 0 else index
+
+        # Conflict resolution: clear and uncheck the script that currently holds this order
+        if new_order is not None:
+            for other_id in self.scripts:
+                if other_id != script_id and self.config[other_id]['orden_ejecucion'] == new_order:
+                    self.config[other_id]['orden_ejecucion'] = None
+                    self.config[other_id]['ejecutar'] = False
+                    self.print(
+                        f'Orden {new_order} reasignado de "{self.plugins[other_id].name}": desactivado.'
+                    )
+                    break
+
+        self.config[script_id]['orden_ejecucion'] = new_order
+        self.refresh_scripts_table()
+
+    def _on_checkbox_item_changed(self, item: QTableWidgetItem) -> None:
+        """Handle checkbox (Selección) toggles in column 2."""
+        if self._refreshing_table:
+            return
+        if item.column() != 2:
+            return
+        row = item.row()
+        if row < 0 or row >= len(self.scripts):
+            return
+        script_id = self.scripts[row]
+        checked = (item.checkState() == Qt.Checked)
+        self.config[script_id]['ejecutar'] = checked
+        if not checked:
+            self.config[script_id]['orden_ejecucion'] = None
+        self.refresh_scripts_table()
+
+    def save_config(self) -> None:
+        """Save the current script configuration to a JSON .config file."""
+        file_path = asksaveasfilename(
+            title='Guardar configuración',
+            defaultextension='.config',
+            filetypes=[('Archivo de configuración', '*.config'), ('Todos los archivos', '*.*')],
+        )
+        if not file_path:
+            return
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, ensure_ascii=False, indent=2)
+            self.print(f'Configuración guardada en: {os.path.basename(file_path)}')
+        except Exception as e:
+            self.print(f'Error al guardar configuración: {str(e)}')
+
+    def load_config(self) -> None:
+        """Load a previously saved .config file into self.config and refresh the table."""
+        file_path = askopenfilename(
+            title='Cargar configuración',
+            filetypes=[('Archivo de configuración', '*.config'), ('Todos los archivos', '*.*')],
+        )
+        if not file_path:
+            return
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                loaded = json.load(f)
+            if not isinstance(loaded, dict):
+                self.print('Error: el archivo de configuración no tiene el formato esperado.')
+                return
+            # Merge: only update entries for known scripts; ignore stale keys
+            for script_id, cfg in loaded.items():
+                if script_id in self.scripts:
+                    self.config[script_id] = cfg
+            self.refresh_scripts_table()
+            self.print(f'Configuración cargada desde: {os.path.basename(file_path)}')
+        except (OSError, json.JSONDecodeError) as e:
+            self.print(f'Error al cargar configuración: {str(e)}')
+
+    def open_param_dialog(self, row: int, column: int) -> None:
         """Open the parameter configuration dialog for the script in *row*.
 
         Connected to ``table_data_columns.cellDoubleClicked``.  Saves the
         accepted values back into ``self.config`` and refreshes the table so
         the "Configurado" column updates immediately.
         """
+        if column == 2:  # checkbox column — ignore double-clicks
+            return
         if row < 0 or row >= len(self.scripts):
             return
 

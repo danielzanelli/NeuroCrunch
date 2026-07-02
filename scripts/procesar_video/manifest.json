@@ -2,7 +2,7 @@
   "id": "procesar_video",
   "name": "Procesar Video",
   "description": "Extrae trazas de fluorescencia de un video de imagen de calcio.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Daniel Zanelli",
   "category": "preprocessing",
   "entry_point": "main.py",
@@ -16,6 +16,15 @@
       "extensions": [".tif", ".tiff", ".avi", ".mp4"]
     },
     {
+      "name": "input_roi",
+      "type": "file",
+      "label": "Archivo de ROIs",
+      "description": "Archivo ZIP con las regiones de interés (.zip, generado por ImageJ/FIJI o el plugin Seleccionar ROIs)",
+      "required": true,
+      "extensions": [".zip"],
+      "link": "seleccionar_ROIs.roi_zip"
+    },
+    {
       "name": "fps",
       "type": "int",
       "label": "Frames por segundo",
@@ -23,6 +32,34 @@
       "default": 10,
       "min": 1,
       "max": 1000
+    },
+    {
+      "name": "metrica_max",
+      "type": "bool",
+      "label": "Métrica: Máximo",
+      "description": "Calcula el valor máximo de píxeles dentro de cada ROI por cuadro",
+      "default": true
+    },
+    {
+      "name": "metrica_mean",
+      "type": "bool",
+      "label": "Métrica: Media",
+      "description": "Calcula el valor medio de píxeles dentro de cada ROI por cuadro",
+      "default": true
+    },
+    {
+      "name": "metrica_std",
+      "type": "bool",
+      "label": "Métrica: Desvío estándar",
+      "description": "Calcula el desvío estándar de píxeles dentro de cada ROI por cuadro",
+      "default": true
+    },
+    {
+      "name": "metrica_int",
+      "type": "bool",
+      "label": "Métrica: Integral",
+      "description": "Calcula la suma (integral) de píxeles dentro de cada ROI por cuadro",
+      "default": true
     },
     {
       "name": "output_dir",

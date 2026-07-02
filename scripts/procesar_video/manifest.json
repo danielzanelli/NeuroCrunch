@@ -1,0 +1,11 @@
+{
+  "id": "procesar_video",
+  "name": "Procesar Video",
+  "description": "Extracts fluorescence traces from a calcium imaging video.",
+  "version": "1.0.0",
+  "author": "NeuroCrunch Team",
+  "category": "preprocessing",
+  "entry_point": "main.py",
+  "parameters": [],
+  "outputs": {}
+}

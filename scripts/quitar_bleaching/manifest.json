@@ -1,0 +1,11 @@
+{
+  "id": "quitar_bleaching",
+  "name": "Quitar Bleaching",
+  "description": "Removes photobleaching effects from fluorescence signals.",
+  "version": "1.0.0",
+  "author": "NeuroCrunch Team",
+  "category": "processing",
+  "entry_point": "main.py",
+  "parameters": [],
+  "outputs": {}
+}

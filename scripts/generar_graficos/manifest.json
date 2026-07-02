@@ -1,0 +1,11 @@
+{
+  "id": "generar_graficos",
+  "name": "Generar Graficos",
+  "description": "Generates summary plots from processed signals.",
+  "version": "1.0.0",
+  "author": "NeuroCrunch Team",
+  "category": "visualization",
+  "entry_point": "main.py",
+  "parameters": [],
+  "outputs": {}
+}

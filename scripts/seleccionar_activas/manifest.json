@@ -1,0 +1,11 @@
+{
+  "id": "seleccionar_activas",
+  "name": "Seleccionar Activas",
+  "description": "Selects active cells/traces based on activity criteria.",
+  "version": "1.0.0",
+  "author": "NeuroCrunch Team",
+  "category": "processing",
+  "entry_point": "main.py",
+  "parameters": [],
+  "outputs": {}
+}

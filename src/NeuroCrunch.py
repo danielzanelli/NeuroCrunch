@@ -94,7 +94,12 @@ class NeuroCrunch(QMainWindow):
         self.local_folder = os.path.dirname(os.path.abspath(__file__))
         # Relative to the application directory, the "scripts" folder is expected to be at "../scripts"
         self.scripts_folder = os.path.join(self.local_folder, '..', 'scripts')
-        self.scripts = self.get_dir_content(self.scripts_folder) if os.path.exists(self.scripts_folder) else []
+        # Writable, per-user directory where community/user-installed scripts are dropped
+        self.user_plugins_folder = self.get_user_plugins_dir()
+        # Each entry maps a script id (subfolder name) to its absolute folder path.
+        # Bundled scripts are discovered first; user plugins with the same id override them.
+        self.script_paths = self.discover_scripts([self.scripts_folder, self.user_plugins_folder])
+        self.scripts = sorted(self.script_paths.keys())
         self.config = {}
 
         # Refresh the file viewer and scripts table with the initial local folder and scripts
@@ -155,6 +160,57 @@ class NeuroCrunch(QMainWindow):
         content = self.get_dir_content(self.local_folder)
         self.populate_file_viewer(content, self.ui.file_viewer.invisibleRootItem(), self.local_folder)
                 
+    def get_user_plugins_dir(self):
+        """Resolve the writable, per-user directory where community/user-installed scripts live.
+
+        This directory is outside the PyInstaller bundle so users can drop community
+        plugin folders (each containing main.py + manifest.json) into it without
+        touching the installed application. Created on first use if missing.
+        """
+        if sys.platform == 'win32':
+            base = os.environ.get('APPDATA') or os.path.expanduser('~')
+            path = os.path.join(base, 'NeuroCrunch', 'plugins')
+        elif sys.platform == 'darwin':
+            path = os.path.expanduser('~/Library/Application Support/NeuroCrunch/plugins')
+        else:
+            path = os.path.expanduser('~/.config/NeuroCrunch/plugins')
+
+        try:
+            os.makedirs(path, exist_ok=True)
+        except OSError as e:
+            self.print(f'No se pudo crear la carpeta de plugins de usuario "{path}": {str(e)}')
+
+        return path
+
+    def discover_scripts(self, script_dirs):
+        """Scan the given directories for script subfolders and return a mapping of
+        script id (subfolder name) to its absolute folder path.
+
+        A subfolder is considered a valid script if it contains a main.py entry point.
+        Directories are scanned in order, so scripts found in later directories
+        (e.g. user plugins) override bundled scripts with the same id.
+        """
+        discovered = {}
+
+        for script_dir in script_dirs:
+            if not script_dir or not os.path.isdir(script_dir):
+                continue
+
+            try:
+                entries = sorted(os.listdir(script_dir))
+            except PermissionError:
+                continue
+
+            for entry in entries:
+                entry_path = os.path.join(script_dir, entry)
+                if not os.path.isdir(entry_path):
+                    continue
+                if not os.path.isfile(os.path.join(entry_path, 'main.py')):
+                    continue
+                discovered[entry] = entry_path
+
+        return discovered
+
     def get_dir_content(self, path):
         """Get the content of a directory recursively, returning a tree structure.
         Returns a list where items are either:

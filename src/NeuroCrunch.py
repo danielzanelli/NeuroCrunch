@@ -139,7 +139,6 @@ class NeuroCrunch(QMainWindow):
         self.ui.log.ensureCursorVisible()
     
     def print_progress(self, text):
-        print(text)  # Also print to console for debugging
         """Update the last line in the log (for progress reporting)."""
         cursor = self.ui.log.textCursor()
         cursor.movePosition(QTextCursor.End)

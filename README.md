@@ -53,7 +53,7 @@ NeuroCrunch/
 │   ├── mainwindow.py               # Auto-generated from mainwindow.ui — DO NOT EDIT
 │   ├── dark_mode_manager.py        # Theme management
 │   ├── plugin_manager.py           # Script discovery and manifest parsing       [PLANNED]
-│   ├── param_dialog.py             # Auto-generated parameter dialogs             [PLANNED]
+│   ├── param_dialog.py             # Auto-generated parameter dialogs
 │   ├── script_runner.py            # Subprocess execution engine + pipeline ctx   [PLANNED]
 │   └── updater.py                  # GitHub Releases version check + download     [PLANNED]
 ├── ui/
@@ -109,11 +109,14 @@ Status markers: ✅ Done · 🔄 In progress · ⬜ Planned
 - ✅ Wire into `NeuroCrunch.py`: replace current flat scan with `PluginManager`, populate scripts table with rich metadata
 
 ### Phase 3 — Parameter Dialog (`src/param_dialog.py`)
-- ⬜ `ParamDialog(plugin_info, current_values, pipeline_context, parent)` → `QDialog`
-- ⬜ Widget generation from `parameter.type` (see type→widget table below)
-- ⬜ Linked parameters pre-filled from `PipelineContext`, shown with "From: {source_script}" label; still editable
-- ⬜ Validation on accept: all required params must be non-empty
-- ⬜ Scripts table "Configurado" cell turns green when all required params are saved
+- ✅ `ParamDialog(plugin_info, current_values, pipeline_context, parent)` → `QDialog`
+- ✅ Widget generation from `parameter.type` (see type→widget table below)
+- ✅ Linked parameters pre-filled from `pipeline_context`, shown with "Fuente: {source_script}" label; still editable
+- ✅ Validation on accept: all required params must be non-empty
+- ✅ Scripts table "Configurado" cell turns green when all required params are saved
+- ✅ Double-click a script row to open its parameter dialog
+- ✅ Minimal in-memory `pipeline_context` dict (`{script_id: {output_key: value}}`) wired into `NeuroCrunch.py`
+- ✅ Official script manifests updated with representative parameter definitions
 
 ### Phase 4 — Script Runner (`src/script_runner.py`)
 - ⬜ `PipelineContext` — stores `{script_id: {output_key: value}}`; persisted to `session_dir/pipeline_context.json`

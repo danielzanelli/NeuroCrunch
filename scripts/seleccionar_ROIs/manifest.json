@@ -6,6 +6,32 @@
   "author": "Daniel Zanelli",
   "category": "preprocessing",
   "entry_point": "main.py",
-  "parameters": [],
-  "outputs": {}
+  "parameters": [
+    {
+      "name": "input_video",
+      "type": "file",
+      "label": "Video de entrada",
+      "description": "Archivo de video sobre el que se dibujarán las ROIs",
+      "required": true,
+      "extensions": [".tif", ".tiff", ".avi", ".mp4"]
+    },
+    {
+      "name": "roi_type",
+      "type": "choice",
+      "label": "Tipo de ROI",
+      "description": "Forma geométrica de las regiones de interés",
+      "options": ["circular", "rectangular", "poligonal"],
+      "default": "circular"
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": "Carpeta de salida",
+      "description": "Carpeta donde se guardarán los archivos de ROIs",
+      "required": true
+    }
+  ],
+  "outputs": {
+    "roi_zip": "Ruta al archivo ZIP con las ROIs seleccionadas"
+  }
 }

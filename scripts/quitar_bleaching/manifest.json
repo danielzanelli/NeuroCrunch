@@ -6,6 +6,42 @@
   "author": "Daniel Zanelli",
   "category": "processing",
   "entry_point": "main.py",
-  "parameters": [],
-  "outputs": {}
+  "parameters": [
+    {
+      "name": "input_csv",
+      "type": "file",
+      "label": "CSV de entrada",
+      "description": "Archivo CSV con las trazas de fluorescencia sin procesar",
+      "required": true,
+      "extensions": [".csv"],
+      "link": "procesar_video.output_csv"
+    },
+    {
+      "name": "metodo",
+      "type": "choice",
+      "label": "Método de corrección",
+      "description": "Algoritmo utilizado para corregir el bleaching",
+      "options": ["exponencial", "polinomial", "percentil"],
+      "default": "exponencial"
+    },
+    {
+      "name": "ventana",
+      "type": "int",
+      "label": "Ventana (frames)",
+      "description": "Tamaño de la ventana para el suavizado",
+      "default": 50,
+      "min": 5,
+      "max": 5000
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": "Carpeta de salida",
+      "description": "Carpeta donde se guardará el CSV corregido",
+      "required": true
+    }
+  ],
+  "outputs": {
+    "corrected_csv": "Ruta al archivo CSV con las trazas corregidas"
+  }
 }

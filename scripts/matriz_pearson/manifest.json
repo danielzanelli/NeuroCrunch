@@ -6,6 +6,41 @@
   "author": "Daniel Zanelli",
   "category": "analysis",
   "entry_point": "main.py",
-  "parameters": [],
-  "outputs": {}
+  "parameters": [
+    {
+      "name": "input_csv",
+      "type": "file",
+      "label": "CSV de entrada",
+      "description": "Archivo CSV con las trazas de fluorescencia",
+      "required": true,
+      "extensions": [".csv"],
+      "link": "seleccionar_activas.active_csv"
+    },
+    {
+      "name": "umbral_correlacion",
+      "type": "float",
+      "label": "Umbral de correlación",
+      "description": "Valor mínimo de correlación de Pearson para considerar dos células como correlacionadas",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "decimals": 2
+    },
+    {
+      "name": "notas",
+      "type": "text",
+      "label": "Notas / observaciones",
+      "description": "Texto libre para registrar observaciones sobre este análisis"
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": "Carpeta de salida",
+      "required": true
+    }
+  ],
+  "outputs": {
+    "matrix_csv": "Ruta al CSV con la matriz de correlación",
+    "heatmap_png": "Ruta a la imagen del mapa de calor de correlaciones"
+  }
 }

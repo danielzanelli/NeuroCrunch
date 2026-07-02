@@ -6,6 +6,43 @@
   "author": "Daniel Zanelli",
   "category": "processing",
   "entry_point": "main.py",
-  "parameters": [],
-  "outputs": {}
+  "parameters": [
+    {
+      "name": "input_csv",
+      "type": "file",
+      "label": "CSV de entrada",
+      "description": "Archivo CSV con las trazas de fluorescencia",
+      "required": true,
+      "extensions": [".csv"],
+      "link": "quitar_bleaching.corrected_csv"
+    },
+    {
+      "name": "umbral_std",
+      "type": "float",
+      "label": "Umbral (desvíos estándar)",
+      "description": "Número de desvíos estándar sobre la media para considerar una célula activa",
+      "default": 2.5,
+      "min": 0.5,
+      "max": 10.0,
+      "decimals": 2
+    },
+    {
+      "name": "min_duracion",
+      "type": "int",
+      "label": "Duración mínima (frames)",
+      "description": "Número mínimo de frames consecutivos sobre el umbral para contar como evento",
+      "default": 3,
+      "min": 1,
+      "max": 1000
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": "Carpeta de salida",
+      "required": true
+    }
+  ],
+  "outputs": {
+    "active_csv": "Ruta al CSV con las trazas de células activas únicamente"
+  }
 }

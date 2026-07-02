@@ -6,6 +6,40 @@
   "author": "Daniel Zanelli",
   "category": "preprocessing",
   "entry_point": "main.py",
-  "parameters": [],
-  "outputs": {}
+  "parameters": [
+    {
+      "name": "input_video",
+      "type": "file",
+      "label": "Video de entrada",
+      "description": "Archivo de video de imagen de calcio (.tif, .tiff, .avi, .mp4)",
+      "required": true,
+      "extensions": [".tif", ".tiff", ".avi", ".mp4"]
+    },
+    {
+      "name": "fps",
+      "type": "int",
+      "label": "Frames por segundo",
+      "description": "Velocidad de muestreo del video",
+      "default": 10,
+      "min": 1,
+      "max": 1000
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": "Carpeta de salida",
+      "description": "Carpeta donde se guardarán los resultados",
+      "required": true
+    },
+    {
+      "name": "normalizar",
+      "type": "bool",
+      "label": "Normalizar señales",
+      "description": "Aplica normalización Z-score a las trazas extraídas",
+      "default": false
+    }
+  ],
+  "outputs": {
+    "output_csv": "Ruta al archivo CSV con las trazas de fluorescencia extraídas"
+  }
 }

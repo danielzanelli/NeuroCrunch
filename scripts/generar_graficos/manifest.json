@@ -6,6 +6,37 @@
   "author": "Daniel Zanelli",
   "category": "visualization",
   "entry_point": "main.py",
-  "parameters": [],
-  "outputs": {}
+  "parameters": [
+    {
+      "name": "input_csv",
+      "type": "file",
+      "label": "CSV de entrada",
+      "description": "Archivo CSV con las trazas a graficar",
+      "required": true,
+      "extensions": [".csv"],
+      "link": "seleccionar_activas.active_csv"
+    },
+    {
+      "name": "formato",
+      "type": "choice",
+      "label": "Formato de imagen",
+      "options": ["png", "svg", "pdf"],
+      "default": "png"
+    },
+    {
+      "name": "titulo",
+      "type": "string",
+      "label": "Título del gráfico",
+      "description": "Título que aparecerá en la parte superior de cada gráfico"
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": "Carpeta de salida",
+      "required": true
+    }
+  ],
+  "outputs": {
+    "figures_dir": "Ruta a la carpeta con los gráficos generados"
+  }
 }

@@ -139,13 +139,6 @@ class Ui_MainWindow(object):
 
         self.gridLayout_10.addWidget(self.btn_execute_scripts, 3, 4, 1, 1)
 
-        self.btn_stop_scripts = QPushButton(self.frame_15)
-        self.btn_stop_scripts.setObjectName(u"btn_stop_scripts")
-        self.btn_stop_scripts.setEnabled(False)
-        self.btn_stop_scripts.setMaximumSize(QSize(120, 16777215))
-
-        self.gridLayout_10.addWidget(self.btn_stop_scripts, 3, 5, 1, 1)
-
 
         self.gridLayout_12.addWidget(self.frame_15, 2, 2, 1, 1)
 
@@ -390,7 +383,6 @@ class Ui_MainWindow(object):
 "Configuraci\u00f3n", None))
         self.btn_execute_scripts.setText(QCoreApplication.translate("MainWindow", u"Ejecutar \n"
 "Seleccionados", None))
-        self.btn_stop_scripts.setText(QCoreApplication.translate("MainWindow", u"Detener", None))
         self.btn_darkmode.setText(QCoreApplication.translate("MainWindow", u"\u2600\ufe0f", None))
         self.btn_open_folder.setText(QCoreApplication.translate("MainWindow", u"Seleccionar\n"
 "Carpeta", None))

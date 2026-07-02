@@ -19,7 +19,7 @@ warnings.filterwarnings('ignore')
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QTreeWidgetItem, QTableWidgetItem, QMenu, QVBoxLayout, QLineEdit,
     QHBoxLayout, QPushButton, QSlider, QLabel, QWidget, QDialog, QSpinBox, QMessageBox,
-    QComboBox
+    QComboBox, QCheckBox
 )
 from PySide6.QtCore import QCoreApplication, QUrl, Qt, QTimer, QThread, Signal, QRect, QPoint
 from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut, QTextCursor, QPainter, QPen, QColor, QPolygon, QBrush
@@ -140,8 +140,7 @@ class NeuroCrunch(QMainWindow):
         self.ui.btn_refresh.clicked.connect(self.refresh_local_folder)
         self.ui.btn_save_config.clicked.connect(self.save_config)
         self.ui.btn_load_config.clicked.connect(self.load_config)
-        self.ui.btn_execute_scripts.clicked.connect(self.run_pipeline)
-        self.ui.btn_stop_scripts.clicked.connect(self.stop_pipeline)
+        self.ui.btn_execute_scripts.clicked.connect(self.toggle_pipeline)
 
         # File viewer context menu
         self.ui.file_viewer.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -150,7 +149,7 @@ class NeuroCrunch(QMainWindow):
 
         # Scripts table — double-click a row to open the parameter configuration dialog
         self.ui.table_data_columns.cellDoubleClicked.connect(self.open_param_dialog)
-        self.ui.table_data_columns.itemChanged.connect(self._on_checkbox_item_changed)
+        # Note: checkbox changes are now handled by individual QCheckBox widgets
 
         
         self.print('Programa inicializado - ' + datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
@@ -450,7 +449,7 @@ class NeuroCrunch(QMainWindow):
         table.setRowCount(0)
         table.setColumnWidth(0, 140)
         table.setColumnWidth(1, 140)
-        table.setColumnWidth(2, 60)
+        table.setColumnWidth(2, 80)
         table.setColumnWidth(3, 60)
 
         # Ensure every script has a config entry before computing selection counts
@@ -501,14 +500,23 @@ class NeuroCrunch(QMainWindow):
             table.setItem(row_position, 1, timestamp_item)
 
             # Checkbox for execution (Selección) — only interactive when the script has been configured
-            checkbox_item = QTableWidgetItem()
             is_configured = self.config[script]['ultima_modificacion'] is not None
-            if is_configured:
-                checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            else:
-                checkbox_item.setFlags(Qt.ItemIsEnabled)  # visible but not checkable
-            checkbox_item.setCheckState(Qt.Checked if self.config[script]['ejecutar'] else Qt.Unchecked)
-            table.setItem(row_position, 2, checkbox_item)
+            
+            # Create a centered checkbox widget
+            checkbox_widget = QWidget()
+            checkbox_layout = QHBoxLayout(checkbox_widget)
+            checkbox_layout.setContentsMargins(0, 0, 0, 0)
+            checkbox_layout.setAlignment(Qt.AlignCenter)
+            
+            checkbox = QCheckBox()
+            checkbox.setChecked(self.config[script]['ejecutar'] if is_configured else False)
+            checkbox.setEnabled(is_configured)
+            # Store the script_id in the checkbox for easy access
+            checkbox.script_id = script
+            checkbox.stateChanged.connect(self._on_checkbox_state_changed)
+            
+            checkbox_layout.addWidget(checkbox)
+            table.setCellWidget(row_position, 2, checkbox_widget)
 
             # Order dropdown — positions 1..n_selected; disabled when script is not selected
             order_combo = QComboBox()
@@ -523,10 +531,23 @@ class NeuroCrunch(QMainWindow):
                     order_combo.setCurrentIndex(0)
             else:
                 order_combo.setEnabled(False)
+            
+            # Center the combobox items
+            for i in range(order_combo.count()):
+                order_combo.model().item(i).setTextAlignment(Qt.AlignCenter)
+            
             order_combo.currentIndexChanged.connect(
                 lambda idx, sid=script: self._on_combobox_order_changed(sid, idx)
             )
-            table.setCellWidget(row_position, 3, order_combo)
+            
+            # Create a centered widget for the combobox
+            order_widget = QWidget()
+            order_layout = QHBoxLayout(order_widget)
+            order_layout.setContentsMargins(0, 0, 0, 0)
+            order_layout.setAlignment(Qt.AlignCenter)
+            order_layout.addWidget(order_combo)
+            
+            table.setCellWidget(row_position, 3, order_widget)
 
 
 
@@ -538,6 +559,21 @@ class NeuroCrunch(QMainWindow):
 
         table.blockSignals(False)
         self._refreshing_table = False
+
+    def _on_checkbox_state_changed(self) -> None:
+        """Handle checkbox state changes from the checkbox widgets."""
+        sender = self.sender()
+        if not isinstance(sender, QCheckBox) or not hasattr(sender, 'script_id'):
+            return
+        
+        script_id = sender.script_id
+        checked = sender.isChecked()
+        
+        self.config[script_id]['ejecutar'] = checked
+        if not checked:
+            self.config[script_id]['orden_ejecucion'] = None
+        
+        self.refresh_scripts_table()
 
     def _on_combobox_order_changed(self, script_id: str, index: int) -> None:
         """Handle order dropdown selection changes."""
@@ -558,22 +594,6 @@ class NeuroCrunch(QMainWindow):
                     break
 
         self.config[script_id]['orden_ejecucion'] = new_order
-        self.refresh_scripts_table()
-
-    def _on_checkbox_item_changed(self, item: QTableWidgetItem) -> None:
-        """Handle checkbox (Selección) toggles in column 2."""
-        if self._refreshing_table:
-            return
-        if item.column() != 2:
-            return
-        row = item.row()
-        if row < 0 or row >= len(self.scripts):
-            return
-        script_id = self.scripts[row]
-        checked = (item.checkState() == Qt.Checked)
-        self.config[script_id]['ejecutar'] = checked
-        if not checked:
-            self.config[script_id]['orden_ejecucion'] = None
         self.refresh_scripts_table()
 
     def save_config(self) -> None:
@@ -676,22 +696,33 @@ class NeuroCrunch(QMainWindow):
         ]
         return pipeline
 
-    def run_pipeline(self) -> None:
-        """Run the configured pipeline of selected scripts via ``ScriptRunner``.
+    def toggle_pipeline(self) -> None:
+        """Toggle between running and stopping the pipeline.
 
-        Connected to ``btn_execute_scripts``. Disables the run button and
-        enables the stop button while the pipeline is executing.
+        Connected to ``btn_execute_scripts``. If a pipeline is currently running,
+        shows a confirmation dialog before stopping. Otherwise, starts a new pipeline.
         """
         if self._script_runner is not None and self._script_runner.isRunning():
-            self.print('El pipeline ya se está ejecutando.')
+            # Pipeline is running — ask for confirmation before stopping
+            reply = QMessageBox.warning(
+                self,
+                'Confirmar detención',
+                '¿Estás seguro de que deseas detener el pipeline?\nEsto interrumpirá el proceso actual.',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.print('Deteniendo pipeline...')
+                self._script_runner.stop()
             return
 
+        # No pipeline running — start a new one
         pipeline = self._build_pipeline()
         if not pipeline:
             return
 
-        self.ui.btn_execute_scripts.setEnabled(False)
-        self.ui.btn_stop_scripts.setEnabled(True)
+        self.ui.btn_execute_scripts.setEnabled(True)
+        self.ui.btn_execute_scripts.setText('Detener')
 
         self._script_runner = ScriptRunner(pipeline, self.pipeline_context_store, self)
         self._script_runner.log_message.connect(self.print)
@@ -702,24 +733,13 @@ class NeuroCrunch(QMainWindow):
         self._script_runner.pipeline_done.connect(self._on_pipeline_done)
         self._script_runner.start()
 
-    def stop_pipeline(self) -> None:
-        """Request cancellation of the currently running pipeline.
-
-        Connected to ``btn_stop_scripts``.
-        """
-        if self._script_runner is not None and self._script_runner.isRunning():
-            self.print('Deteniendo pipeline...')
-            self._script_runner.stop()
-        else:
-            self.ui.btn_stop_scripts.setEnabled(False)
-
     def _on_script_finished(self, script_id: str, success: bool) -> None:
         status = 'completado' if success else 'con error'
         self.print(f'Script "{self.plugins[script_id].name}" {status}.')
 
     def _on_pipeline_done(self, success: bool) -> None:
         self.ui.btn_execute_scripts.setEnabled(True)
-        self.ui.btn_stop_scripts.setEnabled(False)
+        self.ui.btn_execute_scripts.setText('Ejecutar')
         self.print('Pipeline finalizado exitosamente.' if success else 'Pipeline finalizado con errores.')
 
     def show_image(self, file_path):

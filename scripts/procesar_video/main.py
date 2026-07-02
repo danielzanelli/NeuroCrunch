@@ -97,7 +97,11 @@ def build_masks(
 ) -> Dict[str, Optional[np.ndarray]]:
     """Build a dict of *roi_name* → boolean mask for every ROI in *rois*."""
     masks: Dict[str, Optional[np.ndarray]] = {}
-    for name, roi in rois.items():
+    total_rois = len(rois)
+    for idx, (name, roi) in enumerate(rois.items(), 1):
+        if idx % 100 == 0 or idx == total_rois:
+            print(f"  Progreso: {idx}/{total_rois} máscaras generadas...", flush=True)
+            sys.stdout.flush()
         try:
             roi_type = roi.get("type", "").lower()
 
@@ -290,6 +294,11 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     if not metricas:
         print("ERROR: Al menos una métrica debe estar seleccionada.", file=sys.stderr)
         sys.exit(1)
+
+    # Normalize all file paths to absolute paths (critical for subprocess execution)
+    input_video = os.path.abspath(os.path.normpath(input_video))
+    input_roi = os.path.abspath(os.path.normpath(input_roi))
+    output_dir = os.path.abspath(os.path.normpath(output_dir))
 
     # Validate inputs
     for label, path in (("input_video", input_video), ("input_roi", input_roi)):

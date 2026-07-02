@@ -237,6 +237,7 @@ class ScriptRunner(QThread):
 
             cmd = [
                 sys.executable,
+                '-u',  # Disable buffering
                 entry_point,
                 '--nc_params', params_path,
                 '--nc_output', output_path,
@@ -246,6 +247,7 @@ class ScriptRunner(QThread):
                 process = subprocess.Popen(
                     cmd,
                     cwd=script_dir,
+                    stdin=subprocess.DEVNULL,  # Close stdin to prevent blocking
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,

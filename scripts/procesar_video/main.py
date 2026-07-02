@@ -11,6 +11,10 @@ Uso desde línea de comandos:
 
     # O bien, pasando todos los parámetros como JSON string:
     python main.py --params_json '{"input_video": "...", "input_roi": "...", ...}'
+
+    # Contrato usado por ScriptRunner (Fase 4): lee los parámetros desde un
+    # archivo JSON y escribe las salidas declaradas en otro archivo JSON:
+    python main.py --nc_params params.json --nc_output output.json
 """
 from __future__ import annotations
 
@@ -268,7 +272,7 @@ def zscore_normalize(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def main(params: Dict[str, Any]) -> None:
+def main(params: Dict[str, Any]) -> Dict[str, Any]:
     input_video = params["input_video"]
     input_roi   = params["input_roi"]
     output_dir  = params["output_dir"]
@@ -371,6 +375,8 @@ def main(params: Dict[str, Any]) -> None:
     # Emit structured output for the pipeline runner
     print(f"OUTPUT:output_csv={output_csv}")
 
+    return {"output_csv": output_csv}
+
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -379,6 +385,16 @@ def main(params: Dict[str, Any]) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Extrae trazas de fluorescencia de un video usando ROIs."
+    )
+    parser.add_argument(
+        "--nc_params",
+        type=str,
+        help="Ruta a un archivo JSON con todos los parámetros (contrato de ScriptRunner).",
+    )
+    parser.add_argument(
+        "--nc_output",
+        type=str,
+        help="Ruta donde escribir las salidas declaradas como JSON (contrato de ScriptRunner).",
     )
     parser.add_argument(
         "--params_json",
@@ -397,7 +413,15 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.params_json:
+    if args.nc_params:
+        try:
+            with open(args.nc_params, "r", encoding="utf-8") as f:
+                params = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"ERROR: no se pudo leer --nc_params: {exc}", file=sys.stderr)
+            sys.exit(1)
+        params.pop("_context", None)
+    elif args.params_json:
         try:
             params = json.loads(args.params_json)
         except json.JSONDecodeError as exc:
@@ -418,4 +442,16 @@ if __name__ == "__main__":
             "metrica_int":  args.metrica_int,
         }
 
-    main(params)
+    try:
+        outputs = main(params)
+    except Exception as exc:  # noqa: BLE001 - surface any error to the pipeline runner
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.nc_output:
+        try:
+            with open(args.nc_output, "w", encoding="utf-8") as f:
+                json.dump(outputs or {}, f, ensure_ascii=False, indent=2)
+        except OSError as exc:
+            print(f"ERROR: no se pudo escribir --nc_output: {exc}", file=sys.stderr)
+            sys.exit(1)

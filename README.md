@@ -119,13 +119,13 @@ Status markers: ✅ Done · 🔄 In progress · ⬜ Planned
 - ✅ Official script manifests updated with representative parameter definitions
 
 ### Phase 4 — Script Runner (`src/script_runner.py`)
-- ⬜ `PipelineContext` — stores `{script_id: {output_key: value}}`; persisted to `session_dir/pipeline_context.json`
-- ⬜ `ScriptRunner(QThread)` — signals: `log_message(str)`, `script_started(str)`, `script_finished(str, bool)`, `pipeline_done(bool)`
-- ⬜ Per-script execution: write `params.json`, call `python main.py --nc_params ... --nc_output ...`, stream stdout to log, read output JSON into context
-- ⬜ Linked param resolution before each script run
-- ⬜ Pipeline halt on script error; log message with script name and exit code
-- ⬜ Stop/kill button in UI to cancel a running pipeline
-- ⬜ Wire `btn_data_plot` ("Ejecutar Seleccionados") to `ScriptRunner`
+- ✅ `PipelineContext` — stores `{script_id: {output_key: value}}`; persisted to `session_dir/pipeline_context.json`
+- ✅ `ScriptRunner(QThread)` — signals: `log_message(str)`, `script_started(str)`, `script_finished(str, bool)`, `pipeline_done(bool)`
+- ✅ Per-script execution: write `params.json`, call `python main.py --nc_params ... --nc_output ...`, stream stdout to log, read output JSON into context
+- ✅ Linked param resolution before each script run
+- ✅ Pipeline halt on script error; log message with script name and exit code
+- ✅ Stop/kill button in UI to cancel a running pipeline
+- ✅ Wire `btn_execute_scripts` ("Ejecutar Seleccionados") to `ScriptRunner`
 
 ### Phase 5 — Updater (`src/updater.py`)
 - ⬜ `UpdateChecker(QThread)` — on startup, `GET https://api.github.com/repos/{repo}/releases/latest`; compare `tag_name` with `version.json`; emit `update_available(dict)` for newer stable releases

@@ -32,6 +32,7 @@ from mainwindow import Ui_MainWindow
 from dark_mode_manager import DarkModeManager
 from plugin_manager import PluginManager
 from param_dialog import ParamDialog
+from script_runner import PipelineContext, ScriptRunner
 
 
 MAX_PLOT_COLUMNS = 100  # Maximum number of columns allowed to plot at once
@@ -113,10 +114,12 @@ class NeuroCrunch(QMainWindow):
         self.scripts = sorted(self.plugins.keys())
         self.config = {}
         self._refreshing_table = False
-        # Minimal in-memory pipeline context for Phase 3 linked-parameter pre-filling.
-        # Shape: { script_id: { output_key: value } }
-        # Populated by the script runner (Phase 4); kept empty until then.
-        self.pipeline_context = {}
+        # Pipeline context shared between the parameter dialog (Phase 3, for
+        # pre-filling linked parameters) and the script runner (Phase 4,
+        # which populates it after each script finishes). Persisted to
+        # "<local_folder>/pipeline_context.json" so it survives app restarts.
+        self.pipeline_context_store = PipelineContext(session_dir=self.local_folder)
+        self._script_runner = None
 
         # Refresh the file viewer and scripts table with the initial local folder and scripts
         self.refresh_local_folder()
@@ -137,6 +140,8 @@ class NeuroCrunch(QMainWindow):
         self.ui.btn_refresh.clicked.connect(self.refresh_local_folder)
         self.ui.btn_save_config.clicked.connect(self.save_config)
         self.ui.btn_load_config.clicked.connect(self.load_config)
+        self.ui.btn_execute_scripts.clicked.connect(self.run_pipeline)
+        self.ui.btn_stop_scripts.clicked.connect(self.stop_pipeline)
 
         # File viewer context menu
         self.ui.file_viewer.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -172,6 +177,7 @@ class NeuroCrunch(QMainWindow):
         if selected_folder:
             self.local_folder = selected_folder
             self.ui.file_viewer.setHeaderLabel(self.local_folder)
+            self.pipeline_context_store = PipelineContext(session_dir=self.local_folder)
             self.refresh_local_folder()
         
     def refresh_local_folder(self):
@@ -628,13 +634,93 @@ class NeuroCrunch(QMainWindow):
 
         current_values = self.config.get(script_id, {}).get('parametros', {})
 
-        dialog = ParamDialog(plugin_info, current_values, self.pipeline_context, self)
+        dialog = ParamDialog(plugin_info, current_values, self.pipeline_context_store.as_dict(), self)
         if dialog.exec() == ParamDialog.DialogCode.Accepted:
             values = dialog.get_values()
             self.config[script_id]['parametros'] = values
             self.config[script_id]['ultima_modificacion'] = datetime.datetime.now().strftime('%Y/%m/%d - %H:%M')
             self.print(f'Parámetros guardados para "{plugin_info.name}"')
             self.refresh_scripts_table()
+
+    def _build_pipeline(self):
+        """Build the ordered ``(script_id, plugin_info, params)`` list of
+        scripts marked for execution, sorted by their ``orden_ejecucion``.
+
+        Returns ``None`` (after logging an explanatory message) if the
+        pipeline cannot be built (nothing selected or missing order).
+        """
+        selected = [
+            script_id for script_id in self.scripts
+            if self.config.get(script_id, {}).get('ejecutar')
+        ]
+        if not selected:
+            self.print('No hay scripts seleccionados para ejecutar.')
+            return None
+
+        missing_order = [
+            self.plugins[s].name for s in selected
+            if self.config[s].get('orden_ejecucion') is None
+        ]
+        if missing_order:
+            self.print(
+                'Los siguientes scripts seleccionados no tienen un orden de ejecución asignado: '
+                + ', '.join(missing_order)
+            )
+            return None
+
+        selected.sort(key=lambda s: self.config[s]['orden_ejecucion'])
+
+        pipeline = [
+            (script_id, self.plugins[script_id], self.config[script_id].get('parametros', {}))
+            for script_id in selected
+        ]
+        return pipeline
+
+    def run_pipeline(self) -> None:
+        """Run the configured pipeline of selected scripts via ``ScriptRunner``.
+
+        Connected to ``btn_execute_scripts``. Disables the run button and
+        enables the stop button while the pipeline is executing.
+        """
+        if self._script_runner is not None and self._script_runner.isRunning():
+            self.print('El pipeline ya se está ejecutando.')
+            return
+
+        pipeline = self._build_pipeline()
+        if not pipeline:
+            return
+
+        self.ui.btn_execute_scripts.setEnabled(False)
+        self.ui.btn_stop_scripts.setEnabled(True)
+
+        self._script_runner = ScriptRunner(pipeline, self.pipeline_context_store, self)
+        self._script_runner.log_message.connect(self.print)
+        self._script_runner.script_started.connect(
+            lambda script_id: self.print(f'Iniciando script: {self.plugins[script_id].name}')
+        )
+        self._script_runner.script_finished.connect(self._on_script_finished)
+        self._script_runner.pipeline_done.connect(self._on_pipeline_done)
+        self._script_runner.start()
+
+    def stop_pipeline(self) -> None:
+        """Request cancellation of the currently running pipeline.
+
+        Connected to ``btn_stop_scripts``.
+        """
+        if self._script_runner is not None and self._script_runner.isRunning():
+            self.print('Deteniendo pipeline...')
+            self._script_runner.stop()
+        else:
+            self.ui.btn_stop_scripts.setEnabled(False)
+
+    def _on_script_finished(self, script_id: str, success: bool) -> None:
+        status = 'completado' if success else 'con error'
+        self.print(f'Script "{self.plugins[script_id].name}" {status}.')
+
+    def _on_pipeline_done(self, success: bool) -> None:
+        self.ui.btn_execute_scripts.setEnabled(True)
+        self.ui.btn_stop_scripts.setEnabled(False)
+        self.print('Pipeline finalizado exitosamente.' if success else 'Pipeline finalizado con errores.')
 
     def show_image(self, file_path):
         """Shows an image on the ui.image_viewer QLabel, hiding the other display widgets."""

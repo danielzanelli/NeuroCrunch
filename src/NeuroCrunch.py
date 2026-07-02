@@ -30,6 +30,7 @@ from tkinter.filedialog import askopenfilename, askdirectory, asksaveasfilename
 from mainwindow import Ui_MainWindow
 from dark_mode_manager import DarkModeManager
 from plugin_manager import PluginManager
+from param_dialog import ParamDialog, is_script_configured
 
 
 MAX_PLOT_COLUMNS = 100  # Maximum number of columns allowed to plot at once
@@ -110,6 +111,10 @@ class NeuroCrunch(QMainWindow):
         self.plugins = self.plugin_manager.discover_scripts(self.scripts_folder, self.user_plugins_folder)
         self.scripts = sorted(self.plugins.keys())
         self.config = {}
+        # Minimal in-memory pipeline context for Phase 3 linked-parameter pre-filling.
+        # Shape: { script_id: { output_key: value } }
+        # Populated by the script runner (Phase 4); kept empty until then.
+        self.pipeline_context = {}
 
         # Refresh the file viewer and scripts table with the initial local folder and scripts
         self.refresh_local_folder()
@@ -133,6 +138,9 @@ class NeuroCrunch(QMainWindow):
         self.ui.file_viewer.setContextMenuPolicy(Qt.CustomContextMenu)
         self.ui.file_viewer.customContextMenuRequested.connect(self.show_file_context_menu)        
         self.ui.file_viewer.itemDoubleClicked.connect(self.on_file_viewer_double_clicked)
+
+        # Scripts table — double-click a row to open the parameter configuration dialog
+        self.ui.table_data_columns.cellDoubleClicked.connect(self.open_param_dialog)
 
         
         self.print('Programa inicializado - ' + datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
@@ -407,25 +415,36 @@ class NeuroCrunch(QMainWindow):
             Refreshes the table_data_columns table with the current list of scripts and their config. 
             
             Columns are:
-                - Script name
-                - Last modification timestamp
-                - Checkbox to enable/disable script execution
+                0 - Script name
+                1 - Last modification timestamp
+                2 - Checkbox to enable/disable script execution
+                3 - Execution order
+                4 - Configured status (green = all required params set; double-click to open dialog)
 
             self.config: Dictionary where keys are script ids and values are dictionaries with script configuration, including:
                 - 'ejecutar': bool indicating if the script is enabled
                 - 'parametros': dict of parameter names and their current values
                 - 'ultima_modificacion': timestamp of last modification of the config for this script
+                - 'orden_ejecucion': Optional[int] execution order in the pipeline
 
             If the script id is not in self.config, it will be added with default values (ejecutar=False, empty parametros, current timestamp).
 
             Script metadata (display name, description, version, author, category, official/community)
             comes from the PluginInfo objects in self.plugins, populated by PluginManager.discover_scripts.
         """
-        self.ui.table_data_columns.setRowCount(0)
-        self.ui.table_data_columns.setColumnWidth(0, 140)
-        self.ui.table_data_columns.setColumnWidth(1, 140)
-        self.ui.table_data_columns.setColumnWidth(2, 60)
-        self.ui.table_data_columns.setColumnWidth(3, 60)
+        table = self.ui.table_data_columns
+
+        # Ensure the table has 5 columns (the .ui file generates only 4).
+        if table.columnCount() < 5:
+            table.setColumnCount(5)
+            table.setHorizontalHeaderItem(4, QTableWidgetItem('Configurado'))
+
+        table.setRowCount(0)
+        table.setColumnWidth(0, 140)
+        table.setColumnWidth(1, 140)
+        table.setColumnWidth(2, 60)
+        table.setColumnWidth(3, 60)
+        table.setColumnWidth(4, 90)
 
         for script in self.scripts:
             if script not in self.config:
@@ -438,8 +457,8 @@ class NeuroCrunch(QMainWindow):
 
             plugin_info = self.plugins[script]
 
-            row_position = self.ui.table_data_columns.rowCount()
-            self.ui.table_data_columns.insertRow(row_position)
+            row_position = table.rowCount()
+            table.insertRow(row_position)
 
             # Script name (display name from the manifest, with rich metadata as a tooltip)
             script_item = QTableWidgetItem()
@@ -448,15 +467,16 @@ class NeuroCrunch(QMainWindow):
             script_item.setToolTip(
                 f'{plugin_info.name} (v{plugin_info.version})\n'
                 f'{plugin_info.description}\n'
-                f'Categoría: {plugin_info.category} · Autor: {plugin_info.author} · {origin}'
+                f'Categoría: {plugin_info.category} · Autor: {plugin_info.author} · {origin}\n'
+                f'Doble clic para configurar parámetros'
             )
-            self.ui.table_data_columns.setItem(row_position, 0, script_item)
+            table.setItem(row_position, 0, script_item)
 
             # Last modification timestamp
             timestamp_item = QTableWidgetItem()
             timestamp_item.setText(self.config[script]['ultima_modificacion'])
             timestamp_item.setTextAlignment(Qt.AlignCenter)
-            self.ui.table_data_columns.setItem(row_position, 1, timestamp_item)
+            table.setItem(row_position, 1, timestamp_item)
 
             # Checkbox for execution
             checkbox = QCheckBox()
@@ -466,20 +486,65 @@ class NeuroCrunch(QMainWindow):
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(checkbox)
-            self.ui.table_data_columns.setCellWidget(row_position, 2, container)
+            table.setCellWidget(row_position, 2, container)
 
             # Order of execution
             order_item = QTableWidgetItem()
             order_item.setTextAlignment(Qt.AlignCenter)
             order_text = str(self.config[script]['orden_ejecucion']) if self.config[script]['orden_ejecucion'] is not None else '-'
             order_item.setText(order_text)
-            self.ui.table_data_columns.setItem(row_position, 3, order_item)
+            table.setItem(row_position, 3, order_item)
+
+            # Configured status — green background when all required params are set
+            configured = is_script_configured(plugin_info, self.config[script].get('parametros', {}))
+            status_item = QTableWidgetItem()
+            status_item.setTextAlignment(Qt.AlignCenter)
+            if not plugin_info.parameters:
+                # Script has no declared parameters — mark as N/A
+                status_item.setText('—')
+                status_item.setToolTip('Este script no tiene parámetros configurables')
+            elif configured:
+                status_item.setText('✓')
+                status_item.setBackground(QColor('#4CAF50'))
+                status_item.setForeground(QColor('#FFFFFF'))
+                status_item.setToolTip('Todos los parámetros requeridos han sido configurados')
+            else:
+                status_item.setText('—')
+                status_item.setToolTip('Doble clic para configurar los parámetros requeridos')
+            table.setItem(row_position, 4, status_item)
 
 
 
 
 
 
+
+
+
+    def open_param_dialog(self, row: int, _column: int) -> None:
+        """Open the parameter configuration dialog for the script in *row*.
+
+        Connected to ``table_data_columns.cellDoubleClicked``.  Saves the
+        accepted values back into ``self.config`` and refreshes the table so
+        the "Configurado" column updates immediately.
+        """
+        if row < 0 or row >= len(self.scripts):
+            return
+
+        script_id = self.scripts[row]
+        plugin_info = self.plugins.get(script_id)
+        if plugin_info is None:
+            return
+
+        current_values = self.config.get(script_id, {}).get('parametros', {})
+
+        dialog = ParamDialog(plugin_info, current_values, self.pipeline_context, self)
+        if dialog.exec() == ParamDialog.DialogCode.Accepted:
+            values = dialog.get_values()
+            self.config[script_id]['parametros'] = values
+            self.config[script_id]['ultima_modificacion'] = datetime.datetime.now().strftime('%Y/%m/%d - %H:%M')
+            self.print(f'Parámetros guardados para "{plugin_info.name}"')
+            self.refresh_scripts_table()
 
     def show_image(self, file_path):
         """Shows an image on the ui.image_viewer QLabel, hiding the other display widgets."""

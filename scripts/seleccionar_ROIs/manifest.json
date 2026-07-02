@@ -1,9 +1,9 @@
 {
   "id": "seleccionar_ROIs",
   "name": "Seleccionar ROIs",
-  "description": "Select regions of interest (ROIs) on the imaging data.",
+  "description": "Selecciona regiones de interés (ROIs) en los datos de imagen.",
   "version": "1.0.0",
-  "author": "NeuroCrunch Team",
+  "author": "Daniel Zanelli",
   "category": "preprocessing",
   "entry_point": "main.py",
   "parameters": [],

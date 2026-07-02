@@ -1,9 +1,9 @@
 {
   "id": "seleccionar_activas",
   "name": "Seleccionar Activas",
-  "description": "Selects active cells/traces based on activity criteria.",
+  "description": "Selecciona células/trazas activas según criterios de actividad.",
   "version": "1.0.0",
-  "author": "NeuroCrunch Team",
+  "author": "Daniel Zanelli",
   "category": "processing",
   "entry_point": "main.py",
   "parameters": [],

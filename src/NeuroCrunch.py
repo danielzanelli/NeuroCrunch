@@ -51,12 +51,19 @@ class CSVReaderWorker(QThread):
             self.progress_updated.emit(f'Abriendo CSV {filename}: 0%')
             
             if self.file_path.lower().endswith('.csv'):
+                # Count total lines upfront so progress can be calculated correctly
+                with open(self.file_path, 'rb') as f:
+                    total_lines = sum(1 for _ in f) - 1  # subtract header row
+
+                chunk_size = max(total_lines // 100, 200)
+                chunk_size = min(chunk_size, 10000)
+
                 chunks = []
-                total_rows = 0
-                for i, chunk in enumerate(pd.read_csv(self.file_path, chunksize=10000)):
+                loaded_rows = 0
+                for chunk in pd.read_csv(self.file_path, chunksize=chunk_size):
                     chunks.append(chunk)
-                    total_rows += len(chunk)
-                    progress = int((total_rows / max(total_rows, 1)) * 100)
+                    loaded_rows += len(chunk)
+                    progress = min(int((loaded_rows / max(total_lines, 1)) * 100), 100)
                     self.progress_updated.emit(f'Abriendo CSV {filename}: {progress}%')
                 
                 if chunks:
@@ -132,6 +139,7 @@ class NeuroCrunch(QMainWindow):
         self.ui.log.ensureCursorVisible()
     
     def print_progress(self, text):
+        print(text)  # Also print to console for debugging
         """Update the last line in the log (for progress reporting)."""
         cursor = self.ui.log.textCursor()
         cursor.movePosition(QTextCursor.End)
@@ -515,7 +523,7 @@ class NeuroCrunch(QMainWindow):
 
         # Load data in background thread with progress reporting
         self.csv_reader = CSVReaderWorker(file_path)
-        self.csv_reader.progress_updated.connect(self._on_csv_progress)
+        self.csv_reader.progress_updated.connect(self._on_csv_progress, Qt.BlockingQueuedConnection)
         self.csv_reader.data_loaded.connect(self._on_csv_loaded)
         self.csv_reader.error_occurred.connect(self._on_csv_error)
         self.csv_reader.start()
@@ -523,6 +531,7 @@ class NeuroCrunch(QMainWindow):
     def _on_csv_progress(self, message):
         """Update progress in log."""
         self.print_progress(message)
+        self.ui.log.repaint()
     
     def _on_csv_error(self, error_msg):
         """Handle CSV loading error."""

@@ -1,9 +1,9 @@
 {
   "id": "quitar_bleaching",
   "name": "Quitar Bleaching",
-  "description": "Removes photobleaching effects from fluorescence signals.",
+  "description": "Elimina los efectos de fotoblanqueo de las señales de fluorescencia.",
   "version": "1.0.0",
-  "author": "NeuroCrunch Team",
+  "author": "Daniel Zanelli",
   "category": "processing",
   "entry_point": "main.py",
   "parameters": [],

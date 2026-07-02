@@ -1,9 +1,9 @@
 {
   "id": "matriz_pearson",
   "name": "Matriz Pearson",
-  "description": "Computes a Pearson correlation matrix between selected traces.",
+  "description": "Calcula una matriz de correlación de Pearson entre las trazas seleccionadas.",
   "version": "1.0.0",
-  "author": "NeuroCrunch Team",
+  "author": "Daniel Zanelli",
   "category": "analysis",
   "entry_point": "main.py",
   "parameters": [],

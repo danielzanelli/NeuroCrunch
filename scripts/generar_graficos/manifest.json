@@ -1,9 +1,9 @@
 {
   "id": "generar_graficos",
   "name": "Generar Graficos",
-  "description": "Generates summary plots from processed signals.",
+  "description": "Genera gráficos de resumen a partir de señales procesadas.",
   "version": "1.0.0",
-  "author": "NeuroCrunch Team",
+  "author": "Daniel Zanelli",
   "category": "visualization",
   "entry_point": "main.py",
   "parameters": [],

@@ -29,6 +29,7 @@ from tkinter.filedialog import askopenfilename, askdirectory, asksaveasfilename
 
 from mainwindow import Ui_MainWindow
 from dark_mode_manager import DarkModeManager
+from plugin_manager import PluginManager
 
 
 MAX_PLOT_COLUMNS = 100  # Maximum number of columns allowed to plot at once
@@ -103,15 +104,20 @@ class NeuroCrunch(QMainWindow):
         self.scripts_folder = os.path.join(self.local_folder, '..', 'scripts')
         # Writable, per-user directory where community/user-installed scripts are dropped
         self.user_plugins_folder = self.get_user_plugins_dir()
-        # Each entry maps a script id (subfolder name) to its absolute folder path.
-        # Bundled scripts are discovered first; user plugins with the same id override them.
-        self.script_paths = self.discover_scripts([self.scripts_folder, self.user_plugins_folder])
-        self.scripts = sorted(self.script_paths.keys())
+        # Discover and validate script plugins (bundled + user); user plugins
+        # with the same id override the bundled ones with the same id.
+        self.plugin_manager = PluginManager()
+        self.plugins = self.plugin_manager.discover_scripts(self.scripts_folder, self.user_plugins_folder)
+        self.scripts = sorted(self.plugins.keys())
         self.config = {}
 
         # Refresh the file viewer and scripts table with the initial local folder and scripts
         self.refresh_local_folder()
         self.refresh_scripts_table()
+
+        # Surface any manifest/plugin issues found during discovery in the log
+        for warning in self.plugin_manager.warnings:
+            self.print(warning)
 
         self.plot_color_palette = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
         
@@ -188,35 +194,6 @@ class NeuroCrunch(QMainWindow):
             self.print(f'No se pudo crear la carpeta de plugins de usuario "{path}": {str(e)}')
 
         return path
-
-    def discover_scripts(self, script_dirs):
-        """Scan the given directories for script subfolders and return a mapping of
-        script id (subfolder name) to its absolute folder path.
-
-        A subfolder is considered a valid script if it contains a main.py entry point.
-        Directories are scanned in order, so scripts found in later directories
-        (e.g. user plugins) override bundled scripts with the same id.
-        """
-        discovered = {}
-
-        for script_dir in script_dirs:
-            if not script_dir or not os.path.isdir(script_dir):
-                continue
-
-            try:
-                entries = sorted(os.listdir(script_dir))
-            except PermissionError:
-                continue
-
-            for entry in entries:
-                entry_path = os.path.join(script_dir, entry)
-                if not os.path.isdir(entry_path):
-                    continue
-                if not os.path.isfile(os.path.join(entry_path, 'main.py')):
-                    continue
-                discovered[entry] = entry_path
-
-        return discovered
 
     def get_dir_content(self, path):
         """Get the content of a directory recursively, returning a tree structure.
@@ -432,13 +409,15 @@ class NeuroCrunch(QMainWindow):
                 - Last modification timestamp
                 - Checkbox to enable/disable script execution
 
-            self.config: Dictionary where keys are script names and values are dictionaries with script configuration, including:
+            self.config: Dictionary where keys are script ids and values are dictionaries with script configuration, including:
                 - 'ejecutar': bool indicating if the script is enabled
                 - 'parametros': dict of parameter names and their current values
                 - 'ultima_modificacion': timestamp of last modification of the config for this script
 
-            If the script name is not in self.config, it will be added with default values (ejecutar=False, empty parametros, current timestamp).
-        
+            If the script id is not in self.config, it will be added with default values (ejecutar=False, empty parametros, current timestamp).
+
+            Script metadata (display name, description, version, author, category, official/community)
+            comes from the PluginInfo objects in self.plugins, populated by PluginManager.discover_scripts.
         """
         self.ui.table_data_columns.setRowCount(0)
         self.ui.table_data_columns.setColumnWidth(0, 140)
@@ -454,13 +433,21 @@ class NeuroCrunch(QMainWindow):
                     'ultima_modificacion': datetime.datetime.now().strftime('%Y/%m/%d - %H:%M'),
                     'orden_ejecucion': None
                 }
-            
+
+            plugin_info = self.plugins[script]
+
             row_position = self.ui.table_data_columns.rowCount()
             self.ui.table_data_columns.insertRow(row_position)
 
-            # Script name
+            # Script name (display name from the manifest, with rich metadata as a tooltip)
             script_item = QTableWidgetItem()
-            script_item.setText(script)
+            script_item.setText(plugin_info.name)
+            origin = 'Oficial' if plugin_info.is_official else 'Comunidad'
+            script_item.setToolTip(
+                f'{plugin_info.name} (v{plugin_info.version})\n'
+                f'{plugin_info.description}\n'
+                f'Categoría: {plugin_info.category} · Autor: {plugin_info.author} · {origin}'
+            )
             self.ui.table_data_columns.setItem(row_position, 0, script_item)
 
             # Last modification timestamp

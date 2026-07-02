@@ -103,10 +103,10 @@ Status markers: ✅ Done · 🔄 In progress · ⬜ Planned
 - ✅ Resolve user plugins directory at startup and merge with bundled scripts
 
 ### Phase 2 — Plugin Manager (`src/plugin_manager.py`)
-- ⬜ `PluginInfo` dataclass: `id`, `name`, `description`, `version`, `author`, `category`, `entry_point` (abs path), `parameters`, `outputs`, `is_official`
-- ⬜ `PluginManager.discover_scripts(bundled_dir, user_dir)` — scans both dirs, parses manifests, skips invalid entries with a log warning
-- ⬜ Manifest validation against JSON Schema (`schemas/plugin_manifest.schema.json`)
-- ⬜ Wire into `NeuroCrunch.py`: replace current flat scan with `PluginManager`, populate scripts table with rich metadata
+- ✅ `PluginInfo` dataclass: `id`, `name`, `description`, `version`, `author`, `category`, `entry_point` (abs path), `parameters`, `outputs`, `is_official`
+- ✅ `PluginManager.discover_scripts(bundled_dir, user_dir)` — scans both dirs, parses manifests, skips invalid entries with a log warning
+- ✅ Manifest validation against JSON Schema (`schemas/plugin_manifest.schema.json`)
+- ✅ Wire into `NeuroCrunch.py`: replace current flat scan with `PluginManager`, populate scripts table with rich metadata
 
 ### Phase 3 — Parameter Dialog (`src/param_dialog.py`)
 - ⬜ `ParamDialog(plugin_info, current_values, pipeline_context, parent)` → `QDialog`

@@ -22,7 +22,7 @@ import argparse
 import json
 import os
 import sys
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -240,21 +240,128 @@ def estimate_frame_count(path: str) -> Optional[int]:
 # Metric calculation
 # ---------------------------------------------------------------------------
 
-METRIC_FUNCS: Dict[str, Any] = {
-    "max":  lambda px: float(np.max(px)),
-    "mean": lambda px: float(np.mean(px)),
-    "std":  lambda px: float(np.std(px)),
-    "int":  lambda px: float(np.sum(px)),
+MetricCache = Dict[str, float]
+MetricFunc = Callable[[np.ndarray, MetricCache], float]
+
+
+def _metric_max(_: np.ndarray, cache: MetricCache) -> float:
+    return cache["max"]
+
+
+def _metric_mean(_: np.ndarray, cache: MetricCache) -> float:
+    return cache["mean"]
+
+
+def _metric_std(_: np.ndarray, cache: MetricCache) -> float:
+    return cache["std"]
+
+
+def _metric_int(_: np.ndarray, cache: MetricCache) -> float:
+    return cache["int"]
+
+
+# Add custom metrics here. Signature: fn(pixels, cache) -> float
+# Example:
+# def _metric_median(pixels: np.ndarray, cache: MetricCache) -> float:
+#     return float(np.median(pixels))
+# METRIC_REGISTRY["median"] = _metric_median
+METRIC_REGISTRY: Dict[str, MetricFunc] = {
+    "max": _metric_max,
+    "mean": _metric_mean,
+    "std": _metric_std,
+    "int": _metric_int,
 }
 
 
-def compute_metrics(
-    frame: np.ndarray, mask: np.ndarray, selected: List[str]
-) -> Dict[str, float]:
-    pixels = frame[mask]
+def _prepare_builtin_cache(pixels: np.ndarray, selected: List[str]) -> MetricCache:
+    """Prepare built-in metrics once to avoid repeated numpy calls."""
+    cache: MetricCache = {}
+
+    need_sum = "mean" in selected or "int" in selected or "std" in selected
+    need_max = "max" in selected
+
+    if need_sum:
+        s = float(np.sum(pixels))
+        cache["int"] = s
+
+        if "mean" in selected or "std" in selected:
+            mean = s / float(pixels.size)
+            cache["mean"] = mean
+            if "std" in selected:
+                ex2 = float(np.mean(pixels * pixels))
+                var = max(0.0, ex2 - mean * mean)
+                cache["std"] = float(np.sqrt(var))
+
+    if need_max:
+        cache["max"] = float(np.max(pixels))
+
+    return cache
+
+
+def compute_metrics_fast(pixels: np.ndarray, selected: List[str]) -> List[float]:
+    """Compute selected metrics preserving metric order in *selected*."""
     if pixels.size == 0:
-        return {m: float("nan") for m in selected}
-    return {m: METRIC_FUNCS[m](pixels) for m in selected}
+        return [float("nan")] * len(selected)
+
+    cache = _prepare_builtin_cache(pixels, selected)
+    values: List[float] = []
+    for metric_name in selected:
+        func = METRIC_REGISTRY.get(metric_name)
+        if func is None:
+            raise KeyError(f"Metrica desconocida: {metric_name}")
+        values.append(float(func(pixels, cache)))
+    return values
+
+
+def selected_metrics_from_params(params: Dict[str, Any]) -> List[str]:
+    """Collect selected metrics preserving order: max, mean, std, int."""
+    metric_keys = [
+        ("max", "metrica_max"),
+        ("mean", "metrica_mean"),
+        ("std", "metrica_std"),
+        ("int", "metrica_int"),
+    ]
+    selected = [k for k, p in metric_keys if params.get(p, True)]
+    if not selected:
+        print("ERROR: Al menos una métrica debe estar seleccionada.", file=sys.stderr)
+        sys.exit(1)
+    return selected
+
+
+def build_output_columns(neuron_ids: List[int], metricas: List[str]) -> List[str]:
+    """Create output columns: frame, tiempo_s, then neuron_metric columns."""
+    return ["frame", "tiempo_s"] + [
+        f"{neuron_id}_{metric}"
+        for neuron_id in neuron_ids
+        for metric in metricas
+    ]
+
+
+def process_frames(
+    input_video: str,
+    roi_flat_indices: List[np.ndarray],
+    metricas: List[str],
+    fps: int,
+) -> List[List[Any]]:
+    """Run the main frame loop and return all rows for the output DataFrame."""
+    total = estimate_frame_count(input_video)
+    total_str = str(total) if total else "?"
+    print(f"Procesando: {os.path.basename(input_video)}")
+    print(f"  Metricas: {', '.join(metricas)}")
+
+    rows: List[List[Any]] = []
+    for frame_idx, frame in iter_video(input_video):
+        frame_flat = frame.ravel()
+        row: List[Any] = [frame_idx, round(frame_idx / fps, 6)]
+        for flat_idx in roi_flat_indices:
+            row.extend(compute_metrics_fast(frame_flat[flat_idx], metricas))
+        rows.append(row)
+
+        if (frame_idx + 1) % 100 == 0:
+            print(f"  Cuadro {frame_idx + 1}/{total_str}...", flush=True)
+
+    print(f"  Total de cuadros procesados: {len(rows)}")
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -283,17 +390,7 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     fps         = int(params.get("fps", 10))
     normalizar  = bool(params.get("normalizar", False))
 
-    # Collect selected metrics preserving order: max, mean, std, int
-    metric_keys = [
-        ("max",  "metrica_max"),
-        ("mean", "metrica_mean"),
-        ("std",  "metrica_std"),
-        ("int",  "metrica_int"),
-    ]
-    metricas = [k for k, p in metric_keys if params.get(p, True)]
-    if not metricas:
-        print("ERROR: Al menos una métrica debe estar seleccionada.", file=sys.stderr)
-        sys.exit(1)
+    metricas = selected_metrics_from_params(params)
 
     # Normalize all file paths to absolute paths (critical for subprocess execution)
     input_video = os.path.abspath(os.path.normpath(input_video))
@@ -338,33 +435,24 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     skipped = len(all_masks) - len(valid_masks)
     print(f"  {len(valid_masks)} válidas" + (f", {skipped} omitidas." if skipped else "."))
 
+    # Build stable neuron index mapping (1..N) in ROI insertion order.
+    roi_items = list(valid_masks.items())
+    neuron_ids = list(range(1, len(roi_items) + 1))
+
+    # Precompute flattened pixel indices per ROI for faster per-frame extraction.
+    roi_flat_indices = [np.flatnonzero(mask.ravel()) for _, mask in roi_items]
+
     # ---- Build output column names -------------------------------------------
     # Frame | Time (s) | ROI1_max | ROI1_mean | ... | ROIn_int
-    columns = ["frame", "tiempo_s"] + [
-        f"{roi_name}_{metric}"
-        for roi_name in valid_masks
-        for metric in metricas
-    ]
+    columns = build_output_columns(neuron_ids, metricas)
 
     # ---- Process frames ------------------------------------------------------
-    total = estimate_frame_count(input_video)
-    total_str = str(total) if total else "?"
-    print(f"Procesando: {os.path.basename(input_video)}")
-    print(f"  Métricas: {', '.join(metricas)}")
-
-    rows: List[List[Any]] = []
-    for frame_idx, frame in iter_video(input_video):
-        row: List[Any] = [frame_idx, round(frame_idx / fps, 6)]
-        for roi_name, mask in valid_masks.items():
-            metrics = compute_metrics(frame, mask, metricas)
-            for metric in metricas:
-                row.append(metrics[metric])
-        rows.append(row)
-
-        if (frame_idx + 1) % 100 == 0:
-            print(f"  Cuadro {frame_idx + 1}/{total_str}...", flush=True)
-
-    print(f"  Total de cuadros procesados: {len(rows)}")
+    rows = process_frames(
+        input_video=input_video,
+        roi_flat_indices=roi_flat_indices,
+        metricas=metricas,
+        fps=fps,
+    )
 
     # ---- Build and optionally normalise DataFrame ----------------------------
     df = pd.DataFrame(rows, columns=columns)

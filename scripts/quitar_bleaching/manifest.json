@@ -17,21 +17,96 @@
       "link": "procesar_video.output_csv"
     },
     {
-      "name": "metodo",
-      "type": "choice",
-      "label": "Método de corrección",
-      "description": "Algoritmo utilizado para corregir el bleaching",
-      "options": ["exponencial", "polinomial", "percentil"],
-      "default": "exponencial"
+      "name": "metrics",
+      "type": "string",
+      "label": "Métricas a procesar",
+      "description": "Lista separada por comas (ej: Mean,Max). Vacío = todas",
+      "default": "Mean"
     },
     {
-      "name": "ventana",
+      "name": "baseline_lam",
+      "type": "float",
+      "label": "ALS baseline: lambda",
+      "description": "Regularización de la primera corrección ALS",
+      "default": 100000.0,
+      "min": 0.0,
+      "decimals": 6
+    },
+    {
+      "name": "baseline_p",
+      "type": "float",
+      "label": "ALS baseline: p",
+      "description": "Asimetría de pesos de la primera corrección ALS",
+      "default": 0.01,
+      "min": 0.0,
+      "max": 1.0,
+      "decimals": 6
+    },
+    {
+      "name": "baseline_niter",
       "type": "int",
-      "label": "Ventana (frames)",
-      "description": "Tamaño de la ventana para el suavizado",
-      "default": 50,
-      "min": 5,
-      "max": 5000
+      "label": "ALS baseline: iteraciones",
+      "description": "Iteraciones para la primera corrección ALS",
+      "default": 10,
+      "min": 1,
+      "max": 200
+    },
+    {
+      "name": "baseline_lam_factor",
+      "type": "float",
+      "label": "ALS baseline: lambda factor",
+      "description": "Factor de lambda para rampa adaptativa al inicio y fin",
+      "default": 0.001,
+      "min": 0.0,
+      "decimals": 6
+    },
+    {
+      "name": "baseline_rampup_fraction",
+      "type": "float",
+      "label": "ALS baseline: fracción rampa subida",
+      "description": "Fracción inicial de muestras con rampa de lambda",
+      "default": 0.2,
+      "min": 0.0,
+      "max": 1.0,
+      "decimals": 4
+    },
+    {
+      "name": "baseline_rampdown_fraction",
+      "type": "float",
+      "label": "ALS baseline: fracción rampa bajada",
+      "description": "Fracción final de muestras con rampa de lambda",
+      "default": 0.2,
+      "min": 0.0,
+      "max": 1.0,
+      "decimals": 4
+    },
+    {
+      "name": "smooth_lam",
+      "type": "float",
+      "label": "ALS suavizado final: lambda",
+      "description": "Regularización para el suavizado final sobre la señal corregida",
+      "default": 10.0,
+      "min": 0.0,
+      "decimals": 6
+    },
+    {
+      "name": "smooth_p",
+      "type": "float",
+      "label": "ALS suavizado final: p",
+      "description": "Asimetría de pesos del suavizado final",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "decimals": 6
+    },
+    {
+      "name": "smooth_niter",
+      "type": "int",
+      "label": "ALS suavizado final: iteraciones",
+      "description": "Iteraciones para el suavizado final",
+      "default": 10,
+      "min": 1,
+      "max": 200
     },
     {
       "name": "output_dir",
@@ -42,6 +117,8 @@
     }
   ],
   "outputs": {
+    "baseline_csv": "Ruta al CSV con baseline ALS estimada",
     "corrected_csv": "Ruta al archivo CSV con las trazas corregidas"
+    ,"smoothed_csv": "Ruta al CSV con la señal suavizada final"
   }
 }

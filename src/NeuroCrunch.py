@@ -116,9 +116,9 @@ class NeuroCrunch(QMainWindow):
         self._refreshing_table = False
         # Pipeline context shared between the parameter dialog (Phase 3, for
         # pre-filling linked parameters) and the script runner (Phase 4,
-        # which populates it after each script finishes). Persisted to
-        # "<local_folder>/pipeline_context.json" so it survives app restarts.
-        self.pipeline_context_store = PipelineContext(session_dir=self.local_folder)
+        # which populates it after each script finishes). Uses a temporary
+        # directory that is cleaned up after each pipeline execution.
+        self.pipeline_context_store = PipelineContext()
         self._script_runner = None
 
         # Refresh the file viewer and scripts table with the initial local folder and scripts
@@ -176,7 +176,9 @@ class NeuroCrunch(QMainWindow):
         if selected_folder:
             self.local_folder = selected_folder
             self.ui.file_viewer.setHeaderLabel(self.local_folder)
-            self.pipeline_context_store = PipelineContext(session_dir=self.local_folder)
+            # Create a new pipeline context with temporary directory
+            self.pipeline_context_store.cleanup()
+            self.pipeline_context_store = PipelineContext()
             self.refresh_local_folder()
         
     def refresh_local_folder(self):
@@ -741,6 +743,9 @@ class NeuroCrunch(QMainWindow):
         self.ui.btn_execute_scripts.setEnabled(True)
         self.ui.btn_execute_scripts.setText('Ejecutar')
         self.print('Pipeline finalizado exitosamente.' if success else 'Pipeline finalizado con errores.')
+        # Clean up the temporary pipeline context and create a new one for the next run
+        self.pipeline_context_store.cleanup()
+        self.pipeline_context_store = PipelineContext()
 
     def show_image(self, file_path):
         """Shows an image on the ui.image_viewer QLabel, hiding the other display widgets."""

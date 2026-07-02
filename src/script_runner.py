@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -41,12 +42,20 @@ PIPELINE_CONTEXT_FILENAME = 'pipeline_context.json'
 class PipelineContext:
     """Stores ``{script_id: {output_key: value}}`` for the current session.
 
-    Optionally persisted to ``session_dir/pipeline_context.json`` so it
-    survives across runs (e.g. reopening the app and continuing a pipeline).
+    Uses a temporary directory by default. This is created per-session and
+    should be cleaned up after the pipeline finishes via cleanup().
     """
 
     def __init__(self, session_dir: Optional[str] = None) -> None:
-        self.session_dir = session_dir
+        # Use provided session_dir or create a temporary directory
+        if session_dir:
+            self.session_dir = session_dir
+            self._temp_dir = None  # Not a temporary directory
+        else:
+            # Create a temporary directory for this pipeline session
+            self._temp_dir = tempfile.TemporaryDirectory(prefix='neurocrunch_pipeline_')
+            self.session_dir = self._temp_dir.name
+        
         self.data: PipelineContextData = {}
         if session_dir:
             self.load()
@@ -96,6 +105,19 @@ class PipelineContext:
                 json.dump(self.data, f, ensure_ascii=False, indent=2)
         except OSError:
             pass
+
+    def cleanup(self) -> None:
+        """Delete the temporary directory if this context owns one.
+        
+        Call this after the pipeline finishes to clean up temporary files.
+        """
+        if self._temp_dir is not None:
+            try:
+                self._temp_dir.cleanup()
+                self._temp_dir = None
+                self.session_dir = None
+            except OSError:
+                pass
 
 
 class ScriptRunner(QThread):

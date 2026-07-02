@@ -10,6 +10,7 @@ import io
 
 import pandas as pd
 import numpy as np
+import read_roi
 
 # Keep startup simple: do not attempt to silence FFmpeg/Libav messages here.
 # Warnings from underlying libraries will appear on the terminal.
@@ -19,10 +20,9 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QTreeWidgetItem, QTableWidgetItem, QMenu, QVBoxLayout, QLineEdit,
     QHBoxLayout, QPushButton, QSlider, QLabel, QWidget, QDialog, QSpinBox, QMessageBox, QCheckBox
 )
-from PySide6.QtCore import QCoreApplication, QUrl, Qt, QTimer, QThread, Signal
-from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut, QTextCursor
-from PySide6.QtMultimedia import QMediaPlayer
-from PySide6.QtMultimediaWidgets import QVideoWidget
+from PySide6.QtCore import QCoreApplication, QUrl, Qt, QTimer, QThread, Signal, QRect, QPoint
+from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut, QTextCursor, QPainter, QPen, QColor, QPolygon, QBrush
+from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from tkinter.filedialog import askopenfilename, askdirectory, asksaveasfilename
@@ -334,7 +334,9 @@ class NeuroCrunch(QMainWindow):
                 # Videos
                 elif file_path.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.mpeg', '.mpg', '.webm', '.tif', '.tiff')):
                     self.show_video(file_path)
-
+                # ROI zip files (only if a video is currently showing)
+                elif file_path.lower().endswith('.zip') and self.ui.video_player.isVisible():
+                    self.load_and_display_roi(file_path)
                 # Text files
                 else:
                     self.show_text_file(file_path)
@@ -481,7 +483,8 @@ class NeuroCrunch(QMainWindow):
 
     def show_image(self, file_path):
         """Shows an image on the ui.image_viewer QLabel, hiding the other display widgets."""
-        # Stop any existing video playback
+        if hasattr(self, 'frame_timer') and self.frame_timer is not None:
+            self.frame_timer.stop()
         if hasattr(self, 'media_player'):
             self.media_player.stop()
             self.media_player.setSource(QUrl())
@@ -496,7 +499,8 @@ class NeuroCrunch(QMainWindow):
 
     def show_plot(self, file_path):
         """Shows a plot on the ui.plot_viewer pyqtgraph widget, hiding the other display widgets."""
-        # Stop any existing video playback
+        if hasattr(self, 'frame_timer') and self.frame_timer is not None:
+            self.frame_timer.stop()
         if hasattr(self, 'media_player'):
             self.media_player.stop()
             self.media_player.setSource(QUrl())
@@ -683,8 +687,20 @@ class NeuroCrunch(QMainWindow):
             self.print(f"Error al cargar datos para gráfico:\n{str(e)}")
             self.ui.plot_widget.clear()
        
+    def load_and_display_roi(self, roi_zip_path):
+        """Load ROI zip and store data; ROIs are painted onto each subsequent video frame."""
+        try:
+            rois = read_roi.read_roi_zip(roi_zip_path)
+            if not rois:
+                self.print(f'No se encontraron ROIs en {os.path.basename(roi_zip_path)}')
+                return
+            self.roi_data = rois
+            self.print(f'ROIs cargados: {len(rois)} regiones de {os.path.basename(roi_zip_path)}')
+        except Exception as e:
+            self.print(f'Error al cargar ROI:\n{str(e)}')
+
     def show_video(self, file_path):
-        """Shows a video on the ui.video_player QMediaPlayer/QVideoWidget with controls."""
+        """Shows a video using QVideoSink so ROIs can be painted onto each decoded frame."""
         self.ui.image_viewer.hide()
         self.ui.text_viewer.hide()
         self.ui.plot_frame.hide()
@@ -692,49 +708,58 @@ class NeuroCrunch(QMainWindow):
         self.ui.video_player.show()
 
         try:
-            # Stop any existing video playback
             if hasattr(self, 'media_player'):
                 self.media_player.stop()
                 self.media_player.setSource(QUrl())
-            
-            # Clear previous widgets
-            for child in self.ui.video_player.findChildren(QVideoWidget):
-                child.deleteLater()
-            for child in self.ui.video_player.findChildren(QPushButton):
-                child.deleteLater()
-            for child in self.ui.video_player.findChildren(QSlider):
-                child.deleteLater()
-            for child in self.ui.video_player.findChildren(QLabel):
-                child.deleteLater()
 
-            # Create main layout
+            # Clear previous layout contents
             layout = self.ui.video_player.layout()
             if layout is None:
                 layout = QVBoxLayout()
                 self.ui.video_player.setLayout(layout)
             else:
                 while layout.count():
-                    layout.takeAt(0)
+                    item = layout.takeAt(0)
+                    w = item.widget()
+                    if w:
+                        w.deleteLater()
 
-            # Create video widget and media player
-            self.video_widget = QVideoWidget()
+            # QLabel displays decoded frames; black background for letterboxing
+            self.video_display_label = QLabel()
+            self.video_display_label.setAlignment(Qt.AlignCenter)
+            self.video_display_label.setStyleSheet("background: black;")
+
+            # QVideoSink receives raw frames — lets us draw ROIs before display
             self.media_player = QMediaPlayer(self)
-            self.media_player.setVideoOutput(self.video_widget)
+            self.video_sink = QVideoSink(self)
+            self.media_player.setVideoSink(self.video_sink)
+            self.video_sink.videoFrameChanged.connect(self._on_video_frame_received)
+            self._pending_frame = None
 
-            # Create control bar
+            # Render timer: pull the latest stored frame at a fixed ~30 fps so the
+            # main thread is not flooded by every decoded frame from the video sink.
+            if hasattr(self, 'frame_timer') and self.frame_timer is not None:
+                self.frame_timer.stop()
+            self.frame_timer = QTimer(self)
+            self.frame_timer.setInterval(33)  # ~30 fps
+            self.frame_timer.timeout.connect(self._render_pending_frame)
+            self.frame_timer.start()
+
+            # Reset ROI data for the new video
+            self.roi_data = {}
+
+            # Control bar
             control_widget = QWidget()
             control_layout = QHBoxLayout(control_widget)
             control_layout.setContentsMargins(0, 2, 0, 2)
             control_layout.setSpacing(3)
 
-            # Play/Pause button
             self.play_button = QPushButton("▶")
             self.play_button.setMaximumWidth(30)
             self.play_button.setMaximumHeight(22)
             self.play_button.clicked.connect(self.toggle_play_pause)
             control_layout.addWidget(self.play_button)
 
-            # Progress slider
             self.progress_slider = QSlider(Qt.Horizontal)
             self.progress_slider.setMinimum(0)
             self.progress_slider.sliderMoved.connect(self.set_position)
@@ -742,47 +767,83 @@ class NeuroCrunch(QMainWindow):
             self.media_player.positionChanged.connect(self.update_position)
             control_layout.addWidget(self.progress_slider, 1)
 
-            # Time label
             self.time_label = QLabel("00:00 / 00:00")
             self.time_label.setMinimumWidth(85)
             self.time_label.setMaximumHeight(22)
             self.time_label.setStyleSheet("font-size: 10px;")
             control_layout.addWidget(self.time_label)
 
-            # Add widgets to main layout - video takes most space
-            layout.addWidget(self.video_widget, 1)
+            layout.addWidget(self.video_display_label, 1)
             layout.addWidget(control_widget, 0)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(0)
 
-            # Load and play video - suppress FFmpeg C library warnings by redirecting stderr at OS level
+            # Load and play, suppressing FFmpeg stderr noise
             try:
-                # Save original stderr file descriptor
                 old_stderr_fd = os.dup(2)
-                # Open null device
                 null_fd = os.open(os.devnull, os.O_WRONLY)
-                # Redirect stderr (fd 2) to null device
                 os.dup2(null_fd, 2)
-                
                 try:
                     self.media_player.setSource(QUrl.fromLocalFile(file_path))
                     self.media_player.play()
                 finally:
-                    # Restore original stderr
                     os.dup2(old_stderr_fd, 2)
                     os.close(old_stderr_fd)
                     os.close(null_fd)
-            except:
-                # Fallback: just load normally if fd redirection fails
+            except Exception:
                 self.media_player.setSource(QUrl.fromLocalFile(file_path))
                 self.media_player.play()
-            
+
             self.play_button.setText("||")
             self.print(f'Reproduciendo video: {os.path.basename(file_path)}')
 
         except Exception as e:
             self.print(f"Error al cargar video:\n{str(e)}")
             self.ui.video_player.hide()
+
+    def _on_video_frame_received(self, frame):
+        """Store the latest decoded frame; rendering is done by the timer at ~30 fps."""
+        self._pending_frame = frame
+
+    def _render_pending_frame(self):
+        """Render the latest stored video frame (called by QTimer at ~30 fps)."""
+        frame = getattr(self, '_pending_frame', None)
+        if frame is None or not frame.isValid():
+            return
+        self._pending_frame = None
+
+        image = frame.toImage()
+        if image.isNull():
+            return
+
+        roi_data = getattr(self, 'roi_data', {})
+        if roi_data:
+            painter = QPainter(image)
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.setPen(QPen(QColor(0, 255, 0, 230), 2))
+            painter.setBrush(QBrush(QColor(0, 255, 0, 50)))
+            for roi_d in roi_data.values():
+                try:
+                    if isinstance(roi_d, dict):
+                        if 'x' in roi_d and 'y' in roi_d:
+                            points = [QPoint(int(x), int(y)) for x, y in zip(roi_d['x'], roi_d['y'])]
+                            if len(points) > 2:
+                                painter.drawPolygon(QPolygon(points))
+                        elif all(k in roi_d for k in ['left', 'top', 'width', 'height']):
+                            painter.drawRect(
+                                int(roi_d['left']), int(roi_d['top']),
+                                int(roi_d['width']), int(roi_d['height'])
+                            )
+                except Exception:
+                    pass
+            painter.end()
+
+        pixmap = QPixmap.fromImage(image)
+        if not pixmap.isNull() and self.video_display_label.width() > 0:
+            self.video_display_label.setPixmap(
+                pixmap.scaled(self.video_display_label.size(),
+                              Qt.KeepAspectRatio, Qt.FastTransformation)
+            )
 
     def show_pdf(self, file_path):
         """Shows a PDF on the ui.pdf_viewer QWebEngineView, hiding the other display widgets."""
@@ -880,7 +941,8 @@ class NeuroCrunch(QMainWindow):
         self.ui.video_player.hide()
 
         try:
-            # Stop any existing video playback
+            if hasattr(self, 'frame_timer') and self.frame_timer is not None:
+                self.frame_timer.stop()
             if hasattr(self, 'media_player'):
                 self.media_player.stop()
                 self.media_player.setSource(QUrl())

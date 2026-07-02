@@ -95,12 +95,12 @@ Status markers: ✅ Done · 🔄 In progress · ⬜ Planned
 
 ### Phase 1 — Folder Restructure & Version Tracking
 - ✅ Core app shell, file browser, viewers, dark mode
-- ⬜ Move each script stub into its own subfolder (`scripts/{name}/main.py`)
-- ⬜ Create `manifest.json` for each official script
-- ⬜ Create `version.json` at project root
-- ⬜ Update `neurocruncher.spec` to include `scripts/` and `version.json` in bundle
-- ⬜ Update `NeuroCrunch.py` to scan for script subfolders instead of flat `.py` files
-- ⬜ Resolve user plugins directory at startup and merge with bundled scripts
+- ✅ Move each script stub into its own subfolder (`scripts/{name}/main.py`)
+- ✅ Create `manifest.json` for each official script
+- ✅ Create `version.json` at project root
+- ✅ Update `neurocruncher.spec` to include `scripts/` and `version.json` in bundle
+- ✅ Update `NeuroCrunch.py` to scan for script subfolders instead of flat `.py` files
+- ✅ Resolve user plugins directory at startup and merge with bundled scripts
 
 ### Phase 2 — Plugin Manager (`src/plugin_manager.py`)
 - ⬜ `PluginInfo` dataclass: `id`, `name`, `description`, `version`, `author`, `category`, `entry_point` (abs path), `parameters`, `outputs`, `is_official`

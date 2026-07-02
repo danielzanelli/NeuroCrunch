@@ -1,0 +1,11 @@
+{
+  "id": "seleccionar_ROIs",
+  "name": "Seleccionar ROIs",
+  "description": "Select regions of interest (ROIs) on the imaging data.",
+  "version": "1.0.0",
+  "author": "NeuroCrunch Team",
+  "category": "preprocessing",
+  "entry_point": "main.py",
+  "parameters": [],
+  "outputs": {}
+}

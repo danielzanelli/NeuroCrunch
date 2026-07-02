@@ -12,6 +12,8 @@ a = Analysis(
     binaries=[],
     datas=[
         ('assets', 'assets'),  # Include all assets
+        ('scripts', 'scripts'),  # Include bundled official analysis scripts
+        ('version.json', '.'),  # Include version metadata for the updater
     ],
     hiddenimports=[
         'pyqtgraph',

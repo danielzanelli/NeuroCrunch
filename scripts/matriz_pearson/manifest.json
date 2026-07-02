@@ -1,0 +1,11 @@
+{
+  "id": "matriz_pearson",
+  "name": "Matriz Pearson",
+  "description": "Computes a Pearson correlation matrix between selected traces.",
+  "version": "1.0.0",
+  "author": "NeuroCrunch Team",
+  "category": "analysis",
+  "entry_point": "main.py",
+  "parameters": [],
+  "outputs": {}
+}

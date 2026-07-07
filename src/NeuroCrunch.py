@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QComboBox, QCheckBox
 )
 from PySide6.QtCore import QCoreApplication, QUrl, Qt, QTimer, QThread, Signal, QRect, QPoint
-from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut, QTextCursor, QPainter, QPen, QColor, QPolygon, QBrush
+from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut, QTextCursor, QPainter, QPen, QColor, QPolygon, QBrush, QDesktopServices
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -103,8 +103,10 @@ class NeuroCrunch(QMainWindow):
 
         # Default to the application directory as the local folder
         self.local_folder = os.path.dirname(os.path.abspath(__file__))
-        # Relative to the application directory, the "scripts" folder is expected to be at "../scripts"
-        self.scripts_folder = os.path.join(self.local_folder, '..', 'scripts')
+        # Bundled official scripts. Resolved via the frozen-aware resource base so
+        # discovery works both in development (project_root/scripts) and inside the
+        # PyInstaller bundle (sys._MEIPASS/scripts).
+        self.scripts_folder = os.path.join(get_resource_base(), 'scripts')
         # Writable, per-user directory where community/user-installed scripts are dropped
         self.user_plugins_folder = self.get_user_plugins_dir()
         # Discover and validate script plugins (bundled + user); user plugins
@@ -137,10 +139,13 @@ class NeuroCrunch(QMainWindow):
 
         # Button connections
         self.ui.btn_open_folder.clicked.connect(self.select_local_folder)
-        self.ui.btn_refresh.clicked.connect(self.refresh_local_folder)
+        self.ui.btn_refresh.clicked.connect(self.on_refresh_clicked)
         self.ui.btn_save_config.clicked.connect(self.save_config)
         self.ui.btn_load_config.clicked.connect(self.load_config)
         self.ui.btn_execute_scripts.clicked.connect(self.toggle_pipeline)
+        # "Abrir Carpeta de Scripts" — opens the writable user-plugins directory where
+        # users drop their own script folders; Refrescar afterwards picks them up.
+        self.ui.btn_open_scripts_dir.clicked.connect(self.open_scripts_folder)
 
         # File viewer context menu
         self.ui.file_viewer.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -214,6 +219,41 @@ class NeuroCrunch(QMainWindow):
             self.print(f'No se pudo crear la carpeta de plugins de usuario "{path}": {str(e)}')
 
         return path
+
+    def open_scripts_folder(self):
+        """Open the writable user scripts directory in the OS file manager.
+
+        Official scripts are bundled read-only inside the application; users add
+        their own by dropping a folder (with config.json + <name>.py) into this
+        directory, which survives app updates. After adding scripts, pressing
+        Refrescar re-scans and shows them.
+        """
+        path = self.user_plugins_folder
+        try:
+            os.makedirs(path, exist_ok=True)
+        except OSError as e:
+            self.print(f'No se pudo abrir la carpeta de scripts "{path}": {str(e)}')
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        self.print(f'Carpeta de scripts de usuario: {path}')
+
+    def rescan_scripts(self):
+        """Re-discover bundled + user scripts and refresh the scripts table.
+
+        Lets newly added user scripts appear without restarting the app. Config
+        for scripts that no longer exist is dropped.
+        """
+        self.plugins = self.plugin_manager.discover_scripts(self.scripts_folder, self.user_plugins_folder)
+        self.scripts = sorted(self.plugins.keys())
+        self.config = {k: v for k, v in self.config.items() if k in self.plugins}
+        self.refresh_scripts_table()
+        for warning in self.plugin_manager.warnings:
+            self.print(warning)
+
+    def on_refresh_clicked(self):
+        """Refrescar button: refresh the file browser and re-scan for scripts."""
+        self.refresh_local_folder()
+        self.rescan_scripts()
 
     def get_dir_content(self, path):
         """Get the content of a directory recursively, returning a tree structure.
@@ -724,7 +764,7 @@ class NeuroCrunch(QMainWindow):
             return
 
         self.ui.btn_execute_scripts.setEnabled(True)
-        self.ui.btn_execute_scripts.setText('Detener')
+        self.ui.btn_execute_scripts.setText('Detener\nScript')
 
         self._script_runner = ScriptRunner(pipeline, self.pipeline_context_store, self)
         self._script_runner.log_message.connect(self._on_log_message)
@@ -1279,16 +1319,23 @@ class NeuroCrunch(QMainWindow):
     
 ############################################################################################################
 
-def get_asset_path():
-    """Get the path to the assets folder, handling both development and PyInstaller bundled versions"""
+def get_resource_base():
+    """Root under which bundled resources (assets/, scripts/, schemas/) live.
+
+    When frozen by PyInstaller these are unpacked under sys._MEIPASS (the
+    _internal/ folder next to the executable for a onedir build); in development
+    they sit at the project root, one level above src/.
+    """
     if getattr(sys, 'frozen', False):
         # Running as bundled executable
-        applicationPath = sys._MEIPASS
-    else:
-        # Running as script
-        applicationPath = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    
-    return os.path.join(applicationPath, 'assets')
+        return sys._MEIPASS
+    # Running as script
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def get_asset_path():
+    """Get the path to the assets folder, handling both development and PyInstaller bundled versions"""
+    return os.path.join(get_resource_base(), 'assets')
 
 
 def toggle_fullscreen(window):

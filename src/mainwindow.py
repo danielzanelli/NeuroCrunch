@@ -92,7 +92,7 @@ class Ui_MainWindow(object):
         self.scrollArea_3.setWidgetResizable(True)
         self.scrollAreaWidgetContents_3 = QWidget()
         self.scrollAreaWidgetContents_3.setObjectName(u"scrollAreaWidgetContents_3")
-        self.scrollAreaWidgetContents_3.setGeometry(QRect(0, 0, 434, 88))
+        self.scrollAreaWidgetContents_3.setGeometry(QRect(0, 0, 467, 88))
         self.gridLayout_23 = QGridLayout(self.scrollAreaWidgetContents_3)
         self.gridLayout_23.setObjectName(u"gridLayout_23")
         self.log = QTextBrowser(self.scrollAreaWidgetContents_3)
@@ -121,23 +121,35 @@ class Ui_MainWindow(object):
         self.frame_15.setFrameShadow(QFrame.Shadow.Raised)
         self.gridLayout_10 = QGridLayout(self.frame_15)
         self.gridLayout_10.setObjectName(u"gridLayout_10")
-        self.btn_load_config = QPushButton(self.frame_15)
-        self.btn_load_config.setObjectName(u"btn_load_config")
-        self.btn_load_config.setMaximumSize(QSize(120, 16777215))
-
-        self.gridLayout_10.addWidget(self.btn_load_config, 3, 1, 1, 1)
-
         self.btn_save_config = QPushButton(self.frame_15)
         self.btn_save_config.setObjectName(u"btn_save_config")
         self.btn_save_config.setMaximumSize(QSize(120, 16777215))
 
         self.gridLayout_10.addWidget(self.btn_save_config, 3, 3, 1, 1)
 
+        self.btn_stop_scripts = QPushButton(self.frame_15)
+        self.btn_stop_scripts.setObjectName(u"btn_stop_scripts")
+        self.btn_stop_scripts.setEnabled(False)
+        self.btn_stop_scripts.setMaximumSize(QSize(120, 16777215))
+
+        self.gridLayout_10.addWidget(self.btn_stop_scripts, 3, 6, 1, 1)
+
         self.btn_execute_scripts = QPushButton(self.frame_15)
         self.btn_execute_scripts.setObjectName(u"btn_execute_scripts")
         self.btn_execute_scripts.setMaximumSize(QSize(120, 16777215))
 
-        self.gridLayout_10.addWidget(self.btn_execute_scripts, 3, 4, 1, 1)
+        self.gridLayout_10.addWidget(self.btn_execute_scripts, 3, 5, 1, 1)
+
+        self.btn_load_config = QPushButton(self.frame_15)
+        self.btn_load_config.setObjectName(u"btn_load_config")
+        self.btn_load_config.setMaximumSize(QSize(120, 16777215))
+
+        self.gridLayout_10.addWidget(self.btn_load_config, 3, 1, 1, 1)
+
+        self.btn_open_scripts_dir = QPushButton(self.frame_15)
+        self.btn_open_scripts_dir.setObjectName(u"btn_open_scripts_dir")
+
+        self.gridLayout_10.addWidget(self.btn_open_scripts_dir, 3, 4, 1, 1)
 
 
         self.gridLayout_12.addWidget(self.frame_15, 2, 2, 1, 1)
@@ -377,13 +389,19 @@ class Ui_MainWindow(object):
     def retranslateUi(self, MainWindow):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"MainWindow", None))
         self.image_viewer.setText("")
-        self.btn_load_config.setText(QCoreApplication.translate("MainWindow", u"Cargar \n"
-"Configuraci\u00f3n", None))
         self.btn_save_config.setText(QCoreApplication.translate("MainWindow", u"Guardar \n"
 "Configuraci\u00f3n", None))
+        self.btn_stop_scripts.setText(QCoreApplication.translate("MainWindow", u"Detener\n"
+"Script", None))
         self.btn_execute_scripts.setText(QCoreApplication.translate("MainWindow", u"Ejecutar \n"
 "Seleccionados", None))
-        self.btn_darkmode.setText(QCoreApplication.translate("MainWindow", u"\u2600\ufe0f", None))
+        self.btn_load_config.setText(QCoreApplication.translate("MainWindow", u"Cargar \n"
+"Configuraci\u00f3n", None))
+        self.btn_open_scripts_dir.setText(QCoreApplication.translate("MainWindow", u"Abrir Carpeta\n"
+"de Scripts", None))
+        self.btn_darkmode.setText(QCoreApplication.translate("MainWindow", u"\n"
+"\u2600\ufe0f\n"
+"", None))
         self.btn_open_folder.setText(QCoreApplication.translate("MainWindow", u"Seleccionar\n"
 "Carpeta", None))
         self.btn_refresh.setText(QCoreApplication.translate("MainWindow", u"Refrescar\n"

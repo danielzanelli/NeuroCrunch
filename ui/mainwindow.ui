@@ -93,7 +93,7 @@
         <rect>
          <x>0</x>
          <y>0</y>
-         <width>434</width>
+         <width>461</width>
          <height>88</height>
         </rect>
        </property>
@@ -167,6 +167,14 @@ Configuración</string>
         </widget>
        </item>
        <item row="3" column="4">
+        <widget class="QPushButton" name="btn_open_scripts_dir">
+         <property name="text">
+          <string>Abrir Carpeta
+de Scripts</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="5">
         <widget class="QPushButton" name="btn_execute_scripts">
          <property name="maximumSize">
           <size>
@@ -177,22 +185,6 @@ Configuración</string>
          <property name="text">
           <string>Ejecutar 
 Seleccionados</string>
-         </property>
-        </widget>
-       </item>
-       <item row="3" column="5">
-        <widget class="QPushButton" name="btn_stop_scripts">
-         <property name="enabled">
-          <bool>false</bool>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>120</width>
-           <height>16777215</height>
-          </size>
-         </property>
-         <property name="text">
-          <string>Detener</string>
          </property>
         </widget>
        </item>
@@ -223,7 +215,9 @@ Seleccionados</string>
           </size>
          </property>
          <property name="text">
-          <string>☀️</string>
+          <string>
+☀️
+</string>
          </property>
         </widget>
        </item>

@@ -1,25 +1,25 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/danielzanelli/NeuroCrunch/schemas/plugin_manifest.schema.json",
-  "title": "NeuroCrunch Plugin Manifest",
-  "description": "Schema for the manifest.json that must accompany every official or community script. See README.md > Plugin / Script Standard.",
+  "$id": "https://github.com/danielzanelli/NeuroCrunch/schemas/plugin_config.schema.json",
+  "title": "NeuroCrunch Plugin Config",
+  "description": "Schema for the config.json that must accompany every official or community script. See README.md > Plugin / Script Standard.",
   "type": "object",
-  "required": ["id", "name", "description", "version", "author", "category", "entry_point"],
+  "required": ["name", "description", "category"],
   "additionalProperties": false,
   "properties": {
     "id": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]+$",
-      "description": "Unique script identifier, must match the containing folder name."
+      "description": "Unique script identifier. Auto-derived from the folder name when absent."
     },
     "name": { "$ref": "#/definitions/localizedString" },
     "description": { "$ref": "#/definitions/localizedString" },
-    "version": { "type": "string" },
-    "author": { "type": "string" },
+    "version": { "type": "string", "default": "" },
+    "author": { "type": "string", "default": "" },
     "category": { "type": "string" },
     "entry_point": {
       "type": "string",
-      "description": "Relative path (within the script folder) to the Python entry point, e.g. main.py."
+      "description": "Relative path to the Python entry point. Auto-derived as <folder_name>.py when absent."
     },
     "parameters": {
       "type": "array",

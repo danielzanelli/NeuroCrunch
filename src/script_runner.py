@@ -1,32 +1,22 @@
 # This Python file uses the following encoding: utf-8
-"""NeuroCrunch - Script Runner (Phase 4)
+"""NeuroCrunch - Script Runner (Phase 5)
 
-Executes a configured pipeline of script plugins as subprocesses, streaming
-their stdout to the UI log and threading each script's declared outputs into
-a shared ``PipelineContext`` so downstream scripts can resolve linked
-parameters (see ``param_dialog.py`` and README.md > "Plugin / Script
-Standard").
+Executes a configured pipeline of script plugins in the bundled Python
+environment. Each script's ``run(params)`` function is called directly inside
+a worker thread — no external interpreter required.
 
-Execution contract (see README.md > "main.py — execution contract")::
-
-    python main.py --nc_params /tmp/.../<id>_params.json \\
-                   --nc_output /tmp/.../<id>_output.json
-
-``<id>_params.json`` contains every configured parameter value plus a
-``_context`` key with ``session_dir`` and the pipeline outputs collected so
-far. The script writes its declared output keys to ``<id>_output.json`` when
-it finishes. Anything printed to stdout/stderr is streamed line-by-line to
-the UI log. A non-zero exit code halts the pipeline.
+See README.md > "<script_name>.py — execution contract".
 """
 from __future__ import annotations
 
+import inspect
+import io
 import json
 import os
-import shutil
-import subprocess
 import sys
 import tempfile
-from typing import Any, Dict, List, Optional, Tuple
+import threading
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QThread, Signal
 
@@ -39,6 +29,10 @@ PipelineContextData = Dict[str, Dict[str, Any]]
 PIPELINE_CONTEXT_FILENAME = 'pipeline_context.json'
 
 
+# ---------------------------------------------------------------------------
+# PipelineContext
+# ---------------------------------------------------------------------------
+
 class PipelineContext:
     """Stores ``{script_id: {output_key: value}}`` for the current session.
 
@@ -47,15 +41,13 @@ class PipelineContext:
     """
 
     def __init__(self, session_dir: Optional[str] = None) -> None:
-        # Use provided session_dir or create a temporary directory
         if session_dir:
             self.session_dir = session_dir
-            self._temp_dir = None  # Not a temporary directory
+            self._temp_dir = None
         else:
-            # Create a temporary directory for this pipeline session
             self._temp_dir = tempfile.TemporaryDirectory(prefix='neurocrunch_pipeline_')
             self.session_dir = self._temp_dir.name
-        
+
         self.data: PipelineContextData = {}
         if session_dir:
             self.load()
@@ -107,10 +99,7 @@ class PipelineContext:
             pass
 
     def cleanup(self) -> None:
-        """Delete the temporary directory if this context owns one.
-        
-        Call this after the pipeline finishes to clean up temporary files.
-        """
+        """Delete the temporary directory if this context owns one."""
         if self._temp_dir is not None:
             try:
                 self._temp_dir.cleanup()
@@ -120,22 +109,130 @@ class PipelineContext:
                 pass
 
 
+# ---------------------------------------------------------------------------
+# StdoutCapture
+# ---------------------------------------------------------------------------
+
+class StdoutCapture(io.TextIOBase):
+    """Redirects ``sys.stdout``/``sys.stderr`` to a Qt signal during a script run.
+
+    Buffers text and emits one call per logical line:
+
+    * Lines ending with ``\\n`` are emitted stripped of the newline.
+    * Text preceded by ``\\r`` is emitted with a leading ``\\r`` so the UI log
+      can update the last entry in-place (matching the existing log panel
+      behaviour for carriage-return progress updates).
+    * ``PROGRESS:<number>`` lines are forwarded as-is; ``ScriptRunner``
+      inspects them to drive the progress bar.
+    """
+
+    def __init__(self, emit_fn: Callable[[str], None]) -> None:
+        super().__init__()
+        self._emit = emit_fn
+        self._buffer = ''
+
+    def write(self, text: str) -> int:
+        if not text:
+            return 0
+        self._buffer += text
+        # Process all complete lines in the buffer.
+        while True:
+            cr_pos = self._buffer.find('\r')
+            nl_pos = self._buffer.find('\n')
+
+            if cr_pos == -1 and nl_pos == -1:
+                break  # No line ending yet; keep buffering.
+
+            if cr_pos != -1 and (nl_pos == -1 or cr_pos < nl_pos):
+                # \r comes first: emit buffered text as an in-place update.
+                line = self._buffer[:cr_pos]
+                self._buffer = self._buffer[cr_pos + 1:]
+                if line:
+                    self._emit('\r' + line)
+            else:
+                # \n comes first: emit as a normal new line.
+                line = self._buffer[:nl_pos]
+                self._buffer = self._buffer[nl_pos + 1:]
+                if line.strip():
+                    self._emit(line)
+        return len(text)
+
+    def flush(self) -> None:
+        """Emit any remaining buffered text that has no trailing line ending."""
+        remaining = self._buffer.strip()
+        if remaining:
+            self._emit(remaining)
+        self._buffer = ''
+
+    def readable(self) -> bool:
+        return False
+
+    def writable(self) -> bool:
+        return True
+
+
+# ---------------------------------------------------------------------------
+# ScriptContext
+# ---------------------------------------------------------------------------
+
+class ScriptContext:
+    """Optional second argument for scripts that declare ``run(params, ctx)``.
+
+    Provides cooperative cancellation and progress reporting::
+
+        def run(params, ctx):
+            for i, item in enumerate(items):
+                if ctx.is_cancelled():
+                    return {}
+                ctx.progress(i / len(items) * 100)
+                # ... process item ...
+
+    Scripts that only declare ``run(params)`` do not receive a context object;
+    the runner detects the signature via ``inspect`` and omits it automatically.
+    """
+
+    def __init__(
+        self,
+        cancel_event: threading.Event,
+        emit_fn: Callable[[str], None],
+    ) -> None:
+        self._cancel = cancel_event
+        self._emit = emit_fn
+
+    def is_cancelled(self) -> bool:
+        """Return ``True`` if the user has pressed Stop."""
+        return self._cancel.is_set()
+
+    def progress(self, percent: float) -> None:
+        """Report progress (0–100). Equivalent to ``print(f'PROGRESS:{percent:.0f}')``."""
+        self._emit(f'PROGRESS:{percent:.0f}')
+
+    def log(self, message: str) -> None:
+        """Emit *message* to the app log."""
+        self._emit(str(message))
+
+
+# ---------------------------------------------------------------------------
+# ScriptRunner
+# ---------------------------------------------------------------------------
+
 class ScriptRunner(QThread):
-    """Runs an ordered pipeline of scripts as subprocesses, one at a time.
+    """Runs an ordered pipeline of scripts in-process, one at a time.
 
     Parameters
     ----------
     pipeline:
         Ordered list of ``(script_id, plugin_info, params)`` tuples to run in
         sequence. ``params`` is the dict of saved parameter values for that
-        script (before linked-parameter resolution, which happens right
-        before each script runs).
+        script (before linked-parameter resolution, which happens right before
+        each script runs).
     pipeline_context:
         Shared ``PipelineContext`` instance, updated after each script
         finishes with its declared outputs.
     """
 
     log_message = Signal(str)
+    progress_changed = Signal(int)   # 0–100
     script_started = Signal(str)
     script_finished = Signal(str, bool)
     pipeline_done = Signal(bool)
@@ -150,7 +247,7 @@ class ScriptRunner(QThread):
         self._pipeline = pipeline
         self._context = pipeline_context
         self._stop_requested = False
-        self._current_process: Optional[subprocess.Popen] = None
+        self._cancel_event = threading.Event()
 
     # ------------------------------------------------------------------
     # Public API
@@ -159,16 +256,11 @@ class ScriptRunner(QThread):
     def stop(self) -> None:
         """Request cancellation of the pipeline.
 
-        Terminates the currently running script (if any); remaining scripts
-        in the pipeline are skipped.
+        Sets the cancel event so scripts checking ``ctx.is_cancelled()`` can
+        exit cooperatively. Remaining scripts in the pipeline are skipped.
         """
         self._stop_requested = True
-        process = self._current_process
-        if process is not None and process.poll() is None:
-            try:
-                process.terminate()
-            except OSError:
-                pass
+        self._cancel_event.set()
 
     # ------------------------------------------------------------------
     # QThread entry point
@@ -211,10 +303,11 @@ class ScriptRunner(QThread):
     # Internals
     # ------------------------------------------------------------------
 
-    def _resolve_linked_params(self, plugin_info, params: Dict[str, Any]) -> Dict[str, Any]:
+    def _resolve_linked_params(
+        self, plugin_info: Any, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Return a copy of *params* with any ``link``-ed values refreshed
-        from the current pipeline context (in case the linked script has run
-        earlier in this same pipeline execution)."""
+        from the current pipeline context."""
         resolved = dict(params)
         for param in plugin_info.parameters or []:
             link = param.get('link')
@@ -227,91 +320,122 @@ class ScriptRunner(QThread):
         return resolved
 
     def _run_script(
-        self, script_id: str, plugin_info, params: Dict[str, Any]
+        self, script_id: str, plugin_info: Any, params: Dict[str, Any]
     ) -> Tuple[bool, Dict[str, Any]]:
-        """Run a single script as a subprocess, streaming its stdout to the
-        log and reading back its declared outputs.
+        """Execute a single script in-process and return ``(success, outputs)``.
 
-        Returns ``(success, outputs)``.
+        The script's source is compiled and ``exec()``'d in a fresh ``{}``
+        namespace so module-level state does not persist across runs. The
+        ``run()`` (or ``main()``) function found in that namespace is called
+        with the resolved *params* dict. ``sys.stdout`` and ``sys.stderr`` are
+        temporarily redirected to ``StdoutCapture`` so ``print()`` output flows
+        to the UI log.
         """
         entry_point = plugin_info.entry_point
         script_dir = os.path.dirname(entry_point)
 
-        session_dir = self._context.session_dir or script_dir
-        params_payload = dict(params)
-        params_payload['_context'] = {
-            'session_dir': session_dir,
-            'pipeline_outputs': self._context.as_dict(),
-        }
-
-        with tempfile.TemporaryDirectory(prefix=f'neurocrunch_{script_id}_') as tmp_dir:
-            params_path = os.path.join(tmp_dir, f'{script_id}_params.json')
-            output_path = os.path.join(tmp_dir, f'{script_id}_output.json')
-
-            try:
-                with open(params_path, 'w', encoding='utf-8') as f:
-                    json.dump(params_payload, f, ensure_ascii=False, indent=2)
-            except OSError as e:
-                self.log_message.emit(
-                    f'No se pudo escribir params.json para "{plugin_info.name}": {e}'
-                )
-                return False, {}
-
-            cmd = [
-                sys.executable,
-                '-u',  # Disable buffering
-                entry_point,
-                '--nc_params', params_path,
-                '--nc_output', output_path,
-            ]
-
-            try:
-                process = subprocess.Popen(
-                    cmd,
-                    cwd=script_dir,
-                    stdin=subprocess.DEVNULL,  # Close stdin to prevent blocking
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                )
-            except OSError as e:
-                self.log_message.emit(f'No se pudo iniciar "{plugin_info.name}": {e}')
-                return False, {}
-
-            self._current_process = process
-
-            if process.stdout is not None:
-                for line in process.stdout:
-                    line = line.rstrip('\n')
-                    if line:
-                        self.log_message.emit(line)
-                process.stdout.close()
-
-            return_code = process.wait()
-            self._current_process = None
-
-            if self._stop_requested:
-                self.log_message.emit(f'"{plugin_info.name}" cancelado por el usuario.')
-                return False, self._read_outputs(output_path)
-
-            success = (return_code == 0)
-            if not success:
-                self.log_message.emit(
-                    f'"{plugin_info.name}" terminó con código de salida {return_code}.'
-                )
-
-            outputs = self._read_outputs(output_path)
-            return success, outputs
-
-    def _read_outputs(self, output_path: str) -> Dict[str, Any]:
-        """Read the ``output.json`` file written by the script, if present."""
-        if not os.path.isfile(output_path):
-            return {}
+        # Read and compile the script source.
         try:
-            with open(output_path, 'r', encoding='utf-8') as f:
-                loaded = json.load(f)
-            return loaded if isinstance(loaded, dict) else {}
-        except (OSError, json.JSONDecodeError) as e:
-            self.log_message.emit(f'No se pudo leer la salida "{output_path}": {e}')
-            return {}
+            with open(entry_point, 'r', encoding='utf-8') as f:
+                source = f.read()
+        except OSError as e:
+            self.log_message.emit(
+                f'No se pudo leer el script "{entry_point}": {e}'
+            )
+            return False, {}
+
+        try:
+            code = compile(source, entry_point, 'exec')
+        except SyntaxError as e:
+            self.log_message.emit(
+                f'Error de sintaxis en "{plugin_info.name}": {e}'
+            )
+            return False, {}
+
+        # Set up stdout/stderr capture and working directory.
+        capture = StdoutCapture(self._handle_output_line)
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        old_cwd = os.getcwd()
+
+        outputs: Dict[str, Any] = {}
+        success = True
+
+        try:
+            sys.stdout = capture  # type: ignore[assignment]
+            sys.stderr = capture  # type: ignore[assignment]
+            os.chdir(script_dir)
+
+            # Execute in a fresh namespace so module-level variables do not
+            # persist between runs. __name__ is intentionally NOT '__main__'
+            # so that ``if __name__ == '__main__':`` blocks are skipped.
+            namespace: Dict[str, Any] = {
+                '__name__': '',
+                '__file__': entry_point,
+            }
+            exec(code, namespace)  # noqa: S102
+
+            # Find the entry-point function: run() takes priority over main().
+            run_fn = namespace.get('run') or namespace.get('main')
+            if run_fn is None or not callable(run_fn):
+                self.log_message.emit(
+                    f'"{plugin_info.name}" no define una función run(params) ni main(params).'
+                )
+                return False, {}
+
+            # Detect whether the function accepts a ctx argument.
+            try:
+                sig = inspect.signature(run_fn)
+                wants_ctx = len(sig.parameters) >= 2
+            except (ValueError, TypeError):
+                wants_ctx = False
+
+            if wants_ctx:
+                ctx = ScriptContext(self._cancel_event, self._handle_output_line)
+                result = run_fn(params, ctx)
+            else:
+                result = run_fn(params)
+
+            outputs = result if isinstance(result, dict) else {}
+
+        except SystemExit as e:
+            exit_code = e.code
+            if exit_code not in (None, 0):
+                self.log_message.emit(
+                    f'"{plugin_info.name}" terminó con error (sys.exit({exit_code})).'
+                )
+                success = False
+        except Exception as e:  # noqa: BLE001
+            self.log_message.emit(
+                f'Error en "{plugin_info.name}": {type(e).__name__}: {e}'
+            )
+            success = False
+        finally:
+            capture.flush()
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+            try:
+                os.chdir(old_cwd)
+            except OSError:
+                pass
+
+        if self._stop_requested and success:
+            self.log_message.emit(f'"{plugin_info.name}" cancelado por el usuario.')
+            success = False
+
+        return success, outputs
+
+    def _handle_output_line(self, line: str) -> None:
+        """Route a line emitted by a running script to the appropriate signal.
+
+        Lines matching ``PROGRESS:<number>`` drive the progress bar; all lines
+        (including progress ones) are also forwarded to ``log_message`` so they
+        appear in the log panel.
+        """
+        if line.startswith('PROGRESS:'):
+            try:
+                pct = float(line[9:])
+                self.progress_changed.emit(max(0, min(100, int(pct))))
+            except ValueError:
+                pass
+        self.log_message.emit(line)

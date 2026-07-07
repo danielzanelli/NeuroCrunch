@@ -407,6 +407,11 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
 	}
 
 
+# run() is the canonical entry point called by the app's script runner.
+# main() is kept as an alias for backward compatibility and CLI use.
+run = main
+
+
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(
 		description="Quita bleaching con ALS y aplica suavizado ALS final."

@@ -5,7 +5,6 @@
   "version": "1.0.0",
   "author": "Daniel Zanelli",
   "category": "processing",
-  "entry_point": "main.py",
   "parameters": [
     {
       "name": "input_csv",

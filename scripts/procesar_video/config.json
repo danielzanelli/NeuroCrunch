@@ -5,7 +5,6 @@
   "version": "1.1.0",
   "author": "Daniel Zanelli",
   "category": "preprocessing",
-  "entry_point": "main.py",
   "parameters": [
     {
       "name": "input_video",

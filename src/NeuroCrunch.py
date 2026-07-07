@@ -727,13 +727,34 @@ class NeuroCrunch(QMainWindow):
         self.ui.btn_execute_scripts.setText('Detener')
 
         self._script_runner = ScriptRunner(pipeline, self.pipeline_context_store, self)
-        self._script_runner.log_message.connect(self.print)
+        self._script_runner.log_message.connect(self._on_log_message)
+        self._script_runner.progress_changed.connect(self._on_progress_changed)
         self._script_runner.script_started.connect(
             lambda script_id: self.print(f'Iniciando script: {self.plugins[script_id].name}')
         )
         self._script_runner.script_finished.connect(self._on_script_finished)
         self._script_runner.pipeline_done.connect(self._on_pipeline_done)
         self._script_runner.start()
+
+    def _on_log_message(self, text: str) -> None:
+        """Route log lines from the script runner to the correct display method.
+
+        Lines prefixed with '\\r' are in-place progress updates (e.g. from
+        ``print(..., end='', flush=True)`` with a carriage return); they update
+        the last log entry. All other lines append a new timestamped entry.
+        """
+        if text.startswith('\r'):
+            self.print_progress(text[1:])
+        else:
+            self.print(text)
+
+    def _on_progress_changed(self, percent: int) -> None:
+        """Handle a PROGRESS:N line from a running script.
+
+        Currently logged as a progress update. When a QProgressBar is added to
+        the UI, update it here.
+        """
+        self.print_progress(f'Progreso: {percent}%')
 
     def _on_script_finished(self, script_id: str, success: bool) -> None:
         status = 'completado' if success else 'con error'

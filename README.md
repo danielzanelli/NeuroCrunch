@@ -8,22 +8,26 @@ Built with **PySide6 + pyqtgraph**, distributed as a cross-platform PyInstaller 
 
 ## Current Status
 
-The core application shell is functional. What works today:
+Phases 1–5 are complete. The full analysis pipeline is functional end-to-end.
+
+What works today:
 
 - **File browser** — folder selection, recursive tree view, right-click context menu, refresh
 - **Multi-format viewer** — images, CSV/Excel plots (pyqtgraph, column selector, regex filter, clickable legend), video playback with controls, PDF (QPdfView + QWebEngineView fallback), plain text
 - **Dark mode** — toggle with external QSS stylesheets (`assets/styles/`)
-- **Scripts table** — discovers `.py` files from `scripts/`, shows name/timestamp, checkbox to enable, execution order column; in-memory config dict per script
+- **Plugin manager** — discovers `config.json`-based plugins from bundled `scripts/` and the user plugins directory; validates against JSON Schema; auto-derives `id` and `entry_point` from folder name; user scripts shadow official ones by id
+- **Parameter dialogs** — auto-generated from `config.json` parameter definitions; all 8 widget types (`string`, `int`, `float`, `bool`, `file`, `directory`, `choice`, `text`); linked parameter auto-fill from pipeline context; required-field validation; "Configurado" status indicator
+- **Script runner** — in-process execution via `QThread` + `exec()` (no external Python needed); `StdoutCapture` for live log streaming with in-place `\r` progress updates; `PROGRESS:N` protocol drives a progress indicator; cooperative cancellation via `ScriptContext`; pipeline halts on first error
 - **Logging panel** — timestamped log with progress-update-in-place support
+- **Official scripts** — `procesar_video` and `quitar_bleaching` fully implemented and migrated to the `run(params)` standard; 4 stubs pending
+- **Script template** — `scripts/template/` with all 8 parameter types documented alongside logging, progress, cancellation, and matplotlib usage examples
 
 What is **not yet implemented**:
 
-- Script subfolders with manifests (scripts are flat stubs today)
-- Parameter configuration dialog (no UI to set script args)
-- Actual script execution (subprocess runner not wired up)
-- Script output chaining between pipeline steps
-- In-app updater
-- CI/CD pipeline
+- 4 of 6 official scripts are still stubs (`generar_graficos`, `matriz_pearson`, `seleccionar_activas`, `seleccionar_ROIs`)
+- In-app updater (Phase 6)
+- CI/CD pipeline (Phase 7)
+- Multilanguage / i18n support (Phase 8)
 
 ---
 
@@ -35,9 +39,9 @@ NeuroCrunch should work as follows end-to-end:
 2. Scripts panel lists all available analysis scripts (official + user-installed community plugins)
 3. User selects scripts, sets their execution order, and configures parameters via auto-generated dialogs
 4. Scripts that depend on a previous script's output have those parameters auto-filled
-5. User clicks **Ejecutar Seleccionados** → scripts run as subprocesses in order; progress streams to the log
+5. User clicks **Ejecutar Seleccionados** → scripts run in worker threads in order; progress streams live to the log
 6. On app startup, the updater silently checks GitHub Releases; if a new stable version exists, a banner prompts the user to download and apply it
-7. Community users can share scripts by publishing a folder containing `main.py` + `manifest.json`; others drop it into their local plugins directory
+7. Community users can share scripts by publishing a folder containing `<script_name>.py` + `config.json`; others drop it into their local plugins directory
 
 ---
 
@@ -52,9 +56,9 @@ NeuroCrunch/
 │   ├── NeuroCrunch.py              # Application entry point and main window logic
 │   ├── mainwindow.py               # Auto-generated from mainwindow.ui — DO NOT EDIT
 │   ├── dark_mode_manager.py        # Theme management
-│   ├── plugin_manager.py           # Script discovery and manifest parsing       [PLANNED]
+│   ├── plugin_manager.py           # Script discovery and config parsing
 │   ├── param_dialog.py             # Auto-generated parameter dialogs
-│   ├── script_runner.py            # Subprocess execution engine + pipeline ctx   [PLANNED]
+│   ├── script_runner.py            # Threaded execution engine + pipeline ctx
 │   └── updater.py                  # GitHub Releases version check + download     [PLANNED]
 ├── ui/
 │   └── mainwindow.ui               # Qt Designer source
@@ -65,15 +69,16 @@ NeuroCrunch/
 │       └── light.qss
 ├── scripts/                        # Official bundled analysis scripts
 │   ├── procesar_video/             # One subfolder per script
-│   │   ├── main.py
-│   │   └── manifest.json
-│   ├── seleccionar_ROIs/
+│   │   ├── procesar_video.py       # Script file — named after the folder
+│   │   └── config.json             # Script metadata and parameters
 │   ├── quitar_bleaching/
+│   ├── seleccionar_ROIs/
 │   ├── seleccionar_activas/
 │   ├── generar_graficos/
-│   └── matriz_pearson/
+│   ├── matriz_pearson/
+│   └── template/                   # Copy-paste starting point for new scripts
 ├── schemas/
-│   └── plugin_manifest.schema.json # JSON Schema for manifest validation          [PLANNED]
+│   └── plugin_config.schema.json   # JSON Schema for config.json validation
 ├── version.json                    # {"version": "x.y.z", "channel": "stable", "repo": "owner/NeuroCrunch"}
 ├── neurocruncher.spec              # PyInstaller build spec
 └── requirements.txt
@@ -127,14 +132,29 @@ Status markers: ✅ Done · 🔄 In progress · ⬜ Planned
 - ✅ Stop/kill button in UI to cancel a running pipeline
 - ✅ Wire `btn_execute_scripts` ("Ejecutar Seleccionados") to `ScriptRunner`
 
-### Phase 5 — Updater (`src/updater.py`)
+### Phase 5 — Script System Refactor
+
+*Replaces the Phase 4 subprocess model with in-process threading and a simpler script convention. No external Python interpreter required after this phase.*
+
+- ✅ Rename `manifest.json` → `config.json` and `main.py` → `<script_name>.py` across all script folders
+- ✅ `src/plugin_manager.py`: search for `config.json`; auto-derive `id` from folder name and `entry_point` as `<folder_name>.py` — both removed from required config fields; `template/` and `_`-prefixed folders skipped during discovery
+- ✅ `schemas/plugin_config.schema.json`: renamed; `id`, `entry_point`, `version`, `author` made optional
+- ✅ All 6 `config.json` files: `entry_point` field removed (auto-derived)
+- ✅ `src/script_runner.py`: replaced `subprocess.Popen` with `QThread` + `exec()` in a fresh namespace
+- ✅ `StdoutCapture` — redirects `sys.stdout` per run; emits `log_message` signal line by line; handles `\r` in-place; detects `PROGRESS:N` lines to drive a progress indicator
+- ✅ `ScriptContext` — optional second parameter `run(params, ctx)`; wraps `threading.Event` for cooperative cancellation via `ctx.is_cancelled()`; exposes `ctx.progress(n)` and `ctx.log(msg)`
+- ✅ `procesar_video` and `quitar_bleaching`: `run = main` alias added; `sys.exit()` inside `run()` caught by runner; `if __name__ == "__main__":` preserved for CLI use
+- ✅ Add `scripts/template/` — copy-paste starting point with all 8 parameter types, logging, progress, cancellation, and matplotlib usage documented inline
+- ✅ `tests/test_script_runner.py`: rewritten for threading model (58 tests passing)
+
+### Phase 6 — Updater (`src/updater.py`)
 - ⬜ `UpdateChecker(QThread)` — on startup, `GET https://api.github.com/repos/{repo}/releases/latest`; compare `tag_name` with `version.json`; emit `update_available(dict)` for newer stable releases
 - ⬜ Status bar banner shown when update is available ("NeuroCrunch v1.x available — Download")
 - ⬜ `UpdateDownloader(QThread)` — downloads platform asset to `user_data_dir/updates/`; progress shown in log; emits `download_complete(path)`
 - ⬜ On `download_complete`: `QMessageBox` prompts "Restart to apply update"; on confirm, launch installer/archive and quit
 - ⬜ Update launcher shim for Windows (required to replace running `.exe` — a small `.bat` or Python script that swaps the binary before re-launching)
 
-### Phase 6 — CI/CD (`.github/workflows/build.yml`)
+### Phase 7 — CI/CD (`.github/workflows/build.yml`)
 - ⬜ Trigger: push to tags matching `v*.*.*`
 - ⬜ Matrix: `windows-latest`, `macos-latest`, `ubuntu-latest`
 - ⬜ Steps: checkout → Python 3.11 → `pip install -r requirements.txt pyinstaller` → `pyinstaller neurocruncher.spec` → archive dist → upload to GitHub Release
@@ -144,7 +164,7 @@ Status markers: ✅ Done · 🔄 In progress · ⬜ Planned
   - `NeuroCrunch-{version}-linux.tar.gz`
 - ⬜ `version.json` must be updated before tagging a release (manual step or helper script)
 
-### Phase 7 — Multilanguage Support (`translations/`)
+### Phase 8 — Multilanguage Support (`translations/`)
 
 The app currently hard-codes Spanish strings throughout the UI and manifests. This phase adds proper i18n using Qt's built-in translation system.
 
@@ -155,26 +175,24 @@ The app currently hard-codes Spanish strings throughout the UI and manifests. Th
 - ⬜ Load `.qm` file at startup via `QTranslator` based on stored language preference (falls back to system locale, then Spanish)
 - ⬜ Language selector in app settings (stored in user config); takes effect on next launch
 - ⬜ Bundle all `.qm` files in `assets/translations/` and include in PyInstaller spec
-- ⬜ Manifest localized labels — plugin authors can supply per-language overrides (see manifest standard below); app picks the best match at load time
+- ⬜ Config localized labels — plugin authors can supply per-language overrides (see config standard below); app picks the best match at load time
 - ⬜ CI/CD: add `lrelease` step before PyInstaller build so compiled `.qm` files are always up to date in the bundle
 
 ---
 
 ## Plugin / Script Standard
 
-Every script — official or community — lives in its own subfolder and must contain exactly two files.
+Every script — official or community — lives in its own subfolder and contains exactly two files: a `config.json` and a Python file named after the folder.
 
-### `manifest.json`
+### `config.json`
 
 ```json
 {
-  "id": "procesar_video",
   "name": "Procesar Video",
   "description": "Extracts fluorescence traces from a calcium imaging video.",
   "version": "1.0.0",
   "author": "NeuroCrunch Team",
   "category": "preprocessing",
-  "entry_point": "main.py",
   "parameters": [
     {
       "name": "input_video",
@@ -204,6 +222,8 @@ Every script — official or community — lives in its own subfolder and must c
   }
 }
 ```
+
+`id` is auto-derived from the folder name. `entry_point` is auto-derived as `<folder_name>.py`. Both are accepted in `config.json` but not required. `version` and `author` are optional.
 
 #### Parameter types
 
@@ -247,39 +267,51 @@ Add a `"link"` field referencing `"{script_id}.{output_key}"`. The app will auto
 }
 ```
 
-### `main.py` — execution contract
+### `<script_name>.py` — execution contract
 
-Scripts are run as subprocesses. The app calls:
+Scripts define a single `run(params)` function. The app calls it directly in a worker thread — no subprocess, no JSON files to read or write.
 
-```
-python main.py --nc_params /tmp/.../procesar_video_params.json --nc_output /tmp/.../procesar_video_output.json
-```
+```python
+def run(params):
+    """
+    params: dict of all configured parameter values.
+    Returns: dict whose keys match the 'outputs' declared in config.json.
+    Use print() to send messages to the app log.
+    Raise an exception to report an error — never call sys.exit().
+    """
+    input_csv  = params["input_csv"]
+    output_dir = params["output_dir"]
 
-**`params.json`** contains all configured parameter values plus a `_context` key:
+    print("Loading data...")
+    # ... use any bundled library freely ...
 
-```json
-{
-  "input_video": "/path/to/video.tif",
-  "fps": 10,
-  "output_dir": "/path/to/session/",
-  "_context": {
-    "session_dir": "/path/to/session/",
-    "pipeline_outputs": {
-      "procesar_video": {"output_csv": "/path/to/signals.csv"}
-    }
-  }
-}
+    return {"output_csv": f"{output_dir}/result.csv"}
 ```
 
-Scripts read this file, do their work, then write **`output.json`** with their declared output keys:
+For cooperative cancellation and progress reporting, accept an optional `ctx` argument — the runner detects it via `inspect.signature` and passes it automatically:
 
-```json
-{
-  "output_csv": "/path/to/session/procesar_video/signals.csv"
-}
+```python
+def run(params, ctx):
+    for i, item in enumerate(items):
+        if ctx.is_cancelled():
+            return {}
+        ctx.progress(i / len(items) * 100)
+        # ...
 ```
 
-Anything written to **stdout** is captured line-by-line and appended to the UI log. A non-zero exit code halts the pipeline.
+Or report progress with a plain `print`:
+
+```python
+print("PROGRESS:50")   # sets the progress bar to 50 %
+```
+
+**Rules**
+- Never call `sys.exit()` — raise an exception instead
+- Never call `os._exit()` — it terminates the entire application
+- `if __name__ == "__main__":` blocks are ignored by the runner and can be kept for standalone CLI use
+
+**Bundled libraries** (available to all scripts, no installation required):
+`numpy`, `pandas`, `scipy`, `opencv-python`, `matplotlib`, `tifffile`, `scikit-image`, `read_roi`
 
 ---
 
@@ -313,7 +345,7 @@ pyside6-uic ui/mainwindow.ui -o src/mainwindow.py
 - [ ] Confirm GitHub repo URL (needed for `version.json` → `"repo"` field and updater)
 - [ ] Decide on Windows installer format: bare `.exe` from PyInstaller, or an NSIS/Inno Setup installer (required for clean update replacement of a running binary)
 - [ ] Script timeout policy: maximum allowed runtime per script before the runner kills it?
-- [ ] Should community plugins be allowed to declare additional Python dependencies (`"requires"` in manifest), and if so, should the app attempt to `pip install` them automatically?
+- [x] ~~Script dependencies~~ — Scripts run in-process using the app's bundled Python; required libraries are bundled with the app and documented in the Plugin/Script Standard. New library requests go through a new app release.
 - [ ] Confirm base/default language (currently Spanish — all existing strings are `es`)
 - [ ] Which languages to ship in v1.0? Suggested: `es` (base) + `en`; others added by community via PR
 - [ ] Language preference: per-user config file, or respect OS locale by default?

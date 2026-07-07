@@ -475,6 +475,11 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     return {"output_csv": output_csv}
 
 
+# run() is the canonical entry point called by the app's script runner.
+# main() is kept as an alias for backward compatibility and CLI use.
+run = main
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------

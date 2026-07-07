@@ -1,0 +1,94 @@
+{
+  "name": "My Script",
+  "description": "A short description of what this script does.",
+  "category": "analysis",
+
+  "parameters": [
+
+    {
+      "name": "input_file",
+      "type": "file",
+      "label": "Input file",
+      "description": "Pick a single file. Use 'extensions' to filter the browser dialog.",
+      "required": true,
+      "extensions": [".csv", ".xlsx", ".tif", ".tiff", ".avi", ".mp4"]
+    },
+
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": "Output folder",
+      "description": "Pick a folder. The script should create it with os.makedirs if it doesn't exist.",
+      "required": true
+    },
+
+    {
+      "name": "label_text",
+      "type": "string",
+      "label": "Label / title",
+      "description": "A short free-text field (single line). Shown as a QLineEdit.",
+      "default": "My analysis"
+    },
+
+    {
+      "name": "notes",
+      "type": "text",
+      "label": "Notes",
+      "description": "A multi-line free-text area (QTextEdit). Good for comments or long descriptions.",
+      "default": ""
+    },
+
+    {
+      "name": "frame_count",
+      "type": "int",
+      "label": "Number of frames",
+      "description": "Integer spinner (QSpinBox). Use 'min' and 'max' to set limits.",
+      "default": 100,
+      "min": 1,
+      "max": 100000
+    },
+
+    {
+      "name": "threshold",
+      "type": "float",
+      "label": "Threshold",
+      "description": "Decimal spinner (QDoubleSpinBox). 'decimals' controls precision shown.",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "decimals": 3
+    },
+
+    {
+      "name": "normalize",
+      "type": "bool",
+      "label": "Normalize output",
+      "description": "Checkbox (QCheckBox). Value is Python True/False.",
+      "default": false
+    },
+
+    {
+      "name": "method",
+      "type": "choice",
+      "label": "Method",
+      "description": "Drop-down list (QComboBox). Value will be one of the strings in 'options'.",
+      "options": ["mean", "median", "max"],
+      "default": "mean"
+    },
+
+    {
+      "name": "linked_csv",
+      "type": "file",
+      "label": "CSV from previous step",
+      "description": "Auto-filled from a previous script's output using 'link'. Still editable by the user.",
+      "extensions": [".csv"],
+      "link": "procesar_video.output_csv"
+    }
+
+  ],
+
+  "outputs": {
+    "result_csv": "Path to the main output CSV",
+    "figures_dir": "Path to the folder containing generated figures"
+  }
+}

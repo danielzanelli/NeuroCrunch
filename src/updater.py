@@ -79,6 +79,42 @@ def select_asset(assets: List[Dict[str, Any]], system: Optional[str] = None) -> 
     return None
 
 
+def _relaunch_app() -> None:
+    """Relaunch the application after update installation."""
+    try:
+        if sys.platform == 'win32':
+            # In a PyInstaller bundle, sys.executable is the bootstrap .exe
+            if getattr(sys, 'frozen', False):
+                # Frozen by PyInstaller: sys.executable is already the app executable
+                subprocess.Popen(sys.executable)
+            else:
+                # Development: find NeuroCrunch.py and run it
+                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                main_script = os.path.join(base_dir, 'src', 'NeuroCrunch.py')
+                subprocess.Popen([sys.executable, main_script])
+        elif sys.platform == 'darwin':
+            # macOS: relaunch via open command on the app bundle
+            if getattr(sys, 'frozen', False):
+                # App bundle path is typically: /path/to/AppName.app/Contents/MacOS/AppName
+                app_bundle = os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))
+                subprocess.Popen(['open', app_bundle])
+            else:
+                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                main_script = os.path.join(base_dir, 'src', 'NeuroCrunch.py')
+                subprocess.Popen([sys.executable, main_script])
+        else:
+            # Linux: relaunch the executable
+            if getattr(sys, 'frozen', False):
+                subprocess.Popen(sys.executable)
+            else:
+                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                main_script = os.path.join(base_dir, 'src', 'NeuroCrunch.py')
+                subprocess.Popen([sys.executable, main_script])
+    except Exception:
+        # Silently fail — at worst, the user can relaunch manually
+        pass
+
+
 def read_current_version(version_json_path: str) -> Dict[str, Any]:
     """Load ``version.json`` ({version, channel, repo}); {} on any failure."""
     try:
@@ -194,11 +230,11 @@ class UpdateDownloader(QThread):
 
 
 def apply_update(asset_path: str) -> None:
-    """Launch the downloaded asset to apply the update, then the app should quit.
+    """Launch the downloaded asset to apply the update, wait for completion, then relaunch.
 
     Per-OS behaviour:
-      * Windows: run the Inno Setup installer silently; it replaces the running
-        install and can relaunch. The app must exit right after this call.
+      * Windows: run the Inno Setup installer silently; wait for it to finish,
+        then relaunch the app. The app must exit right after this call.
       * Linux AppImage: mark executable and launch the new AppImage; the user
         replaces the old file manually (or a future step swaps it in place).
       * macOS: open the .dmg so the user can drag the new .app over the old one.
@@ -206,8 +242,12 @@ def apply_update(asset_path: str) -> None:
     system = sys.platform
     if system == 'win32':
         # /SILENT runs without wizard pages; /CLOSEAPPLICATIONS lets Inno close us.
-        # Use shell=True with quoted path to handle spaces in the path correctly.
-        subprocess.Popen(f'"{asset_path}" /SILENT /CLOSEAPPLICATIONS', shell=True)
+        # /NORESTART prevents Inno from prompting for restart.
+        # We wait for the installer to finish, then relaunch the app ourselves.
+        proc = subprocess.Popen(f'"{asset_path}" /SILENT /CLOSEAPPLICATIONS /NORESTART', shell=True)
+        proc.wait()
+        # Relaunch the application after installation completes
+        _relaunch_app()
     elif system == 'darwin':
         subprocess.Popen(['open', asset_path])
     else:

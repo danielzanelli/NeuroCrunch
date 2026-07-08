@@ -19,14 +19,16 @@ What works today:
 - **Parameter dialogs** — auto-generated from `config.json` parameter definitions; all 8 widget types (`string`, `int`, `float`, `bool`, `file`, `directory`, `choice`, `text`); linked parameter auto-fill from pipeline context; required-field validation; "Configurado" status indicator
 - **Script runner** — in-process execution via `QThread` + `exec()` (no external Python needed); `StdoutCapture` for live log streaming with in-place `\r` progress updates; `PROGRESS:N` protocol drives a progress indicator; cooperative cancellation via `ScriptContext`; pipeline halts on first error
 - **Logging panel** — timestamped log with progress-update-in-place support
-- **Official scripts** — `procesar_video` and `quitar_bleaching` fully implemented and migrated to the `run(params)` standard; 4 stubs pending
+- **Official scripts** — `procesar_video`, `quitar_bleaching`, `seleccionar_activas`, `matriz_pearson`, `generar_graficos` implemented on the `run(params)` standard; only `seleccionar_ROIs` (interactive) pending
 - **Script template** — `scripts/template/` with all 8 parameter types documented alongside logging, progress, cancellation, and matplotlib usage examples
+- **User scripts** — "Abrir Carpeta de Scripts" button opens the writable per-user plugins directory; drop a script folder in, then **Refrescar** re-scans and lists it (no restart)
+- **Frozen build** — PyInstaller bundle collects all script dependencies (numpy, pandas, cv2, tifffile, matplotlib, read_roi) and resolves bundled scripts via `sys._MEIPASS`, so official scripts run inside the installed app
 
 What is **not yet implemented**:
 
-- 4 of 6 official scripts are still stubs (`generar_graficos`, `matriz_pearson`, `seleccionar_activas`, `seleccionar_ROIs`)
-- In-app updater (Phase 6)
-- CI/CD pipeline (Phase 7)
+- 1 of 6 official scripts still a stub: `seleccionar_ROIs` (interactive ROI drawing — Phase 9)
+- CI/CD release pipeline (Phase 7) — workflow + packaging authored, pending first tag-push to validate
+- In-app updater (Phase 6) — implemented; download/apply pending a real release to validate
 - Multilanguage / i18n support (Phase 8)
 
 ---
@@ -98,6 +100,18 @@ NeuroCrunch/
 
 Status markers: ✅ Done · 🔄 In progress · ⬜ Planned
 
+> **Sequencing note.** Distribution infrastructure is being built before the remaining
+> scripts. Phase 7 (CI/CD) is implemented **before** Phase 6 (Updater): the updater
+> downloads what CI publishes, so real release assets must exist before it can be tested.
+> The 4 stub scripts are tracked as **Phase 9**.
+
+### Phase 0 — Build foundation (prerequisite for distribution)
+- ✅ `requirements.txt`: added `tifffile`, `matplotlib`; pins reconciled to tested versions
+- ✅ `neurocruncher.spec`: `collect_all` bundles the libraries the `exec()`-loaded scripts
+  import (PyInstaller can't see them otherwise); QtWebEngine/QtPdf hidden imports; excludes
+  competing Qt bindings (PyQt5/PyQt6/PySide2); tolerant of a missing icon
+- ✅ Frozen build resolves bundled `scripts/` via `sys._MEIPASS` (fixes empty scripts table in the `.exe`)
+
 ### Phase 1 — Folder Restructure & Version Tracking
 - ✅ Core app shell, file browser, viewers, dark mode
 - ✅ Move each script stub into its own subfolder (`scripts/{name}/main.py`)
@@ -148,21 +162,32 @@ Status markers: ✅ Done · 🔄 In progress · ⬜ Planned
 - ✅ `tests/test_script_runner.py`: rewritten for threading model (58 tests passing)
 
 ### Phase 6 — Updater (`src/updater.py`)
-- ⬜ `UpdateChecker(QThread)` — on startup, `GET https://api.github.com/repos/{repo}/releases/latest`; compare `tag_name` with `version.json`; emit `update_available(dict)` for newer stable releases
-- ⬜ Status bar banner shown when update is available ("NeuroCrunch v1.x available — Download")
-- ⬜ `UpdateDownloader(QThread)` — downloads platform asset to `user_data_dir/updates/`; progress shown in log; emits `download_complete(path)`
-- ⬜ On `download_complete`: `QMessageBox` prompts "Restart to apply update"; on confirm, launch installer/archive and quit
-- ⬜ Update launcher shim for Windows (required to replace running `.exe` — a small `.bat` or Python script that swaps the binary before re-launching)
+
+*Implemented; the check/compare/asset-selection logic is unit-tested (`tests/test_updater.py`, 11 tests). The download + apply steps need a real GitHub Release to exercise end-to-end.*
+
+- ✅ `UpdateChecker(QThread)` — on startup, `GET https://api.github.com/repos/{repo}/releases/latest`; compares `tag_name` with `version.json` (numeric, not lexical); emits `update_available(dict)` for newer releases, else `up_to_date`; failures are logged, not popped up
+- ✅ Status-bar message + `QMessageBox` prompt when an update is available
+- ✅ `UpdateDownloader(QThread)` — downloads the platform asset (`select_asset` matches the Phase 7 naming) to the per-user updates dir; progress reported via signal
+- ✅ On download complete: `QMessageBox` prompts to restart; on confirm, `apply_update()` launches the asset and the app quits
+- ✅ Per-OS apply: Windows runs the Inno installer silently (`/SILENT /CLOSEAPPLICATIONS`) — no separate launcher shim needed; Linux re-launches the AppImage; macOS opens the `.dmg`
 
 ### Phase 7 — CI/CD (`.github/workflows/build.yml`)
-- ⬜ Trigger: push to tags matching `v*.*.*`
-- ⬜ Matrix: `windows-latest`, `macos-latest`, `ubuntu-latest`
-- ⬜ Steps: checkout → Python 3.11 → `pip install -r requirements.txt pyinstaller` → `pyinstaller neurocruncher.spec` → archive dist → upload to GitHub Release
-- ⬜ Asset naming convention (must match updater download logic):
-  - `NeuroCrunch-{version}-windows.exe`
-  - `NeuroCrunch-{version}-macos.zip`
-  - `NeuroCrunch-{version}-linux.tar.gz`
-- ⬜ `version.json` must be updated before tagging a release (manual step or helper script)
+
+*Authored; pending a first tag-push to validate on GitHub's runners (can't be exercised locally).*
+
+- ✅ Trigger: push to tags matching `v*.*.*`, plus `workflow_dispatch` for manual test builds
+- ✅ Matrix: `windows-latest`, `macos-latest`, `ubuntu-latest`
+- ✅ Steps: checkout → Python 3.13 → `pip install -r requirements.txt pyinstaller` → `pyinstaller neurocruncher.spec` → per-OS packaging → upload artifact → attach to GitHub Release (tag builds only)
+- ✅ Per-OS packaging — PyInstaller freezes once; each OS wraps it natively:
+
+  | OS | Packager | Asset |
+  |---|---|---|
+  | Windows | Inno Setup (`packaging/windows/NeuroCrunch.iss`) | `NeuroCrunch-{version}-windows-setup.exe` |
+  | macOS | `.dmg` via `hdiutil` from the `.app` bundle | `NeuroCrunch-{version}-macos.dmg` |
+  | Linux | AppImage (`packaging/linux/build_appimage.sh`) | `NeuroCrunch-{version}-linux.AppImage` |
+
+- ✅ Version derived from the git tag (`vX.Y.Z` → `X.Y.Z`); update `version.json` before tagging
+- Releases ship **unsigned** for now — see [Installing an unsigned build](#installing-an-unsigned-build)
 
 ### Phase 8 — Multilanguage Support (`translations/`)
 
@@ -177,6 +202,23 @@ The app currently hard-codes Spanish strings throughout the UI and manifests. Th
 - ⬜ Bundle all `.qm` files in `assets/translations/` and include in PyInstaller spec
 - ⬜ Config localized labels — plugin authors can supply per-language overrides (see config standard below); app picks the best match at load time
 - ⬜ CI/CD: add `lrelease` step before PyInstaller build so compiled `.qm` files are always up to date in the bundle
+
+### Phase 9 — Complete the official scripts
+
+The batch scripts follow the `run(params)` standard and preserve the trace-CSV format
+(metadata columns `frame`/`tiempo_s` + per-cell signal columns like `123_mean`) so the
+pipeline links resolve end-to-end.
+
+- ✅ `seleccionar_activas` — keeps traces with an event ≥ `min_duracion` frames above a
+  **robust** threshold (median + k·σ_MAD, so events don't inflate the baseline) → `active_csv`
+- ✅ `matriz_pearson` — Pearson correlation matrix of the active traces + heatmap; reports
+  pairs above `umbral_correlacion` → `matrix_csv`, `heatmap_png`
+- ✅ `generar_graficos` — overlay, raster (cells × time), and mean±σ summary figures in the
+  chosen format → `figures_dir`
+- ⬜ `seleccionar_ROIs` — **interactive** ROI drawing on a video frame; does not fit the batch
+  `run(params)` mould (needs a canvas/mouse UI). Proposed approach: a dedicated in-app dialog
+  (QGraphicsView over a representative frame) that exports an ImageJ-compatible `roi_zip`
+  consumable by `procesar_video`, rather than a headless pipeline step.
 
 ---
 
@@ -311,7 +353,13 @@ print("PROGRESS:50")   # sets the progress bar to 50 %
 - `if __name__ == "__main__":` blocks are ignored by the runner and can be kept for standalone CLI use
 
 **Bundled libraries** (available to all scripts, no installation required):
-`numpy`, `pandas`, `scipy`, `opencv-python`, `matplotlib`, `tifffile`, `scikit-image`, `read_roi`
+`numpy`, `pandas`, `opencv-python` (`cv2`), `matplotlib`, `tifffile`, `read_roi`
+
+> A script may only import libraries that are in `requirements.txt` **and** collected in
+> `neurocruncher.spec` — otherwise it works from source but crashes in the frozen build.
+> To add one (e.g. `scipy`, `scikit-image`), add it to both `requirements.txt` and the
+> `collect_all` list in the spec. `scipy`/`scikit-image` are **not** bundled yet; they'll be
+> added when the first script (e.g. `matriz_pearson`) needs them.
 
 ---
 
@@ -328,7 +376,14 @@ python src/NeuroCrunch.py
 pyinstaller neurocruncher.spec
 ```
 
-**Dependencies**: `PySide6==6.9.2`, `pyqtgraph==0.14.4`, `pandas==2.2.3`, `numpy==2.1.3`
+**Bundle size.** The spec trims the frozen build (~1.6 GB → ~0.75 GB): it drops unused
+packages (`scipy` and dev tools), keeps only Spanish/English Qt translations, excludes
+unused Qt modules, and **does not bundle QtWebEngine** (~290 MB). PDFs are rendered by
+QtPdf (`QPdfView`); `NeuroCrunch.py` imports `QWebEngineView` optionally, so the old
+WebEngine fallback is simply unavailable in frozen builds. If a PDF ever fails to render,
+that dropped fallback is the reason — re-add `PySide6.QtWebEngine*` to the spec to restore it.
+
+See `requirements.txt` for the full pinned dependency set (developed and tested on Python 3.13).
 
 `src/mainwindow.py` is auto-generated from `ui/mainwindow.ui` by Qt's `uic` tool. Do not edit it by hand.
 
@@ -340,10 +395,22 @@ pyside6-uic ui/mainwindow.ui -o src/mainwindow.py
 
 ---
 
+## Installing an unsigned build
+
+Releases are currently **unsigned**, so the OS will warn on first launch. This is expected; the workarounds:
+
+- **Windows** — SmartScreen shows "Windows protected your PC". Click **More info → Run anyway**.
+- **macOS** — Gatekeeper blocks unsigned apps ("NeuroCrunch is damaged / can't be opened"). Right-click the app → **Open** (then confirm), or clear the quarantine flag: `xattr -dr com.apple.quarantine /Applications/NeuroCrunch.app`.
+- **Linux (AppImage)** — no gatekeeper. Make it executable and run: `chmod +x NeuroCrunch-*-linux.AppImage && ./NeuroCrunch-*-linux.AppImage`.
+
+Signing (a Windows code-signing certificate and Apple notarization) can be added later to remove these warnings.
+
+---
+
 ## Open Questions / Decisions Needed
 
-- [ ] Confirm GitHub repo URL (needed for `version.json` → `"repo"` field and updater)
-- [ ] Decide on Windows installer format: bare `.exe` from PyInstaller, or an NSIS/Inno Setup installer (required for clean update replacement of a running binary)
+- [x] ~~Confirm GitHub repo URL~~ — `version.json` → `"repo": "danielzanelli/NeuroCrunch"`
+- [x] ~~Windows installer format~~ — Inno Setup installer (Windows), `.dmg` (macOS), AppImage (Linux); ship unsigned initially
 - [ ] Script timeout policy: maximum allowed runtime per script before the runner kills it?
 - [x] ~~Script dependencies~~ — Scripts run in-process using the app's bundled Python; required libraries are bundled with the app and documented in the Plugin/Script Standard. New library requests go through a new app release.
 - [ ] Confirm base/default language (currently Spanish — all existing strings are `es`)

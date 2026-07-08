@@ -9,6 +9,7 @@ See README.md > "<script_name>.py — execution contract".
 """
 from __future__ import annotations
 
+import ctypes
 import inspect
 import io
 import json
@@ -21,6 +22,15 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from PySide6.QtCore import QThread, Signal
 
 from param_dialog import _resolve_link
+
+
+class _PipelineCancelled(BaseException):
+    """Raised inside the worker thread to interrupt a running script on Stop.
+
+    Subclasses ``BaseException`` (not ``Exception``) so a script's own
+    ``except Exception`` cannot swallow the cancellation; the runner catches it
+    explicitly.
+    """
 
 # Type alias matching param_dialog.PipelineContext's shape:
 # { script_id: { output_key: value } }
@@ -248,6 +258,7 @@ class ScriptRunner(QThread):
         self._context = pipeline_context
         self._stop_requested = False
         self._cancel_event = threading.Event()
+        self._worker_tid: Optional[int] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -256,46 +267,79 @@ class ScriptRunner(QThread):
     def stop(self) -> None:
         """Request cancellation of the pipeline.
 
-        Sets the cancel event so scripts checking ``ctx.is_cancelled()`` can
-        exit cooperatively. Remaining scripts in the pipeline are skipped.
+        Two mechanisms, so Stop works whether or not the running script
+        cooperates:
+
+        * sets the cancel event, which scripts declaring ``run(params, ctx)``
+          can poll via ``ctx.is_cancelled()`` for a clean early return;
+        * injects a ``_PipelineCancelled`` exception into the worker thread so
+          even a non-cooperative ``run(params)`` script is interrupted. Since
+          scripts run in-process (``exec``) rather than as a subprocess, this
+          is the only way to stop a busy pure-Python loop. It fires at a Python
+          bytecode boundary, so it cannot corrupt an in-flight C call — a script
+          blocked in native code stops when control returns to Python.
         """
         self._stop_requested = True
         self._cancel_event.set()
+        tid = self._worker_tid
+        if tid is not None:
+            self._async_raise(tid, _PipelineCancelled)
+
+    @staticmethod
+    def _async_raise(tid: int, exctype: type) -> None:
+        """Best-effort: raise *exctype* in the thread identified by *tid*."""
+        try:
+            res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                ctypes.c_long(tid), ctypes.py_object(exctype)
+            )
+            if res > 1:  # oops — undo, we hit the wrong/too-many state(s)
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), None)
+        except Exception:  # noqa: BLE001 — interruption is best-effort
+            pass
 
     # ------------------------------------------------------------------
     # QThread entry point
     # ------------------------------------------------------------------
 
     def run(self) -> None:
+        self._worker_tid = threading.get_ident()
         overall_success = True
 
-        for script_id, plugin_info, params in self._pipeline:
-            if self._stop_requested:
-                self.log_message.emit(
-                    f'Pipeline detenido antes de ejecutar "{plugin_info.name}".'
-                )
-                overall_success = False
-                break
-
-            resolved_params = self._resolve_linked_params(plugin_info, params)
-
-            self.script_started.emit(script_id)
-            self.log_message.emit(f'--- Ejecutando "{plugin_info.name}" ---')
-
-            success, outputs = self._run_script(script_id, plugin_info, resolved_params)
-
-            if outputs:
-                self._context.set_outputs(script_id, outputs)
-
-            self.script_finished.emit(script_id, success)
-
-            if not success:
-                overall_success = False
-                if not self._stop_requested:
+        try:
+            for script_id, plugin_info, params in self._pipeline:
+                if self._stop_requested:
                     self.log_message.emit(
-                        f'"{plugin_info.name}" finalizó con error. Pipeline detenido.'
+                        f'Pipeline detenido antes de ejecutar "{plugin_info.name}".'
                     )
-                break
+                    overall_success = False
+                    break
+
+                resolved_params = self._resolve_linked_params(plugin_info, params)
+
+                self.script_started.emit(script_id)
+                self.log_message.emit(f'--- Ejecutando "{plugin_info.name}" ---')
+
+                success, outputs = self._run_script(script_id, plugin_info, resolved_params)
+
+                if outputs:
+                    self._context.set_outputs(script_id, outputs)
+
+                self.script_finished.emit(script_id, success)
+
+                if not success:
+                    overall_success = False
+                    if not self._stop_requested:
+                        self.log_message.emit(
+                            f'"{plugin_info.name}" finalizó con error. Pipeline detenido.'
+                        )
+                    break
+        except _PipelineCancelled:
+            # A cancellation injected by stop() fired between scripts.
+            overall_success = False
+        finally:
+            # No script is running now, so no more async exceptions should be
+            # aimed at this thread.
+            self._worker_tid = None
 
         self.pipeline_done.emit(overall_success and not self._stop_requested)
 
@@ -398,6 +442,9 @@ class ScriptRunner(QThread):
 
             outputs = result if isinstance(result, dict) else {}
 
+        except _PipelineCancelled:
+            # Injected by stop(): interrupt the running script cleanly.
+            success = False
         except SystemExit as e:
             exit_code = e.code
             if exit_code not in (None, 0):
@@ -428,9 +475,9 @@ class ScriptRunner(QThread):
     def _handle_output_line(self, line: str) -> None:
         """Route a line emitted by a running script to the appropriate signal.
 
-        Lines matching ``PROGRESS:<number>`` drive the progress bar; all lines
-        (including progress ones) are also forwarded to ``log_message`` so they
-        appear in the log panel.
+        ``PROGRESS:<number>`` lines only drive the progress indicator — they are
+        NOT forwarded to the log, so the progress status updates in place instead
+        of piling up raw ``PROGRESS:N`` lines. All other lines go to the log.
         """
         if line.startswith('PROGRESS:'):
             try:
@@ -438,4 +485,5 @@ class ScriptRunner(QThread):
                 self.progress_changed.emit(max(0, min(100, int(pct))))
             except ValueError:
                 pass
+            return
         self.log_message.emit(line)

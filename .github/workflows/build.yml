@@ -1,0 +1,104 @@
+name: Build & Release
+
+# Tag a release to build installers for all three platforms and attach them to a
+# GitHub Release, e.g.:
+#   (bump version.json, commit) then:  git tag v0.1.0 && git push origin v0.1.0
+# You can also run it manually (Actions -> Build & Release -> Run workflow) to get
+# build artifacts without cutting a release — useful for testing the pipeline.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed to create/update the GitHub Release
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+          - os: ubuntu-latest
+            platform: linux
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Match the version the app is developed and tested against.
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Derive version
+        # On a tag build, VERSION is the tag without the leading 'v' (e.g. 0.1.0).
+        # On a manual run, fall back to whatever version.json declares.
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=$(python -c 'import json;print(json.load(open("version.json"))["version"])')" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm --clean neurocruncher.spec
+
+      # ---- Windows: Inno Setup installer ----
+      - name: Package Windows installer
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DMyAppVersion=$env:VERSION" `
+            "/FNeuroCrunch-$env:VERSION-windows-setup" `
+            packaging/windows/NeuroCrunch.iss
+          # ISCC writes to dist/installer/; surface the path for the upload step
+          echo "ASSET=dist/installer/NeuroCrunch-$env:VERSION-windows-setup.exe" >> $env:GITHUB_ENV
+
+      # ---- macOS: .dmg from the .app bundle ----
+      - name: Package macOS dmg
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          ASSET="dist/NeuroCrunch-${VERSION}-macos.dmg"
+          hdiutil create -volname "NeuroCrunch" \
+            -srcfolder "dist/NeuroCrunch.app" \
+            -ov -format UDZO "$ASSET"
+          echo "ASSET=$ASSET" >> "$GITHUB_ENV"
+
+      # ---- Linux: AppImage ----
+      - name: Package Linux AppImage
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          bash packaging/linux/build_appimage.sh "$VERSION"
+          echo "ASSET=dist/NeuroCrunch-${VERSION}-linux.AppImage" >> "$GITHUB_ENV"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeuroCrunch-${{ env.VERSION }}-${{ matrix.platform }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ASSET }}
+          fail_on_unmatched_files: true

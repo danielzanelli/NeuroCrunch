@@ -24,7 +24,13 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QCoreApplication, QUrl, Qt, QTimer, QThread, Signal, QRect, QPoint
 from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut, QTextCursor, QPainter, QPen, QColor, QPolygon, QBrush, QDesktopServices
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
-from PySide6.QtWebEngineWidgets import QWebEngineView
+try:
+    # Optional: QtWebEngine is a ~290 MB dependency used only as a PDF-viewer
+    # fallback. The primary PDF path is QPdfView (QtPdf). If WebEngine is not
+    # bundled, the app still runs; the fallback is simply unavailable.
+    from PySide6.QtWebEngineWidgets import QWebEngineView
+except ImportError:
+    QWebEngineView = None
 
 from tkinter.filedialog import askopenfilename, askdirectory, asksaveasfilename
 
@@ -33,6 +39,7 @@ from dark_mode_manager import DarkModeManager
 from plugin_manager import PluginManager
 from param_dialog import ParamDialog
 from script_runner import PipelineContext, ScriptRunner
+from updater import read_current_version, UpdateChecker, UpdateDownloader, apply_update
 
 
 MAX_PLOT_COLUMNS = 100  # Maximum number of columns allowed to plot at once
@@ -159,6 +166,11 @@ class NeuroCrunch(QMainWindow):
         
         self.print('Programa inicializado - ' + datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
 
+        # Silently check GitHub Releases for a newer version once the UI is up.
+        self._update_checker = None
+        self._update_downloader = None
+        QTimer.singleShot(0, self.check_for_updates)
+
 
 
     def print(self, text):
@@ -254,6 +266,63 @@ class NeuroCrunch(QMainWindow):
         """Refrescar button: refresh the file browser and re-scan for scripts."""
         self.refresh_local_folder()
         self.rescan_scripts()
+
+    # ------------------------------------------------------------------
+    # In-app updater (Phase 6)
+    # ------------------------------------------------------------------
+
+    def check_for_updates(self):
+        """Start a background check of GitHub Releases for a newer version."""
+        info = read_current_version(os.path.join(get_resource_base(), 'version.json'))
+        repo = info.get('repo')
+        current = info.get('version', '0.0.0')
+        if not repo:
+            return
+        self._update_checker = UpdateChecker(repo, current)
+        self._update_checker.update_available.connect(self._on_update_available)
+        # Keep the check silent on failure (offline, rate limit): log, don't nag.
+        self._update_checker.error.connect(self.print)
+        self._update_checker.start()
+
+    def _on_update_available(self, release):
+        version = release.get('version', '')
+        self.statusBar().showMessage(f'NeuroCrunch {version} disponible')
+        asset = release.get('asset')
+        if not asset:
+            QMessageBox.information(
+                self, 'Actualización disponible',
+                f'Hay una nueva versión ({version}), pero no hay instalador para esta '
+                f'plataforma.\nDescárgala manualmente desde:\n{release.get("html_url", "")}')
+            return
+        reply = QMessageBox.question(
+            self, 'Actualización disponible',
+            f'Hay una nueva versión disponible ({version}).\n¿Descargarla ahora?')
+        if reply == QMessageBox.Yes:
+            self._start_update_download(asset)
+
+    def _start_update_download(self, asset):
+        url = asset.get('browser_download_url')
+        name = asset.get('name')
+        if not url or not name:
+            self.print('El asset de actualización no tiene URL o nombre válidos.')
+            return
+        self.print(f'Descargando actualización: {name}...')
+        self._update_downloader = UpdateDownloader(url, name)
+        self._update_downloader.progress.connect(
+            lambda pct: self.statusBar().showMessage(f'Descargando actualización: {pct}%'))
+        self._update_downloader.finished_ok.connect(self._on_update_downloaded)
+        self._update_downloader.error.connect(self.print)
+        self._update_downloader.start()
+
+    def _on_update_downloaded(self, path):
+        self.statusBar().showMessage('Descarga completa')
+        reply = QMessageBox.question(
+            self, 'Aplicar actualización',
+            'La actualización se descargó correctamente.\n'
+            '¿Reiniciar NeuroCrunch para aplicarla?')
+        if reply == QMessageBox.Yes:
+            apply_update(path)
+            QApplication.quit()
 
     def get_dir_content(self, path):
         """Get the content of a directory recursively, returning a tree structure.
@@ -648,8 +717,12 @@ class NeuroCrunch(QMainWindow):
         if not file_path:
             return
         try:
+            # Persist the script config plus the current working directory under a
+            # reserved key (ignored by the per-script load loop for back-compat).
+            data = dict(self.config)
+            data['__working_directory__'] = self.local_folder
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(self.config, f, ensure_ascii=False, indent=2)
+                json.dump(data, f, ensure_ascii=False, indent=2)
             self.print(f'Configuración guardada en: {os.path.basename(file_path)}')
         except Exception as e:
             self.print(f'Error al guardar configuración: {str(e)}')
@@ -668,11 +741,18 @@ class NeuroCrunch(QMainWindow):
             if not isinstance(loaded, dict):
                 self.print('Error: el archivo de configuración no tiene el formato esperado.')
                 return
+            # Restore the working directory if it was saved and still exists.
+            saved_cwd = loaded.pop('__working_directory__', None)
             # Merge: only update entries for known scripts; ignore stale keys
             for script_id, cfg in loaded.items():
                 if script_id in self.scripts:
                     self.config[script_id] = cfg
             self.refresh_scripts_table()
+            if saved_cwd and os.path.isdir(saved_cwd):
+                self.local_folder = saved_cwd
+                self.ui.file_viewer.setHeaderLabel(self.local_folder)
+                self.refresh_local_folder()
+                self.print(f'Carpeta de trabajo restaurada: {saved_cwd}')
             self.print(f'Configuración cargada desde: {os.path.basename(file_path)}')
         except (OSError, json.JSONDecodeError) as e:
             self.print(f'Error al cargar configuración: {str(e)}')
@@ -791,10 +871,10 @@ class NeuroCrunch(QMainWindow):
     def _on_progress_changed(self, percent: int) -> None:
         """Handle a PROGRESS:N line from a running script.
 
-        Currently logged as a progress update. When a QProgressBar is added to
-        the UI, update it here.
+        Shown in the status bar so it updates in place, without clobbering log
+        lines the script prints between progress updates.
         """
-        self.print_progress(f'Progreso: {percent}%')
+        self.statusBar().showMessage(f'Progreso: {percent}%')
 
     def _on_script_finished(self, script_id: str, success: bool) -> None:
         status = 'completado' if success else 'con error'
@@ -802,7 +882,8 @@ class NeuroCrunch(QMainWindow):
 
     def _on_pipeline_done(self, success: bool) -> None:
         self.ui.btn_execute_scripts.setEnabled(True)
-        self.ui.btn_execute_scripts.setText('Ejecutar')
+        self.ui.btn_execute_scripts.setText('Ejecutar\nScript')
+        self.statusBar().clearMessage()
         self.print('Pipeline finalizado exitosamente.' if success else 'Pipeline finalizado con errores.')
         # Clean up the temporary pipeline context and create a new one for the next run
         self.pipeline_context_store.cleanup()
@@ -815,13 +896,37 @@ class NeuroCrunch(QMainWindow):
         if hasattr(self, 'media_player'):
             self.media_player.stop()
             self.media_player.setSource(QUrl())
-        
-        self.ui.image_viewer.setPixmap(QPixmap(file_path).scaled(self.ui.image_viewer.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+        # Keep the original pixmap so we can rescale it on every resize (and on
+        # first show, once the label has been laid out to its real size).
+        self._current_image_pixmap = QPixmap(file_path)
+        self.ui.image_viewer.setAlignment(Qt.AlignCenter)
         self.ui.image_viewer.show()
         self.ui.text_viewer.hide()
         self.ui.plot_frame.hide()
         self.ui.pdf_viewer.hide()
         self.ui.video_player.hide()
+
+        self._rescale_current_image()
+        # The label may not have its final size until the layout settles after
+        # show(); rescale again on the next event-loop tick so the first image
+        # fills the viewer instead of appearing tiny.
+        QTimer.singleShot(0, self._rescale_current_image)
+
+    def _rescale_current_image(self):
+        """Rescale the stored image pixmap to the current viewer size."""
+        if not hasattr(self, 'ui'):
+            return
+        pixmap = getattr(self, '_current_image_pixmap', None)
+        if pixmap is None or pixmap.isNull() or not self.ui.image_viewer.isVisible():
+            return
+        self.ui.image_viewer.setPixmap(pixmap.scaled(
+            self.ui.image_viewer.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def resizeEvent(self, event):
+        """Keep the displayed image scaled to the viewer as the window resizes."""
+        super().resizeEvent(event)
+        self._rescale_current_image()
        
 
     def show_plot(self, file_path):
@@ -1239,6 +1344,12 @@ class NeuroCrunch(QMainWindow):
             pass
 
         # Fallback: use QWebEngineView but ensure a safe widget name and focus
+        if QWebEngineView is None:
+            self.print(
+                f'No se pudo mostrar el PDF con QtPdf y QtWebEngine no está disponible: '
+                f'{os.path.basename(file_path)}')
+            self.ui.pdf_viewer.hide()
+            return
         try:
             web_view = QWebEngineView(self.ui.pdf_viewer)
             # Enable plugins if available to help with embedded PDF viewers
@@ -1356,14 +1467,17 @@ if __name__ == "__main__":
     # Get asset path
     asset_path = get_asset_path()
     
-    # Set icon with fixed aspect ratio
-    icon_path = os.path.join(asset_path, 'icons', 'icon.ico')
-    if os.path.exists(icon_path):
-        app.setWindowIcon(QIcon(icon_path))
-    
+    # Application/window icon.
+    icon_path = os.path.join(asset_path, 'icons', 'app_icon.ico')
+    app_icon = QIcon(icon_path) if os.path.exists(icon_path) else None
+    if app_icon is not None:
+        app.setWindowIcon(app_icon)
+
     # Create main window
     window = NeuroCrunch()
     window.setWindowTitle("NeuroCrunch")
+    if app_icon is not None:
+        window.setWindowIcon(app_icon)
 
     
     # Initialize dark mode manager

@@ -78,5 +78,8 @@ dist/
 # App update downloads (written by updater.py at runtime)
 updates/
 
+# Claude Code local files (personal, not committed)
+.claude/
+
 # Windows
 Thumbs.db

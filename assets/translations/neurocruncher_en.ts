@@ -155,13 +155,13 @@
     </message>
     <message>
         <location filename="src/NeuroCrunch.py" line="847"/>
-        <source>Detener\nScript</source>
-        <translation>Stop\nScript</translation>
+        <source>Detener</source>
+        <translation>Stop</translation>
     </message>
     <message>
         <location filename="src/NeuroCrunch.py" line="885"/>
-        <source>Ejecutar\nScript</source>
-        <translation>Run\nScript</translation>
+        <source>Ejecutar</source>
+        <translation>Run</translation>
     </message>
     <message>
         <location filename="src/NeuroCrunch.py" line="887"/>

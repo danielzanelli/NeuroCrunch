@@ -35,7 +35,10 @@ except ImportError:
 
 from tkinter.filedialog import askopenfilename, askdirectory, asksaveasfilename
 
+import pyqtgraph as pg
+
 from mainwindow import Ui_MainWindow
+import icon_loader
 from dark_mode_manager import DarkModeManager
 from plugin_manager import PluginManager
 from param_dialog import ParamDialog
@@ -101,6 +104,16 @@ class NeuroCrunch(QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
 
+        # Icon loader needs the assets path before the file tree is populated
+        icon_loader.init_icons(get_asset_path())
+
+        # Initial pane proportions: explorer | viewer | scripts+log
+        self.ui.main_splitter.setStretchFactor(0, 0)
+        self.ui.main_splitter.setStretchFactor(1, 1)
+        self.ui.main_splitter.setStretchFactor(2, 0)
+        self.ui.main_splitter.setSizes([250, 550, 480])
+        self.ui.right_splitter.setSizes([440, 260])
+
         # Set up translation
         self.translator = None
         self.current_language = 'es'  # Default to Spanish
@@ -109,12 +122,15 @@ class NeuroCrunch(QMainWindow):
         self._setup_translator()
 
 
-        # Set all viewers to hidden initially
-        self.ui.image_viewer.hide()
+        # Set all viewers to hidden initially; the image label doubles as the
+        # empty-state hint until a file is previewed for the first time.
         self.ui.text_viewer.hide()
         self.ui.plot_frame.hide()
         self.ui.pdf_viewer.hide()
         self.ui.video_player.hide()
+        self.ui.image_viewer.setText(self.tr('Doble clic en un archivo para previsualizarlo'))
+        self.ui.image_viewer.setAlignment(Qt.AlignCenter)
+        self.ui.image_viewer.show()
 
         # Default to the application directory as the local folder
         self.local_folder = os.path.dirname(os.path.abspath(__file__))
@@ -146,7 +162,12 @@ class NeuroCrunch(QMainWindow):
         for warning in self.plugin_manager.warnings:
             self.print(warning)
 
-        self.plot_color_palette = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
+        # Categorical palette validated for >=3:1 contrast on both the dark
+        # (#1a1e23) and light (#ffffff) plot surfaces; fixed slot order.
+        self.plot_color_palette = [
+            '#3987e5', '#199e70', '#c98500', '#008300',
+            '#9085e9', '#e66767', '#d55181', '#d95926',
+        ]
         
 
         # ...
@@ -427,7 +448,8 @@ class NeuroCrunch(QMainWindow):
                 folder_name, folder_contents = item
                 dir_item = QTreeWidgetItem(parent_item)
                 dir_item.setText(0, folder_name)
-                
+                dir_item.setIcon(0, icon_loader.icon_for_file(folder_name, is_dir=True))
+
                 # Store full path
                 full_path = os.path.join(parent_path, folder_name)
                 dir_item.setData(0, Qt.UserRole, full_path)
@@ -440,7 +462,8 @@ class NeuroCrunch(QMainWindow):
                 # This is a file
                 file_item = QTreeWidgetItem(parent_item)
                 file_item.setText(0, item)
-                
+                file_item.setIcon(0, icon_loader.icon_for_file(item))
+
                 # Store full path
                 full_path = os.path.join(parent_path, item)
                 file_item.setData(0, Qt.UserRole, full_path)
@@ -901,7 +924,8 @@ class NeuroCrunch(QMainWindow):
             return
 
         self.ui.btn_execute_scripts.setEnabled(True)
-        self.ui.btn_execute_scripts.setText(self.tr('Detener\nScript'))
+        self.ui.btn_execute_scripts.setText(self.tr('Detener'))
+        self.ui.btn_execute_scripts.setIcon(icon_loader.get_icon('square', '#ffffff', 16))
 
         self._script_runner = ScriptRunner(pipeline, self.pipeline_context_store, self)
         self._script_runner.log_message.connect(self._on_log_message)
@@ -939,7 +963,8 @@ class NeuroCrunch(QMainWindow):
 
     def _on_pipeline_done(self, success: bool) -> None:
         self.ui.btn_execute_scripts.setEnabled(True)
-        self.ui.btn_execute_scripts.setText(self.tr('Ejecutar\nScript'))
+        self.ui.btn_execute_scripts.setText(self.tr('Ejecutar'))
+        self.ui.btn_execute_scripts.setIcon(icon_loader.get_icon('play', '#ffffff', 16))
         self.statusBar().clearMessage()
         self.print(self.tr('Pipeline finalizado exitosamente.') if success else self.tr('Pipeline finalizado con errores.'))
         # Clean up the temporary pipeline context and create a new one for the next run
@@ -1118,7 +1143,7 @@ class NeuroCrunch(QMainWindow):
 
             # Plot selected columns and save references
             for i, column in enumerate(columns_to_plot):
-                pen = self.plot_color_palette[i % len(self.plot_color_palette)]
+                pen = pg.mkPen(self.plot_color_palette[i % len(self.plot_color_palette)], width=2)
                 plot_item = self.ui.plot_widget.plot(self.data[column], pen=pen, name=str(column))
                 # store by column name for toggling
                 self._plot_items[str(column)] = plot_item
@@ -1243,9 +1268,9 @@ class NeuroCrunch(QMainWindow):
             control_layout.setContentsMargins(0, 2, 0, 2)
             control_layout.setSpacing(3)
 
-            self.play_button = QPushButton("▶")
-            self.play_button.setMaximumWidth(30)
-            self.play_button.setMaximumHeight(22)
+            self.play_button = QPushButton()
+            self.play_button.setIcon(icon_loader.get_icon('play', icon_loader.glyph_color(), 14))
+            self.play_button.setFixedSize(30, 24)
             self.play_button.clicked.connect(self.toggle_play_pause)
             control_layout.addWidget(self.play_button)
 
@@ -1283,7 +1308,7 @@ class NeuroCrunch(QMainWindow):
                 self.media_player.setSource(QUrl.fromLocalFile(file_path))
                 self.media_player.play()
 
-            self.play_button.setText("||")
+            self.play_button.setIcon(icon_loader.get_icon('pause', icon_loader.glyph_color(), 14))
             self.print(self.tr(f'Reproduciendo video: {os.path.basename(file_path)}'))
 
         except Exception as e:
@@ -1453,10 +1478,10 @@ class NeuroCrunch(QMainWindow):
         """Toggle between play and pause"""
         if self.media_player.isPlaying():
             self.media_player.pause()
-            self.play_button.setText("▶")
+            self.play_button.setIcon(icon_loader.get_icon('play', icon_loader.glyph_color(), 14))
         else:
             self.media_player.play()
-            self.play_button.setText("||")
+            self.play_button.setIcon(icon_loader.get_icon('pause', icon_loader.glyph_color(), 14))
 
     def set_position(self, position):
         """Set media player position when slider is moved"""

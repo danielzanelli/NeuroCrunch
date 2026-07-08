@@ -30,10 +30,11 @@
     "Confirmar detención": "Confirmar detención",
     "¿Estás seguro de que deseas detener el pipeline?\\nEsto interrumpirá el proceso actual.": "¿Estás seguro de que deseas detener el pipeline?\\nEsto interrumpirá el proceso actual.",
     "Deteniendo pipeline...": "Deteniendo pipeline...",
-    "Detener\\nScript": "Detener\\nScript",
-    "Ejecutar\\nScript": "Ejecutar\\nScript",
     "Pipeline finalizado exitosamente.": "Pipeline finalizado exitosamente.",
-    "Pipeline finalizado con errores.": "Pipeline finalizado con errores."
+    "Pipeline finalizado con errores.": "Pipeline finalizado con errores.",
+    "Detener": "Detener",
+    "Ejecutar": "Ejecutar",
+    "Doble clic en un archivo para previsualizarlo": "Doble clic en un archivo para previsualizarlo"
   },
   "CSVReaderWorker": {
     "Abriendo CSV {0}: 0%": "Abriendo CSV {0}: 0%"

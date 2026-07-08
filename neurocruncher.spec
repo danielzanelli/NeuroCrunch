@@ -10,9 +10,6 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 block_cipher = None
 
-# On macOS, use console=True so COLLECT works; CI wraps as .app afterward (which hides console).
-# On Windows/Linux, use console=False to avoid showing a terminal window to users.
-_console = sys.platform != 'win32' and sys.platform != 'linux'
 
 # The bundled analysis scripts in scripts/ are shipped as data files and loaded at
 # runtime via exec(). PyInstaller's static analysis never scans them, so the libraries
@@ -122,7 +119,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=_console,
+    console=False,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
@@ -130,13 +127,21 @@ exe = EXE(
     icon=_icon,
 )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='NeuroCrunch'
-)
+if sys.platform == 'darwin':
+    coll = BUNDLE(
+        exe,
+        name='NeuroCrunch.app',
+        icon=_icns,
+        bundle_identifier=None,
+    )
+else:
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name='NeuroCrunch'
+    )

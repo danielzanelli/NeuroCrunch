@@ -1,7 +1,7 @@
 ; Inno Setup script for NeuroCrunch (Windows installer).
 ; Compiled in CI by .github/workflows/build.yml:
 ;   ISCC.exe /DMyAppVersion=<version> /F<output-basename> packaging/windows/NeuroCrunch.iss
-; Packages the PyInstaller onedir output (dist/NeuroCrunch/) into a single Setup.exe.
+; Packages the PyInstaller EXE output (dist/NeuroCrunch.exe) into a single Setup.exe.
 
 #define MyAppName "NeuroCrunch"
 #ifndef MyAppVersion
@@ -41,8 +41,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; Recurse the entire PyInstaller onedir output (NeuroCrunch.exe + _internal/).
-Source: "..\..\dist\NeuroCrunch\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\..\dist\NeuroCrunch.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

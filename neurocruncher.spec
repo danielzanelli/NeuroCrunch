@@ -129,7 +129,9 @@ exe = EXE(
 
 # On macOS, wrap the EXE in a .app bundle for distribution via .dmg.
 # On Windows/Linux, create a onedir folder with all dependencies.
+print(f"[DEBUG] sys.platform = {sys.platform!r}", flush=True)
 if sys.platform == 'darwin':
+    print("[DEBUG] Taking macOS path: using BUNDLE", flush=True)
     app = BUNDLE(
         exe,
         a.binaries,
@@ -139,6 +141,7 @@ if sys.platform == 'darwin':
         bundle_identifier='com.neurocrunch.app',
     )
 else:
+    print(f"[DEBUG] Taking non-macOS path ({sys.platform}): using COLLECT", flush=True)
     coll = COLLECT(
         exe,
         a.binaries,

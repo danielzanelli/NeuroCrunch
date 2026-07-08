@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a Linux AppImage from the PyInstaller onedir output (dist/NeuroCrunch/).
+# Build a Linux AppImage from the PyInstaller output (dist/NeuroCrunch or dist/NeuroCrunch/).
 # Usage: bash packaging/linux/build_appimage.sh <version>
 # Produces: dist/NeuroCrunch-<version>-linux.AppImage
 #
@@ -16,7 +16,12 @@ APPDIR="$DIST/NeuroCrunch.AppDir"
 echo ">> Assembling AppDir"
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin"
-cp -a "$DIST/NeuroCrunch/." "$APPDIR/usr/bin/"
+
+if [ -d "$DIST/NeuroCrunch" ]; then
+  cp -a "$DIST/NeuroCrunch/." "$APPDIR/usr/bin/"
+else
+  cp "$DIST/NeuroCrunch" "$APPDIR/usr/bin/"
+fi
 
 # Launcher: resolve our own location and exec the frozen binary.
 cat > "$APPDIR/AppRun" <<'EOF'

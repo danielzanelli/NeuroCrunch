@@ -134,14 +134,3 @@ if sys.platform == 'darwin':
         icon=_icns,
         bundle_identifier=None,
     )
-else:
-    coll = COLLECT(
-        exe,
-        a.binaries,
-        a.zipfiles,
-        a.datas,
-        strip=False,
-        upx=True,
-        upx_exclude=[],
-        name='NeuroCrunch'
-    )

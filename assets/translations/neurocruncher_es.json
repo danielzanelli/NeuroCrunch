@@ -1,0 +1,49 @@
+{
+  "NeuroCrunch": {
+    "Programa inicializado": "Programa inicializado",
+    "Seleccionar carpeta local": "Seleccionar carpeta local",
+    "No se seleccionó ninguna carpeta local.": "No se seleccionó ninguna carpeta local.",
+    "La carpeta local \"{0}\" no existe.": "La carpeta local \"{0}\" no existe.",
+    "No se pudo crear la carpeta de plugins de usuario \"{0}\": {1}": "No se pudo crear la carpeta de plugins de usuario \"{0}\": {1}",
+    "No se pudo abrir la carpeta de scripts \"{0}\": {1}": "No se pudo abrir la carpeta de scripts \"{0}\": {1}",
+    "Carpeta de scripts de usuario: {0}": "Carpeta de scripts de usuario: {0}",
+    "NeuroCrunch {0} disponible": "NeuroCrunch {0} disponible",
+    "Actualización disponible": "Actualización disponible",
+    "Hay una nueva versión ({0}), pero no hay instalador para esta plataforma.\\nDescárgala manualmente desde:\\n": "Hay una nueva versión ({0}), pero no hay instalador para esta plataforma.\\nDescárgala manualmente desde:\\n",
+    "Hay una nueva versión disponible ({0}).\\n¿Descargarla ahora?": "Hay una nueva versión disponible ({0}).\\n¿Descargarla ahora?",
+    "El asset de actualización no tiene URL o nombre válidos.": "El asset de actualización no tiene URL o nombre válidos.",
+    "Descargando actualización: {0}...": "Descargando actualización: {0}...",
+    "Descargando actualización: {0}%": "Descargando actualización: {0}%",
+    "Descarga completa": "Descarga completa",
+    "Aplicar actualización": "Aplicar actualización",
+    "La actualización se descargó correctamente.\\n¿Reiniciar NeuroCrunch para aplicarla?": "La actualización se descargó correctamente.\\n¿Reiniciar NeuroCrunch para aplicarla?",
+    "Abrir": "Abrir",
+    "Mostrar en carpeta": "Mostrar en carpeta",
+    "El archivo/carpeta \"{0}\" no existe.": "El archivo/carpeta \"{0}\" no existe.",
+    "Abriendo en explorador de archivos: {0}": "Abriendo en explorador de archivos: {0}",
+    "Guardar configuración": "Guardar configuración",
+    "Archivo de configuración": "Archivo de configuración",
+    "Todos los archivos": "Todos los archivos",
+    "Cargar configuración": "Cargar configuración",
+    "No hay scripts seleccionados para ejecutar.": "No hay scripts seleccionados para ejecutar.",
+    "Los siguientes scripts seleccionados no tienen un orden de ejecución asignado: ": "Los siguientes scripts seleccionados no tienen un orden de ejecución asignado: ",
+    "Confirmar detención": "Confirmar detención",
+    "¿Estás seguro de que deseas detener el pipeline?\\nEsto interrumpirá el proceso actual.": "¿Estás seguro de que deseas detener el pipeline?\\nEsto interrumpirá el proceso actual.",
+    "Deteniendo pipeline...": "Deteniendo pipeline...",
+    "Detener\\nScript": "Detener\\nScript",
+    "Ejecutar\\nScript": "Ejecutar\\nScript",
+    "Pipeline finalizado exitosamente.": "Pipeline finalizado exitosamente.",
+    "Pipeline finalizado con errores.": "Pipeline finalizado con errores."
+  },
+  "CSVReaderWorker": {
+    "Abriendo CSV {0}: 0%": "Abriendo CSV {0}: 0%"
+  },
+  "ParamDialog": {
+    "Configurar: {0}": "Configurar: {0}",
+    "Este script no tiene parámetros configurables.": "Este script no tiene parámetros configurables.",
+    "Aceptar": "Aceptar",
+    "Cancelar": "Cancelar",
+    "Fuente: ": "Fuente: ",
+    "Valor pre-rellenado desde la salida de \"{0}\"": "Valor pre-rellenado desde la salida de \"{0}\""
+  }
+}

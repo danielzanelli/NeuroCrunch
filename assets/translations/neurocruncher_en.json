@@ -1,0 +1,49 @@
+{
+  "NeuroCrunch": {
+    "Programa inicializado": "Program initialized",
+    "Seleccionar carpeta local": "Select Local Folder",
+    "No se seleccionó ninguna carpeta local.": "No local folder selected.",
+    "La carpeta local \"{0}\" no existe.": "Local folder \"{0}\" does not exist.",
+    "No se pudo crear la carpeta de plugins de usuario \"{0}\": {1}": "Could not create user plugins folder \"{0}\": {1}",
+    "No se pudo abrir la carpeta de scripts \"{0}\": {1}": "Could not open scripts folder \"{0}\": {1}",
+    "Carpeta de scripts de usuario: {0}": "User scripts folder: {0}",
+    "NeuroCrunch {0} disponible": "NeuroCrunch {0} available",
+    "Actualización disponible": "Update Available",
+    "Hay una nueva versión ({0}), pero no hay instalador para esta plataforma.\\nDescárgala manualmente desde:\\n": "There is a new version ({0}), but there is no installer for this platform.\\nDownload it manually from:\\n",
+    "Hay una nueva versión disponible ({0}).\\n¿Descargarla ahora?": "A new version is available ({0}).\\nDownload it now?",
+    "El asset de actualización no tiene URL o nombre válidos.": "Update asset does not have valid URL or name.",
+    "Descargando actualización: {0}...": "Downloading update: {0}...",
+    "Descargando actualización: {0}%": "Downloading update: {0}%",
+    "Descarga completa": "Download complete",
+    "Aplicar actualización": "Apply Update",
+    "La actualización se descargó correctamente.\\n¿Reiniciar NeuroCrunch para aplicarla?": "Update downloaded successfully.\\nRestart NeuroCrunch to apply it?",
+    "Abrir": "Open",
+    "Mostrar en carpeta": "Show in folder",
+    "El archivo/carpeta \"{0}\" no existe.": "File/folder \"{0}\" does not exist.",
+    "Abriendo en explorador de archivos: {0}": "Opening in file explorer: {0}",
+    "Guardar configuración": "Save Configuration",
+    "Archivo de configuración": "Configuration File",
+    "Todos los archivos": "All Files",
+    "Cargar configuración": "Load Configuration",
+    "No hay scripts seleccionados para ejecutar.": "No scripts selected to run.",
+    "Los siguientes scripts seleccionados no tienen un orden de ejecución asignado: ": "The following selected scripts do not have an execution order assigned: ",
+    "Confirmar detención": "Confirm Stop",
+    "¿Estás seguro de que deseas detener el pipeline?\\nEsto interrumpirá el proceso actual.": "Are you sure you want to stop the pipeline?\\nThis will interrupt the current process.",
+    "Deteniendo pipeline...": "Stopping pipeline...",
+    "Detener\\nScript": "Stop\\nScript",
+    "Ejecutar\\nScript": "Run\\nScript",
+    "Pipeline finalizado exitosamente.": "Pipeline completed successfully.",
+    "Pipeline finalizado con errores.": "Pipeline completed with errors."
+  },
+  "CSVReaderWorker": {
+    "Abriendo CSV {0}: 0%": "Opening CSV {0}: 0%"
+  },
+  "ParamDialog": {
+    "Configurar: {0}": "Configure: {0}",
+    "Este script no tiene parámetros configurables.": "This script has no configurable parameters.",
+    "Aceptar": "Accept",
+    "Cancelar": "Cancel",
+    "Fuente: ": "Source: ",
+    "Valor pre-rellenado desde la salida de \"{0}\"": "Value pre-filled from the output of \"{0}\""
+  }
+}

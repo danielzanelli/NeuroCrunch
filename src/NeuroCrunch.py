@@ -59,7 +59,7 @@ class CSVReaderWorker(QThread):
         """Run in background thread."""
         try:
             filename = os.path.basename(self.file_path)
-            self.progress_updated.emit(f'Abriendo CSV {filename}: 0%')
+            self.progress_updated.emit(QCoreApplication.translate('CSVReaderWorker', f'Abriendo CSV {filename}: 0%'))
             
             if self.file_path.lower().endswith('.csv'):
                 # Count total lines upfront so progress can be calculated correctly
@@ -99,6 +99,13 @@ class NeuroCrunch(QMainWindow):
         super(NeuroCrunch, self).__init__()
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
+
+        # Set up translation
+        self.translator = None
+        self.current_language = 'es'  # Default to Spanish
+        self._translation_dict = {}
+        self._use_json_translations = False
+        self._setup_translator()
 
 
         # Set all viewers to hidden initially
@@ -164,12 +171,62 @@ class NeuroCrunch(QMainWindow):
         # Note: checkbox changes are now handled by individual QCheckBox widgets
 
         
-        self.print('Programa inicializado - ' + datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
+        self.print(self.tr('Programa inicializado') + ' - ' + datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
 
         # Silently check GitHub Releases for a newer version once the UI is up.
         self._update_checker = None
         self._update_downloader = None
         QTimer.singleShot(0, self.check_for_updates)
+
+    def _setup_translator(self):
+        """Load translations for the current language."""
+        from PySide6.QtCore import QTranslator
+        import json
+
+        asset_path = get_asset_path()
+        translations_dir = os.path.join(asset_path, 'translations')
+
+        if not os.path.exists(translations_dir):
+            return
+
+        # Try to load .qm file first (binary format)
+        translator = QTranslator()
+        qm_file = os.path.join(translations_dir, f'neurocruncher_{self.current_language}.qm')
+
+        if os.path.exists(qm_file):
+            if translator.load(qm_file):
+                self.translator = translator
+                QApplication.instance().installTranslator(translator)
+                return
+
+        # Fallback: try JSON format (for development/testing)
+        json_file = os.path.join(translations_dir, f'neurocruncher_{self.current_language}.qm.json')
+        if os.path.exists(json_file):
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    self._translation_dict = json.load(f)
+                    self._use_json_translations = True
+                return
+            except Exception:
+                pass
+
+        # No translations found, use default (source language)
+
+    def tr(self, text: str, context: str = 'NeuroCrunch') -> str:
+        """Translate a string using QCoreApplication.translate or JSON fallback."""
+        # Use Qt's translation system if available
+        translated = QCoreApplication.translate(context, text)
+        if translated != text:  # Translation found
+            return translated
+
+        # Fallback: check JSON translations
+        if hasattr(self, '_use_json_translations') and self._use_json_translations:
+            trans_dict = getattr(self, '_translation_dict', {})
+            context_trans = trans_dict.get(context, {})
+            if text in context_trans:
+                return context_trans[text]
+
+        return text
 
 
 
@@ -189,7 +246,7 @@ class NeuroCrunch(QMainWindow):
         self.ui.log.ensureCursorVisible()
 
     def select_local_folder(self):
-        selected_folder = askdirectory(title='Seleccionar carpeta local')
+        selected_folder = askdirectory(title=self.tr('Seleccionar carpeta local'))
         if selected_folder:
             self.local_folder = selected_folder
             self.ui.file_viewer.setHeaderLabel(self.local_folder)
@@ -201,10 +258,10 @@ class NeuroCrunch(QMainWindow):
     def refresh_local_folder(self):
         self.ui.file_viewer.clear()
         if not self.local_folder:
-            self.print('No se seleccionó ninguna carpeta local.')
+            self.print(self.tr('No se seleccionó ninguna carpeta local.'))
             return
         if not os.path.exists(self.local_folder):
-            self.print(f'La carpeta local "{self.local_folder}" no existe.')
+            self.print(self.tr(f'La carpeta local "{self.local_folder}" no existe.'))
             return
         
         content = self.get_dir_content(self.local_folder)
@@ -228,7 +285,7 @@ class NeuroCrunch(QMainWindow):
         try:
             os.makedirs(path, exist_ok=True)
         except OSError as e:
-            self.print(f'No se pudo crear la carpeta de plugins de usuario "{path}": {str(e)}')
+            self.print(self.tr(f'No se pudo crear la carpeta de plugins de usuario "{path}": {str(e)}'))
 
         return path
 
@@ -244,10 +301,10 @@ class NeuroCrunch(QMainWindow):
         try:
             os.makedirs(path, exist_ok=True)
         except OSError as e:
-            self.print(f'No se pudo abrir la carpeta de scripts "{path}": {str(e)}')
+            self.print(self.tr(f'No se pudo abrir la carpeta de scripts "{path}": {str(e)}'))
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
-        self.print(f'Carpeta de scripts de usuario: {path}')
+        self.print(self.tr(f'Carpeta de scripts de usuario: {path}'))
 
     def rescan_scripts(self):
         """Re-discover bundled + user scripts and refresh the scripts table.
@@ -286,17 +343,17 @@ class NeuroCrunch(QMainWindow):
 
     def _on_update_available(self, release):
         version = release.get('version', '')
-        self.statusBar().showMessage(f'NeuroCrunch {version} disponible')
+        self.statusBar().showMessage(self.tr(f'NeuroCrunch {version} disponible'))
         asset = release.get('asset')
         if not asset:
             QMessageBox.information(
-                self, 'Actualización disponible',
-                f'Hay una nueva versión ({version}), pero no hay instalador para esta '
-                f'plataforma.\nDescárgala manualmente desde:\n{release.get("html_url", "")}')
+                self, self.tr('Actualización disponible'),
+                self.tr(f'Hay una nueva versión ({version}), pero no hay instalador para esta ')
+                + self.tr('plataforma.\nDescárgala manualmente desde:\n') + release.get("html_url", ""))
             return
         reply = QMessageBox.question(
-            self, 'Actualización disponible',
-            f'Hay una nueva versión disponible ({version}).\n¿Descargarla ahora?')
+            self, self.tr('Actualización disponible'),
+            self.tr(f'Hay una nueva versión disponible ({version}).\n¿Descargarla ahora?'))
         if reply == QMessageBox.Yes:
             self._start_update_download(asset)
 
@@ -304,22 +361,21 @@ class NeuroCrunch(QMainWindow):
         url = asset.get('browser_download_url')
         name = asset.get('name')
         if not url or not name:
-            self.print('El asset de actualización no tiene URL o nombre válidos.')
+            self.print(self.tr('El asset de actualización no tiene URL o nombre válidos.'))
             return
-        self.print(f'Descargando actualización: {name}...')
+        self.print(self.tr(f'Descargando actualización: {name}...'))
         self._update_downloader = UpdateDownloader(url, name)
         self._update_downloader.progress.connect(
-            lambda pct: self.statusBar().showMessage(f'Descargando actualización: {pct}%'))
+            lambda pct: self.statusBar().showMessage(self.tr(f'Descargando actualización: {pct}%')))
         self._update_downloader.finished_ok.connect(self._on_update_downloaded)
         self._update_downloader.error.connect(self.print)
         self._update_downloader.start()
 
     def _on_update_downloaded(self, path):
-        self.statusBar().showMessage('Descarga completa')
+        self.statusBar().showMessage(self.tr('Descarga completa'))
         reply = QMessageBox.question(
-            self, 'Aplicar actualización',
-            'La actualización se descargó correctamente.\n'
-            '¿Reiniciar NeuroCrunch para aplicarla?')
+            self, self.tr('Aplicar actualización'),
+            self.tr('La actualización se descargó correctamente.\n¿Reiniciar NeuroCrunch para aplicarla?'))
         if reply == QMessageBox.Yes:
             apply_update(path)
             QApplication.quit()
@@ -401,13 +457,13 @@ class NeuroCrunch(QMainWindow):
         menu = QMenu()
         
         # Open file action
-        open_action = menu.addAction("Abrir")
+        open_action = menu.addAction(self.tr("Abrir"))
         open_action.triggered.connect(lambda: self.on_file_viewer_double_clicked(item, 0))
-        
+
         menu.addSeparator()
-        
+
         # Open in location action
-        open_location_action = menu.addAction("Mostrar en carpeta")
+        open_location_action = menu.addAction(self.tr("Mostrar en carpeta"))
         open_location_action.triggered.connect(lambda: self.open_in_file_explorer(file_path))
         
         menu.exec(self.ui.file_viewer.mapToGlobal(position))
@@ -415,7 +471,7 @@ class NeuroCrunch(QMainWindow):
     def open_in_file_explorer(self, file_path):
         """Open file or folder in system file explorer"""
         if not os.path.exists(file_path):
-            self.print(f'El archivo/carpeta "{file_path}" no existe.')
+            self.print(self.tr(f'El archivo/carpeta "{file_path}" no existe.'))
             return
         
         try:
@@ -429,7 +485,7 @@ class NeuroCrunch(QMainWindow):
                 # Linux: open with file manager
                 subprocess.Popen(['xdg-open', os.path.dirname(file_path)])
             
-            self.print(f'Abriendo en explorador de archivos: {file_path}')
+            self.print(self.tr(f'Abriendo en explorador de archivos: {file_path}'))
         except Exception as e:
             self.print(f'Error al abrir explorador: {str(e)}')
 
@@ -470,7 +526,7 @@ class NeuroCrunch(QMainWindow):
                 else:
                     self.show_text_file(file_path)
             except Exception as e:
-                self.print(f"Error al abrir el archivo:\n{str(e)}")
+                self.print(self.tr(f"Error al abrir el archivo:\n{str(e)}"))
 
     def show_column_range_dialog(self, total_columns):
         """Show a dialog to let user select column range. Returns (start_col, end_col) or None if cancelled."""
@@ -710,9 +766,9 @@ class NeuroCrunch(QMainWindow):
     def save_config(self) -> None:
         """Save the current script configuration to a JSON .config file."""
         file_path = asksaveasfilename(
-            title='Guardar configuración',
+            title=self.tr('Guardar configuración'),
             defaultextension='.config',
-            filetypes=[('Archivo de configuración', '*.config'), ('Todos los archivos', '*.*')],
+            filetypes=[(self.tr('Archivo de configuración'), '*.config'), (self.tr('Todos los archivos'), '*.*')],
         )
         if not file_path:
             return
@@ -730,8 +786,8 @@ class NeuroCrunch(QMainWindow):
     def load_config(self) -> None:
         """Load a previously saved .config file into self.config and refresh the table."""
         file_path = askopenfilename(
-            title='Cargar configuración',
-            filetypes=[('Archivo de configuración', '*.config'), ('Todos los archivos', '*.*')],
+            title=self.tr('Cargar configuración'),
+            filetypes=[(self.tr('Archivo de configuración'), '*.config'), (self.tr('Todos los archivos'), '*.*')],
         )
         if not file_path:
             return
@@ -796,7 +852,7 @@ class NeuroCrunch(QMainWindow):
             if self.config.get(script_id, {}).get('ejecutar')
         ]
         if not selected:
-            self.print('No hay scripts seleccionados para ejecutar.')
+            self.print(self.tr('No hay scripts seleccionados para ejecutar.'))
             return None
 
         missing_order = [
@@ -805,7 +861,7 @@ class NeuroCrunch(QMainWindow):
         ]
         if missing_order:
             self.print(
-                'Los siguientes scripts seleccionados no tienen un orden de ejecución asignado: '
+                self.tr('Los siguientes scripts seleccionados no tienen un orden de ejecución asignado: ')
                 + ', '.join(missing_order)
             )
             return None
@@ -828,13 +884,13 @@ class NeuroCrunch(QMainWindow):
             # Pipeline is running — ask for confirmation before stopping
             reply = QMessageBox.warning(
                 self,
-                'Confirmar detención',
-                '¿Estás seguro de que deseas detener el pipeline?\nEsto interrumpirá el proceso actual.',
+                self.tr('Confirmar detención'),
+                self.tr('¿Estás seguro de que deseas detener el pipeline?\nEsto interrumpirá el proceso actual.'),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
             if reply == QMessageBox.Yes:
-                self.print('Deteniendo pipeline...')
+                self.print(self.tr('Deteniendo pipeline...'))
                 self._script_runner.stop()
             return
 
@@ -844,7 +900,7 @@ class NeuroCrunch(QMainWindow):
             return
 
         self.ui.btn_execute_scripts.setEnabled(True)
-        self.ui.btn_execute_scripts.setText('Detener\nScript')
+        self.ui.btn_execute_scripts.setText(self.tr('Detener\nScript'))
 
         self._script_runner = ScriptRunner(pipeline, self.pipeline_context_store, self)
         self._script_runner.log_message.connect(self._on_log_message)
@@ -882,9 +938,9 @@ class NeuroCrunch(QMainWindow):
 
     def _on_pipeline_done(self, success: bool) -> None:
         self.ui.btn_execute_scripts.setEnabled(True)
-        self.ui.btn_execute_scripts.setText('Ejecutar\nScript')
+        self.ui.btn_execute_scripts.setText(self.tr('Ejecutar\nScript'))
         self.statusBar().clearMessage()
-        self.print('Pipeline finalizado exitosamente.' if success else 'Pipeline finalizado con errores.')
+        self.print(self.tr('Pipeline finalizado exitosamente.') if success else self.tr('Pipeline finalizado con errores.'))
         # Clean up the temporary pipeline context and create a new one for the next run
         self.pipeline_context_store.cleanup()
         self.pipeline_context_store = PipelineContext()
@@ -962,7 +1018,7 @@ class NeuroCrunch(QMainWindow):
     def _on_csv_loaded(self, data):
         """Handle CSV loaded from background thread."""
         
-        self.print(f'Cargado: {len(data)} filas, {len(data.columns)} columnas')     
+        self.print(self.tr(f'Cargado: {len(data)} filas, {len(data.columns)} columnas'))     
         self.data = data
 
         # Create two spinboxes and a button at the bottom of the self.ui.plot_frame
@@ -1124,10 +1180,10 @@ class NeuroCrunch(QMainWindow):
         try:
             rois = read_roi.read_roi_zip(roi_zip_path)
             if not rois:
-                self.print(f'No se encontraron ROIs en {os.path.basename(roi_zip_path)}')
+                self.print(self.tr(f'No se encontraron ROIs en {os.path.basename(roi_zip_path)}'))
                 return
             self.roi_data = rois
-            self.print(f'ROIs cargados: {len(rois)} regiones de {os.path.basename(roi_zip_path)}')
+            self.print(self.tr(f'ROIs cargados: {len(rois)} regiones de {os.path.basename(roi_zip_path)}'))
         except Exception as e:
             self.print(f'Error al cargar ROI:\n{str(e)}')
 
@@ -1227,7 +1283,7 @@ class NeuroCrunch(QMainWindow):
                 self.media_player.play()
 
             self.play_button.setText("||")
-            self.print(f'Reproduciendo video: {os.path.basename(file_path)}')
+            self.print(self.tr(f'Reproduciendo video: {os.path.basename(file_path)}'))
 
         except Exception as e:
             self.print(f"Error al cargar video:\n{str(e)}")
@@ -1337,7 +1393,7 @@ class NeuroCrunch(QMainWindow):
             layout.addWidget(self._pdf_view)
             layout.setContentsMargins(0, 0, 0, 0)
             self._pdf_view.show()
-            self.print(f'Cargando PDF (QPdfView): {os.path.basename(file_path)}')
+            self.print(self.tr(f'Cargando PDF (QPdfView): {os.path.basename(file_path)}'))
             return
         except Exception:
             # QtPdf not available or failed — fall back to QWebEngineView below
@@ -1365,7 +1421,7 @@ class NeuroCrunch(QMainWindow):
             web_view.show()
             web_view.setFocus()
             self._web_pdf_view = web_view
-            self.print(f'Cargando PDF (QWebEngineView): {os.path.basename(file_path)}')
+            self.print(self.tr(f'Cargando PDF (QWebEngineView): {os.path.basename(file_path)}'))
         except Exception as e:
             self.print(f"Error al cargar PDF:\n{str(e)}")
             self.ui.pdf_viewer.hide()

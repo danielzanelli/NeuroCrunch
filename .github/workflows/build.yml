@@ -43,6 +43,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
+      - name: Build translations
+        run: python build_translations.py
+        continue-on-error: true
+
       - name: Derive version
         # On a tag build, VERSION is the tag without the leading 'v' (e.g. 0.1.0).
         # On a manual run, fall back to whatever version.json declares.

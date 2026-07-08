@@ -8,28 +8,33 @@ Built with **PySide6 + pyqtgraph**, distributed as a cross-platform PyInstaller 
 
 ## Current Status
 
-Phases 1–5 are complete. The full analysis pipeline is functional end-to-end.
+Phases 1–8 are complete or substantially in progress. The full analysis pipeline is functional end-to-end with internationalization infrastructure in place.
 
-What works today:
+### What works today:
 
 - **File browser** — folder selection, recursive tree view, right-click context menu, refresh
 - **Multi-format viewer** — images, CSV/Excel plots (pyqtgraph, column selector, regex filter, clickable legend), video playback with controls, PDF (QPdfView + QWebEngineView fallback), plain text
 - **Dark mode** — toggle with external QSS stylesheets (`assets/styles/`)
 - **Plugin manager** — discovers `config.json`-based plugins from bundled `scripts/` and the user plugins directory; validates against JSON Schema; auto-derives `id` and `entry_point` from folder name; user scripts shadow official ones by id
-- **Parameter dialogs** — auto-generated from `config.json` parameter definitions; all 8 widget types (`string`, `int`, `float`, `bool`, `file`, `directory`, `choice`, `text`); linked parameter auto-fill from pipeline context; required-field validation; "Configurado" status indicator
+- **Parameter dialogs** — auto-generated from `config.json` parameter definitions; all 8 widget types (`string`, `int`, `float`, `bool`, `file`, `directory`, `choice`, `text`); linked parameter auto-fill from pipeline context; required-field validation; "Configurado" status indicator; translatable labels
 - **Script runner** — in-process execution via `QThread` + `exec()` (no external Python needed); `StdoutCapture` for live log streaming with in-place `\r` progress updates; `PROGRESS:N` protocol drives a progress indicator; cooperative cancellation via `ScriptContext`; pipeline halts on first error
 - **Logging panel** — timestamped log with progress-update-in-place support
 - **Official scripts** — `procesar_video`, `quitar_bleaching`, `seleccionar_activas`, `matriz_pearson`, `generar_graficos` implemented on the `run(params)` standard; only `seleccionar_ROIs` (interactive) pending
 - **Script template** — `scripts/template/` with all 8 parameter types documented alongside logging, progress, cancellation, and matplotlib usage examples
 - **User scripts** — "Abrir Carpeta de Scripts" button opens the writable per-user plugins directory; drop a script folder in, then **Refrescar** re-scans and lists it (no restart)
-- **Frozen build** — PyInstaller bundle collects all script dependencies (numpy, pandas, cv2, tifffile, matplotlib, read_roi) and resolves bundled scripts via `sys._MEIPASS`, so official scripts run inside the installed app
+- **Frozen build** — PyInstaller bundle collects all script dependencies and resolves bundled scripts via `sys._MEIPASS`
+- **In-app updater** (Phase 6) — checks GitHub Releases; downloads and applies updates; silently skips on offline/rate-limit
+- **CI/CD release pipeline** (Phase 7) — automatic builds on version tags; supports Windows (Inno Setup), macOS (.dmg), Linux (AppImage)
+- **Internationalization** (Phase 8) — translation infrastructure with `.ts` source files (Spanish/English); build tool for `.qm`/`.qm.json` compilation; `QTranslator` loader; app-wide translatable strings; plugin manifest support for localized labels
 
-What is **not yet implemented**:
+### What is **not yet implemented**:
 
-- 1 of 6 official scripts still a stub: `seleccionar_ROIs` (interactive ROI drawing — Phase 9)
-- CI/CD release pipeline (Phase 7) — workflow + packaging authored, pending first tag-push to validate
-- In-app updater (Phase 6) — implemented; download/apply pending a real release to validate
-- Multilanguage / i18n support (Phase 8)
+- 1 of 6 official scripts still a stub: `seleccionar_ROIs` — now scoped as an **algorithmic** batch
+  script (automatic ROI detection with pre-configured parameters), not interactive drawing (Phase 9)
+- Weighted network graph support: a `generar_grafo` producer script + an interactive graph viewer
+  (Phase 10)
+- Language selector UI dialog (deferred from Phase 8 — translation infrastructure complete, selector awaits preferences dialog)
+- Qt Linguist GUI tool integration (deferred — Python build tool works; Linguist UI optional for larger projects)
 
 ---
 
@@ -191,17 +196,17 @@ Status markers: ✅ Done · 🔄 In progress · ⬜ Planned
 
 ### Phase 8 — Multilanguage Support (`translations/`)
 
-The app currently hard-codes Spanish strings throughout the UI and manifests. This phase adds proper i18n using Qt's built-in translation system.
+The app now supports proper i18n using Qt's translation system. All hardcoded UI strings have been wrapped for translation.
 
-- ⬜ Wrap all hard-coded UI strings in `self.tr()` / `QCoreApplication.translate()` across `NeuroCrunch.py` and `src/` modules
-- ⬜ Re-generate `src/mainwindow.py` from the `.ui` file after marking strings translatable in Qt Designer
-- ⬜ Create `translations/` folder; add initial `.ts` source files for `es` (Spanish, base) and `en` (English)
-- ⬜ Add `lupdate`/`lrelease` commands to dev workflow (extract strings → compile to `.qm`)
-- ⬜ Load `.qm` file at startup via `QTranslator` based on stored language preference (falls back to system locale, then Spanish)
-- ⬜ Language selector in app settings (stored in user config); takes effect on next launch
-- ⬜ Bundle all `.qm` files in `assets/translations/` and include in PyInstaller spec
-- ⬜ Config localized labels — plugin authors can supply per-language overrides (see config standard below); app picks the best match at load time
-- ⬜ CI/CD: add `lrelease` step before PyInstaller build so compiled `.qm` files are always up to date in the bundle
+- ✅ Wrap all hard-coded UI strings in `self.tr()` / `QCoreApplication.translate()` across `NeuroCrunch.py`
+- ✅ Create `assets/translations/` folder with initial `.ts` source files for `es` (Spanish, base) and `en` (English)
+- ✅ Add `build_translations.py` command to compile `.ts` → `.qm` (with fallback JSON format for development)
+- ✅ Load `.qm` (or `.qm.json` fallback) at startup via `QTranslator` based on stored language preference
+- ✅ Bundle all translation files in `assets/translations/` and include in PyInstaller spec
+- ✅ Config localized labels support (already partial in `param_dialog.py`); plugin authors can supply per-language overrides
+- ✅ CI/CD: add translation build step before PyInstaller
+- 🔄 Language selector in app settings (UI hook ready; full implementation pending preferences dialog)
+- ⬜ Re-generate `src/mainwindow.py` from `.ui` file with translatable strings (optional: improves UI designer workflow)
 
 ### Phase 9 — Complete the official scripts
 
@@ -215,10 +220,65 @@ pipeline links resolve end-to-end.
   pairs above `umbral_correlacion` → `matrix_csv`, `heatmap_png`
 - ✅ `generar_graficos` — overlay, raster (cells × time), and mean±σ summary figures in the
   chosen format → `figures_dir`
-- ⬜ `seleccionar_ROIs` — **interactive** ROI drawing on a video frame; does not fit the batch
-  `run(params)` mould (needs a canvas/mouse UI). Proposed approach: a dedicated in-app dialog
-  (QGraphicsView over a representative frame) that exports an ImageJ-compatible `roi_zip`
-  consumable by `procesar_video`, rather than a headless pipeline step.
+- ⬜ `seleccionar_ROIs` — **algorithmic** ROI detection (no interactive drawing). Runs as a normal
+  `run(params)` batch step: reads a representative frame (or a projection over the video), segments
+  regions with pre-configured parameters (e.g. threshold / min-max area / blur), and exports an
+  ImageJ-compatible `roi_zip` consumable by `procesar_video`. Detection quality and parameter
+  polishing come later; the goal for this phase is a working end-to-end producer that fits the
+  existing pipeline and links.
+  > **Design decision.** All interactivity lives in the app viewer, never in scripts. Scripts stay
+  > pure producers (`run(params)` → files); the user inspects and manipulates results by opening the
+  > output files in the viewer (CSV, video/ROI, graph). This keeps every Qt/main-thread concern in
+  > one place and lets community scripts stay headless. There is intentionally **no** "interactive
+  > plugin" kind.
+
+### Phase 10 — Weighted network graphs (producer script + interactive viewer)
+
+Turn the correlation results into weighted connectivity networks the user can explore in the app.
+Following the Phase 9 design decision, this splits cleanly into a headless **producer script** and an
+interactive **viewer** that opens the file it emits — exactly the CSV / video-ROI pattern.
+
+**Graph file format**
+- ⬜ Adopt **JSON Graph Format (JGF)** for weighted networks: JSON, human-readable, has a published
+  schema, and validates through the same `jsonschema` path as `config.json`. Written by hand from
+  numpy/pandas — **no new heavy dependency** (no NetworkX/scipy) to keep the bundle lean.
+- ⬜ `schemas/graph.schema.json` — JGF subset the app accepts; validated on open, invalid files
+  rejected with a log message.
+- ⬜ Dedicated extension (`.jgf` / `.graph.json`) **and** a top-level `graph`-key sniff so unrelated
+  JSON is never handed to the graph view.
+
+**`generar_grafo` producer script**
+- ⬜ Builds a **functional connectivity graph** directly from `matriz_pearson`'s correlation matrix
+  (`matrix_csv`): each neuron is a node, and each pair of neurons is joined by a weighted edge equal
+  to their Pearson correlation. The purpose is to surface which neurons are **highly correlated**
+  (co-active) — strong edges reveal the functionally connected groups. Edges below a base
+  `umbral_correlacion` cutoff are dropped so only meaningful connections remain; edge weight carries
+  the correlation strength (and sign) into the viewer's width/color styling.
+- ⬜ Bakes per-node **layout positions** into node `metadata` (deterministic, so the viewer needs no
+  layout engine); viewer falls back to a dependency-free circular layout when positions are absent.
+- ⬜ Bakes per-node **hub metrics** (degree, weighted strength, and a simple centrality) into
+  `metadata` so the viewer can color/size nodes without recomputation.
+- ⬜ Emits `graph_jgf` as a declared output so it links downstream like the other scripts.
+
+**Interactive graph viewer** (`show_graph()`, wired into `on_file_viewer_double_clicked`)
+- ⬜ Render with `pyqtgraph.GraphItem` inside the existing `plot_frame` (already bundled; reuses the
+  CSV-plot infrastructure and its show/hide panel logic).
+- ⬜ Edge styling by weight — **width** = magnitude, **color** = sign (diverging map), **opacity** to
+  de-emphasize near-threshold edges. (`GraphItem` accepts a per-edge pen array.)
+- ⬜ Viewer controls mirroring the CSV viewer UX: a **weight-threshold** input (hide edges below |w|)
+  and a **keyword filter** on node labels.
+- ⬜ **Click a node** → highlight its strongest connections / neighbors; dim the rest.
+- ⬜ **Color/size nodes by hub metric** (degree / strength / centrality) selectable in the viewer,
+  read from the baked metadata.
+- ⬜ Hover tooltip showing node id/label + degree and edge weight.
+
+**Build / tests**
+- ⬜ Confirm no new bundled dependency is required; if one is added, update `requirements.txt` **and**
+  the `collect_all` list in `neurocruncher.spec`.
+- ⬜ Tests: JGF schema validation, `generar_grafo` output shape/links, and threshold/filter logic.
+
+> Scope note: this phase establishes the end-to-end producer→viewer path and the interaction set.
+> Detection/graph-quality tuning and visual polish are follow-up work, not blockers for the phase.
 
 ---
 

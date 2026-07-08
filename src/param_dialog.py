@@ -121,7 +121,8 @@ class ParamDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        self.setWindowTitle(f'Configurar: {self._plugin_info.name}')
+        from PySide6.QtCore import QCoreApplication
+        self.setWindowTitle(QCoreApplication.translate('ParamDialog', f'Configurar: {self._plugin_info.name}'))
         self.setMinimumWidth(480)
 
         outer_layout = QVBoxLayout(self)
@@ -142,7 +143,7 @@ class ParamDialog(QDialog):
         parameters: List[Dict[str, Any]] = self._plugin_info.parameters or []
 
         if not parameters:
-            no_params = QLabel('Este script no tiene parámetros configurables.')
+            no_params = QLabel(QCoreApplication.translate('ParamDialog', 'Este script no tiene parámetros configurables.'))
             no_params.setAlignment(Qt.AlignCenter)
             form_layout.addRow(no_params)
         else:
@@ -156,8 +157,8 @@ class ParamDialog(QDialog):
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        button_box.button(QDialogButtonBox.StandardButton.Ok).setText('Aceptar')
-        button_box.button(QDialogButtonBox.StandardButton.Cancel).setText('Cancelar')
+        button_box.button(QDialogButtonBox.StandardButton.Ok).setText(QCoreApplication.translate('ParamDialog', 'Aceptar'))
+        button_box.button(QDialogButtonBox.StandardButton.Cancel).setText(QCoreApplication.translate('ParamDialog', 'Cancelar'))
         button_box.accepted.connect(self._on_accept)
         button_box.rejected.connect(self.reject)
         outer_layout.addWidget(button_box)
@@ -209,9 +210,9 @@ class ParamDialog(QDialog):
 
         # Wrap with link hint if applicable
         if link_source:
-            hint_label = QLabel(f'<i>Fuente: {link_source}</i>')
+            hint_label = QLabel(f'<i>{QCoreApplication.translate("ParamDialog", "Fuente: ")}{link_source}</i>')
             hint_label.setStyleSheet('color: #888888; font-size: 10px;')
-            hint_label.setToolTip(f'Valor pre-rellenado desde la salida de "{link_source}"')
+            hint_label.setToolTip(QCoreApplication.translate('ParamDialog', f'Valor pre-rellenado desde la salida de "{link_source}"'))
             container = QWidget()
             vbox = QVBoxLayout(container)
             vbox.setContentsMargins(0, 0, 0, 0)

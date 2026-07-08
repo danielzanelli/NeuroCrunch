@@ -205,7 +205,8 @@ def apply_update(asset_path: str) -> None:
     system = sys.platform
     if system == 'win32':
         # /SILENT runs without wizard pages; /CLOSEAPPLICATIONS lets Inno close us.
-        subprocess.Popen([asset_path, '/SILENT', '/CLOSEAPPLICATIONS', '/NORESTART'])
+        # Use shell=True with quoted path to handle spaces in the path correctly.
+        subprocess.Popen(f'"{asset_path}" /SILENT /CLOSEAPPLICATIONS', shell=True)
     elif system == 'darwin':
         subprocess.Popen(['open', asset_path])
     else:

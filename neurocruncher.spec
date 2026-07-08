@@ -10,6 +10,10 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 block_cipher = None
 
+# On macOS, use console=True so COLLECT works; CI wraps as .app afterward (which hides console).
+# On Windows/Linux, use console=False to avoid showing a terminal window to users.
+_console = sys.platform != 'win32' and sys.platform != 'linux'
+
 # The bundled analysis scripts in scripts/ are shipped as data files and loaded at
 # runtime via exec(). PyInstaller's static analysis never scans them, so the libraries
 # they import must be collected explicitly here — otherwise a frozen build raises
@@ -118,7 +122,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # Set to True if you want a console window
+    console=_console,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,

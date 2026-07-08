@@ -1,4 +1,5 @@
 # This Python file uses the following encoding: utf-8
+# SPDX-License-Identifier: Apache-2.0
 """procesar_video — Extrae trazas de fluorescencia de un video con ROIs.
 
 Calcula métricas (máximo, media, desvío estándar, integral) dentro de cada ROI

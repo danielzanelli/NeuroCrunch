@@ -1,5 +1,7 @@
 # NeuroCrunch
 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 A desktop application for neuroscience data analysis. Provides a file browser, multi-format viewer (images, video, CSV plots, PDFs), and a scriptable processing pipeline where analysis scripts can be configured, chained, and executed from the UI.
 
 Built with **PySide6 + pyqtgraph**, distributed as a cross-platform PyInstaller bundle.
@@ -286,6 +288,8 @@ interactive **viewer** that opens the file it emits — exactly the CSV / video-
 
 Every script — official or community — lives in its own subfolder and contains exactly two files: a `config.json` and a Python file named after the folder.
 
+Community scripts are independent works: authors may license them however they choose (the app imposes no license on plugins). The official scripts bundled in `scripts/` are part of this repository and covered by its Apache-2.0 license.
+
 ### `config.json`
 
 ```json
@@ -464,6 +468,14 @@ Releases are currently **unsigned**, so the OS will warn on first launch. This i
 - **Linux (AppImage)** — no gatekeeper. Make it executable and run: `chmod +x NeuroCrunch-*-linux.AppImage && ./NeuroCrunch-*-linux.AppImage`.
 
 Signing (a Windows code-signing certificate and Apple notarization) can be added later to remove these warnings.
+
+---
+
+## License
+
+NeuroCrunch is licensed under the [Apache License 2.0](LICENSE) — a permissive license standard in scientific software. You are free to use, modify, and redistribute it (including commercially), provided you preserve the [LICENSE](LICENSE) and [NOTICE](NOTICE) files.
+
+Bundled third-party components (Qt/PySide6 under LGPL-3.0, plus the permissively licensed scientific stack) are documented in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ---
 

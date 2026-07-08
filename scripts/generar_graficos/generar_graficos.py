@@ -1,4 +1,5 @@
 # This Python file uses the following encoding: utf-8
+# SPDX-License-Identifier: Apache-2.0
 """generar_graficos — Genera gráficos de resumen a partir de trazas procesadas.
 
 Lee un CSV de trazas (columnas = células, filas = tiempo) y produce, en la carpeta

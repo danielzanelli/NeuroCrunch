@@ -1,4 +1,5 @@
 # This Python file uses the following encoding: utf-8
+# SPDX-License-Identifier: Apache-2.0
 """NeuroCrunch - Script Runner (Phase 5)
 
 Executes a configured pipeline of script plugins in the bundled Python

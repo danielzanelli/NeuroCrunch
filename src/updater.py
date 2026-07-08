@@ -1,4 +1,5 @@
 # This Python file uses the following encoding: utf-8
+# SPDX-License-Identifier: Apache-2.0
 """NeuroCrunch - In-app Updater (Phase 6).
 
 On startup the app checks GitHub Releases for a newer stable version and, if one

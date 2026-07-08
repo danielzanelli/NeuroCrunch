@@ -1,4 +1,5 @@
 # This Python file uses the following encoding: utf-8
+# SPDX-License-Identifier: Apache-2.0
 """seleccionar_activas — Selecciona células/trazas activas por umbral de actividad.
 
 Lee un CSV de trazas de fluorescencia (columnas = células/métricas, filas = tiempo),

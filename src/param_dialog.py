@@ -1,4 +1,5 @@
 # This Python file uses the following encoding: utf-8
+# SPDX-License-Identifier: Apache-2.0
 """NeuroCrunch - Parameter Dialog (Phase 3)
 
 Auto-generates a configuration dialog for a script plugin based on its

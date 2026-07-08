@@ -47,6 +47,9 @@ a = Analysis(
         ('scripts', 'scripts'),  # Include bundled official analysis scripts
         ('schemas', 'schemas'),  # Include plugin manifest JSON Schema
         ('version.json', '.'),  # Include version metadata for the updater
+        ('LICENSE', '.'),  # Apache-2.0 license
+        ('NOTICE', '.'),  # Apache-2.0 NOTICE file
+        ('THIRD-PARTY-NOTICES.md', '.'),  # Bundled third-party licenses (incl. Qt LGPL statement)
     ] + _script_datas,
     hiddenimports=[
         'pyqtgraph',

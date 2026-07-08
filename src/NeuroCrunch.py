@@ -1,4 +1,5 @@
 # This Python file uses the following encoding: utf-8
+# SPDX-License-Identifier: Apache-2.0
 """NeuroCrunch - Main Application"""
 import datetime
 import os

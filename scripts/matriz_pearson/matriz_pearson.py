@@ -1,4 +1,5 @@
 # This Python file uses the following encoding: utf-8
+# SPDX-License-Identifier: Apache-2.0
 """matriz_pearson — Matriz de correlación de Pearson entre trazas.
 
 Lee un CSV de trazas (columnas = células, filas = tiempo), calcula la matriz de

@@ -27,6 +27,7 @@ SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
 SetupIconFile=..\..\assets\icons\app_icon.ico
+LicenseFile=..\..\LICENSE
 ; Let the in-app updater re-run this silently over a running install:
 ;   Setup.exe /SILENT /CLOSEAPPLICATIONS
 CloseApplications=yes

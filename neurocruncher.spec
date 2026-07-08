@@ -133,7 +133,6 @@ if sys.platform == 'darwin':
     app = BUNDLE(
         exe,
         a.binaries,
-        a.zipfiles,
         a.datas,
         name='NeuroCrunch.app',
         icon=_icns,

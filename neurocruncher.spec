@@ -127,24 +127,26 @@ exe = EXE(
     icon=_icon,
 )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='NeuroCrunch'
-)
-
-# On macOS, wrap the COLLECT output in a .app bundle so it can be packaged into a
-# .dmg for distribution. Inert on Windows/Linux (they ship the onedir folder as-is
-# via Inno Setup / AppImage). The CI dmg step packages dist/NeuroCrunch.app.
+# On macOS, wrap the EXE in a .app bundle for distribution via .dmg.
+# On Windows/Linux, create a onedir folder with all dependencies.
 if sys.platform == 'darwin':
     app = BUNDLE(
-        coll,
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
         name='NeuroCrunch.app',
         icon=_icns,
         bundle_identifier='com.neurocrunch.app',
+    )
+else:
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name='NeuroCrunch'
     )

@@ -799,8 +799,28 @@ class NeuroCrunch(QMainWindow):
         checked = sender.isChecked()
 
         self.config[script_id]['enabled'] = checked
-        if not checked:
+        if checked:
+            # Auto-assign the next free execution order (smallest positive
+            # integer not already used by another enabled script)
+            used_orders = {
+                self.config[s]['execution_order']
+                for s in self.scripts
+                if s != script_id and self.config[s]['enabled']
+                and self.config[s]['execution_order'] is not None
+            }
+            next_order = 1
+            while next_order in used_orders:
+                next_order += 1
+            self.config[script_id]['execution_order'] = next_order
+        else:
+            removed_order = self.config[script_id]['execution_order']
             self.config[script_id]['execution_order'] = None
+            # Compact remaining orders so they stay contiguous (1..n_selected)
+            if removed_order is not None:
+                for s in self.scripts:
+                    order_val = self.config[s]['execution_order']
+                    if order_val is not None and order_val > removed_order:
+                        self.config[s]['execution_order'] = order_val - 1
 
         self.refresh_scripts_table()
 

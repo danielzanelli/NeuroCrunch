@@ -24,6 +24,9 @@ def _make_qt_mock():
         'AlignRight': 0, 'AlignVCenter': 0, 'AlignCenter': 0, 'NoFocus': 0,
     })()
     qtcore.QColor = type('QColor', (), {'__init__': lambda self, *a, **k: None})
+    qtcore.QCoreApplication = type('QCoreApplication', (), {
+        'translate': staticmethod(lambda context, text, *a, **k: text),
+    })
     pyside6.QtCore = qtcore
 
     # -- QtGui --
@@ -45,8 +48,8 @@ def _make_qt_mock():
     for widget_name in (
         'QCheckBox', 'QComboBox', 'QDialog', 'QDialogButtonBox',
         'QDoubleSpinBox', 'QFileDialog', 'QFormLayout', 'QHBoxLayout',
-        'QLabel', 'QLineEdit', 'QMessageBox', 'QPushButton', 'QScrollArea',
-        'QSpinBox', 'QTextEdit', 'QVBoxLayout', 'QWidget',
+        'QLabel', 'QLineEdit', 'QMenu', 'QMessageBox', 'QPushButton',
+        'QScrollArea', 'QSpinBox', 'QTextEdit', 'QVBoxLayout', 'QWidget',
     ):
         setattr(qtwidgets, widget_name, _widget_stub(widget_name))
     pyside6.QtWidgets = qtwidgets
@@ -60,12 +63,24 @@ sys.modules.setdefault('PySide6.QtCore', _qtcore)
 sys.modules.setdefault('PySide6.QtGui', _qtgui)
 sys.modules.setdefault('PySide6.QtWidgets', _qtwidgets)
 
+# If another test file registered its own mock first, make sure the names
+# param_dialog imports at module level are present on the installed mock.
+if not hasattr(sys.modules['PySide6.QtCore'], 'QCoreApplication'):
+    sys.modules['PySide6.QtCore'].QCoreApplication = _qtcore.QCoreApplication
+if not hasattr(sys.modules['PySide6.QtWidgets'], 'QMenu'):
+    sys.modules['PySide6.QtWidgets'].QMenu = _qtwidgets.QMenu
+
 # ---------------------------------------------------------------------------
 # Now safe to import the module under test
 # ---------------------------------------------------------------------------
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from param_dialog import _resolve_label, _resolve_link, is_script_configured  # noqa: E402
+from param_dialog import (  # noqa: E402
+    _resolve_label,
+    _resolve_link,
+    compute_effective_links,
+    is_script_configured,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -209,145 +224,50 @@ class TestIsScriptConfigured:
         # One required param missing
         assert is_script_configured(info, {'input_video': '/v.tif'}) is False
 
-
-
-# ---------------------------------------------------------------------------
-# Helpers: _resolve_label
-# ---------------------------------------------------------------------------
-
-class TestResolveLabel:
-    def test_plain_string(self):
-        assert _resolve_label({'name': 'fps', 'label': 'Frames per second'}) == 'Frames per second'
-
-    def test_locale_map_prefers_english(self):
-        param = {'name': 'fps', 'label': {'es': 'Frames por segundo', 'en': 'Frames per second'}}
-        assert _resolve_label(param) == 'Frames per second'
-
-    def test_locale_map_english_fallback(self):
-        param = {'name': 'fps', 'label': {'en': 'Frames per second'}}
-        assert _resolve_label(param) == 'Frames per second'
-
-    def test_missing_label_falls_back_to_name(self):
-        param = {'name': 'fps'}
-        assert _resolve_label(param) == 'fps'
-
-    def test_empty_label_dict_falls_back_to_name(self):
-        param = {'name': 'fps', 'label': {}}
-        assert _resolve_label(param) == 'fps'
-
-    def test_description_key(self):
-        param = {'name': 'fps', 'description': 'Sampling rate'}
-        assert _resolve_label(param, 'description') == 'Sampling rate'
-
-    def test_none_label(self):
-        param = {'name': 'x', 'label': None}
-        assert _resolve_label(param) == 'x'
-
-
-# ---------------------------------------------------------------------------
-# Helpers: _resolve_link
-# ---------------------------------------------------------------------------
-
-class TestResolveLink:
-    def _ctx(self):
-        return {
-            'process_video': {'output_csv': '/data/signals.csv'},
-        }
-
-    def test_valid_link(self):
-        result = _resolve_link('process_video.output_csv', self._ctx())
-        assert result == '/data/signals.csv'
-
-    def test_missing_script(self):
-        assert _resolve_link('nonexistent.output_csv', self._ctx()) is None
-
-    def test_missing_output_key(self):
-        assert _resolve_link('process_video.nonexistent', self._ctx()) is None
-
-    def test_malformed_no_dot(self):
-        assert _resolve_link('process_video_output_csv', self._ctx()) is None
-
-    def test_empty_string(self):
-        assert _resolve_link('', self._ctx()) is None
-
-    def test_empty_context(self):
-        assert _resolve_link('process_video.output_csv', {}) is None
-
-    def test_non_string_link(self):
-        assert _resolve_link(None, self._ctx()) is None  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# Helpers: is_script_configured
-# ---------------------------------------------------------------------------
-
-class _FakePluginInfo:
-    """Minimal stand-in for PluginInfo, sufficient for is_script_configured."""
-    def __init__(self, parameters):
-        self.parameters = parameters
-
-
-class TestIsScriptConfigured:
-    def test_no_parameters_always_configured(self):
-        info = _FakePluginInfo([])
-        assert is_script_configured(info, {}) is True
-
-    def test_no_required_params_always_configured(self):
+    def test_required_file_with_manifest_link_is_configured(self):
         info = _FakePluginInfo([
-            {'name': 'fps', 'type': 'int', 'required': False}
+            {'name': 'input_csv', 'type': 'file', 'required': True, 'link': 'upstream.out_csv'}
         ])
         assert is_script_configured(info, {}) is True
 
-    def test_required_string_missing(self):
+    def test_required_file_with_user_link_is_configured(self):
         info = _FakePluginInfo([
-            {'name': 'input_video', 'type': 'file', 'required': True}
+            {'name': 'input_csv', 'type': 'file', 'required': True}
         ])
-        assert is_script_configured(info, {}) is False
+        assert is_script_configured(info, {}, user_links={'input_csv': 'upstream.out_csv'}) is True
 
-    def test_required_string_present(self):
+    def test_required_file_with_cleared_link_is_not_configured(self):
         info = _FakePluginInfo([
-            {'name': 'input_video', 'type': 'file', 'required': True}
+            {'name': 'input_csv', 'type': 'file', 'required': True, 'link': 'upstream.out_csv'}
         ])
-        assert is_script_configured(info, {'input_video': '/path/to/video.tif'}) is True
+        assert is_script_configured(info, {}, user_links={'input_csv': ''}) is False
 
-    def test_required_string_empty(self):
-        info = _FakePluginInfo([
-            {'name': 'input_video', 'type': 'file', 'required': True}
-        ])
-        assert is_script_configured(info, {'input_video': ''}) is False
 
-    def test_required_string_whitespace_only(self):
-        info = _FakePluginInfo([
-            {'name': 'input_video', 'type': 'file', 'required': True}
-        ])
-        assert is_script_configured(info, {'input_video': '   '}) is False
+# ---------------------------------------------------------------------------
+# Helpers: compute_effective_links
+# ---------------------------------------------------------------------------
 
-    def test_required_int_zero_is_configured(self):
-        # Zero is a valid integer value — should not be treated as "empty"
-        info = _FakePluginInfo([
-            {'name': 'count', 'type': 'int', 'required': True}
+class TestComputeEffectiveLinks:
+    def _info(self):
+        return _FakePluginInfo([
+            {'name': 'input_csv', 'type': 'file', 'link': 'upstream.out_csv'},
+            {'name': 'input_video', 'type': 'file'},
+            {'name': 'fps', 'type': 'int'},
         ])
-        assert is_script_configured(info, {'count': 0}) is True
 
-    def test_required_bool_false_is_configured(self):
-        info = _FakePluginInfo([
-            {'name': 'normalize', 'type': 'bool', 'required': True}
-        ])
-        assert is_script_configured(info, {'normalize': False}) is True
+    def test_manifest_links_inherited_without_user_links(self):
+        assert compute_effective_links(self._info()) == {'input_csv': 'upstream.out_csv'}
 
-    def test_required_int_missing(self):
-        info = _FakePluginInfo([
-            {'name': 'fps', 'type': 'int', 'required': True}
-        ])
-        assert is_script_configured(info, {}) is False
+    def test_user_link_overrides_manifest(self):
+        links = compute_effective_links(self._info(), {'input_csv': 'other.result'})
+        assert links == {'input_csv': 'other.result'}
 
-    def test_mixed_required_and_optional(self):
-        info = _FakePluginInfo([
-            {'name': 'input_video', 'type': 'file', 'required': True},
-            {'name': 'fps', 'type': 'int', 'required': False},
-            {'name': 'output_dir', 'type': 'directory', 'required': True},
-        ])
-        # Both required params present
-        assert is_script_configured(info, {'input_video': '/v.tif', 'output_dir': '/out'}) is True
-        # One required param missing
-        assert is_script_configured(info, {'input_video': '/v.tif'}) is False
+    def test_user_link_adds_new_link(self):
+        links = compute_effective_links(self._info(), {'input_video': 'upstream.video'})
+        assert links == {'input_csv': 'upstream.out_csv', 'input_video': 'upstream.video'}
+
+    def test_empty_string_clears_manifest_link(self):
+        assert compute_effective_links(self._info(), {'input_csv': ''}) == {}
+
+    def test_no_parameters(self):
+        assert compute_effective_links(_FakePluginInfo([])) == {}

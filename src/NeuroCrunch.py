@@ -164,8 +164,9 @@ class NeuroCrunch(QMainWindow):
         # Pipeline context shared between the parameter dialog (Phase 3, for
         # pre-filling linked parameters) and the script runner (Phase 4,
         # which populates it after each script finishes). Uses a temporary
-        # directory that is cleaned up after each pipeline execution.
-        self.pipeline_context_store = PipelineContext()
+        # directory that is cleaned up after each pipeline execution; outputs
+        # survive across runs via self.config['__outputs__'].
+        self.pipeline_context_store = self._new_pipeline_context()
         self._script_runner = None
 
         # Refresh the file viewer and scripts table with the initial local folder and scripts
@@ -317,7 +318,7 @@ class NeuroCrunch(QMainWindow):
             self.ui.file_viewer.setHeaderLabel(self.local_folder)
             # Create a new pipeline context with temporary directory
             self.pipeline_context_store.cleanup()
-            self.pipeline_context_store = PipelineContext()
+            self.pipeline_context_store = self._new_pipeline_context()
             self.refresh_local_folder()
 
     def refresh_local_folder(self):
@@ -379,7 +380,12 @@ class NeuroCrunch(QMainWindow):
         """
         self.plugins = self.plugin_manager.discover_scripts(self.scripts_folder, self.user_plugins_folder)
         self.scripts = sorted(self.plugins.keys())
-        self.config = {k: v for k, v in self.config.items() if k in self.plugins}
+        # Keep '__'-prefixed entries (e.g. '__outputs__') — they are app
+        # state, not per-script config.
+        self.config = {
+            k: v for k, v in self.config.items()
+            if k in self.plugins or k.startswith('__')
+        }
         self.refresh_scripts_table()
         for warning in self.plugin_manager.warnings:
             self.print(warning)
@@ -881,6 +887,11 @@ class NeuroCrunch(QMainWindow):
                 return
             # Restore the working directory if it was saved and still exists.
             saved_cwd = loaded.pop('__working_directory__', None)
+            # Restore outputs from previous runs so linked parameters resolve.
+            saved_outputs = loaded.pop('__outputs__', None)
+            if isinstance(saved_outputs, dict):
+                self.config['__outputs__'] = saved_outputs
+                self.pipeline_context_store.seed(saved_outputs)
             # Merge: only update entries for known scripts; ignore stale keys
             for script_id, cfg in loaded.items():
                 if script_id in self.scripts:
@@ -913,11 +924,16 @@ class NeuroCrunch(QMainWindow):
             return
 
         current_values = self.config.get(script_id, {}).get('parameters', {})
+        current_links = self.config.get(script_id, {}).get('links', {})
 
-        dialog = ParamDialog(plugin_info, current_values, self.pipeline_context_store.as_dict(), self)
+        dialog = ParamDialog(
+            plugin_info, current_values, self.pipeline_context_store.as_dict(), self,
+            all_plugins=self.plugins, current_links=current_links,
+        )
         if dialog.exec() == ParamDialog.DialogCode.Accepted:
             values = dialog.get_values()
             self.config[script_id]['parameters'] = values
+            self.config[script_id]['links'] = dialog.get_links()
             self.config[script_id]['last_modified'] = datetime.datetime.now().strftime('%Y/%m/%d - %H:%M')
             self.print(f'Parameters saved for "{plugin_info.name}"')
             self.refresh_scripts_table()
@@ -985,7 +1001,14 @@ class NeuroCrunch(QMainWindow):
         self.ui.btn_execute_scripts.setText(self.tr('Stop'))
         self.ui.btn_execute_scripts.setIcon(icon_loader.get_icon('square', '#ffffff', 16))
 
-        self._script_runner = ScriptRunner(pipeline, self.pipeline_context_store, self)
+        links_by_script = {
+            script_id: self.config.get(script_id, {}).get('links', {})
+            for script_id, _info, _params in pipeline
+            if self.config.get(script_id, {}).get('links')
+        }
+        self._script_runner = ScriptRunner(
+            pipeline, self.pipeline_context_store, self, links_by_script=links_by_script
+        )
         self._script_runner.log_message.connect(self._on_log_message)
         self._script_runner.progress_changed.connect(self._on_progress_changed)
         self._script_runner.script_started.connect(
@@ -1025,9 +1048,19 @@ class NeuroCrunch(QMainWindow):
         self.ui.btn_execute_scripts.setIcon(icon_loader.get_icon('play', '#ffffff', 16))
         self.statusBar().clearMessage()
         self.print(self.tr('Pipeline completed successfully.') if success else self.tr('Pipeline completed with errors.'))
-        # Clean up the temporary pipeline context and create a new one for the next run
+        # Persist the produced outputs so linked parameters resolve in later
+        # runs and sessions, then recycle the temporary context directory.
+        outputs = {k: dict(v) for k, v in self.pipeline_context_store.as_dict().items()}
+        if outputs:
+            self.config['__outputs__'] = outputs
         self.pipeline_context_store.cleanup()
-        self.pipeline_context_store = PipelineContext()
+        self.pipeline_context_store = self._new_pipeline_context()
+
+    def _new_pipeline_context(self) -> PipelineContext:
+        """Fresh temp-dir pipeline context, seeded with outputs from earlier runs."""
+        context = PipelineContext()
+        context.seed(self.config.get('__outputs__'))
+        return context
 
     def show_image(self, file_path):
         """Shows an image on the ui.image_viewer QLabel, hiding the other display widgets."""

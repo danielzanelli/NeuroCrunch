@@ -80,7 +80,7 @@
       "name": "linked_csv",
       "type": "file",
       "label": "CSV from previous step",
-      "description": "Auto-filled from a previous script's output using 'link'. Still editable by the user.",
+      "description": "Auto-filled from a previous script's output using 'link'. This is only a default: the user can re-point or clear the link from the dialog's link button.",
       "extensions": [".csv"],
       "link": "process_video.output_csv"
     }

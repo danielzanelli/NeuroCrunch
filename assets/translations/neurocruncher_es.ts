@@ -177,6 +177,22 @@
         <source>Value pre-filled from the output of "{0}"</source>
         <translation>Valor pre-rellenado desde la salida de "{0}"</translation>
     </message>
+    <message>
+        <source>Use the output of another script</source>
+        <translation>Usar la salida de otro script</translation>
+    </message>
+    <message>
+        <source>Manual file…</source>
+        <translation>Archivo manual…</translation>
+    </message>
+    <message>
+        <source>Manual folder…</source>
+        <translation>Carpeta manual…</translation>
+    </message>
+    <message>
+        <source>Will be produced by "{0}"</source>
+        <translation>Será generado por "{0}"</translation>
+    </message>
 </context>
 <context>
     <name>PreferencesDialog</name>

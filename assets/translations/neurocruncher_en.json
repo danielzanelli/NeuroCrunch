@@ -45,7 +45,11 @@
     "Accept": "Accept",
     "Cancel": "Cancel",
     "Source: ": "Source: ",
-    "Value pre-filled from the output of \"{0}\"": "Value pre-filled from the output of \"{0}\""
+    "Value pre-filled from the output of \"{0}\"": "Value pre-filled from the output of \"{0}\"",
+    "Use the output of another script": "Use the output of another script",
+    "Manual file…": "Manual file…",
+    "Manual folder…": "Manual folder…",
+    "Will be produced by \"{0}\"": "Will be produced by \"{0}\""
   },
   "PreferencesDialog": {
     "Preferences": "Preferences",

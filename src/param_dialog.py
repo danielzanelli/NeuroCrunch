@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -59,6 +60,36 @@ def _resolve_label(field: Dict[str, Any], key: str = 'label') -> str:
     if isinstance(value, dict):
         return value.get('en') or value.get('es') or next(iter(value.values()), field.get('name', ''))
     return str(value)
+
+
+def _localize(value: Any, fallback: str = '') -> str:
+    """Return a plain string from *value*, which may be a locale map."""
+    if value is None:
+        return fallback
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return value.get('en') or value.get('es') or next(iter(value.values()), fallback)
+    return str(value)
+
+
+def compute_effective_links(plugin_info, user_links: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Return ``{param_name: "source_id.output_key"}`` for *plugin_info*.
+
+    A user entry overrides the manifest ``link``; an empty-string user entry
+    means the user explicitly unlinked the parameter. Parameters with no
+    effective link are omitted.
+    """
+    user_links = user_links or {}
+    effective: Dict[str, str] = {}
+    for param in plugin_info.parameters or []:
+        name = param.get('name')
+        if not name:
+            continue
+        link = user_links[name] if name in user_links else param.get('link', '')
+        if link:
+            effective[name] = link
+    return effective
 
 
 def _resolve_link(link: str, pipeline_context: PipelineContext) -> Optional[Any]:
@@ -106,11 +137,20 @@ class ParamDialog(QDialog):
         current_values: Dict[str, Any],
         pipeline_context: PipelineContext,
         parent: Optional[QWidget] = None,
+        all_plugins: Optional[Dict[str, Any]] = None,
+        current_links: Optional[Dict[str, str]] = None,
     ) -> None:
         super().__init__(parent)
         self._plugin_info = plugin_info
         self._current_values = dict(current_values) if current_values else {}
         self._pipeline_context = pipeline_context if isinstance(pipeline_context, dict) else {}
+        # {script_id: PluginInfo} of all discovered plugins, used to offer
+        # "link to another script's output" choices on file parameters.
+        self._all_plugins = all_plugins or {}
+        # Live link state: param name → "source_id.output_key". Absence means
+        # the parameter is not linked. Seeded from manifest links merged with
+        # the user's saved overrides.
+        self._links: Dict[str, str] = compute_effective_links(plugin_info, current_links)
 
         # Maps parameter name → widget (or tuple of widgets for compound types)
         self._widgets: Dict[str, Any] = {}
@@ -122,7 +162,6 @@ class ParamDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        from PySide6.QtCore import QCoreApplication
         self.setWindowTitle(QCoreApplication.translate('ParamDialog', f'Configure: {self._plugin_info.name}'))
         self.setMinimumWidth(480)
 
@@ -172,7 +211,7 @@ class ParamDialog(QDialog):
         description: str = _resolve_label(param, 'description')
         required: bool = bool(param.get('required', False))
         default = param.get('default')
-        link: str = param.get('link', '')
+        link: str = self._links.get(name, '')
 
         # Determine the initial value to populate the widget with.
         # Priority: saved value → linked value from context → manifest default
@@ -209,8 +248,10 @@ class ParamDialog(QDialog):
         else:
             input_widget = widget  # same object
 
-        # Wrap with link hint if applicable
-        if link_source:
+        # Wrap with link hint if applicable. File/directory pickers own their
+        # hint label (it updates live as the user links/unlinks), so only
+        # other widget types need the static wrap here.
+        if link_source and ptype not in ('file', 'directory'):
             hint_label = QLabel(f'<i>{QCoreApplication.translate("ParamDialog", "Source: ")}{link_source}</i>')
             hint_label.setStyleSheet('color: #888888; font-size: 10px;')
             hint_label.setToolTip(QCoreApplication.translate('ParamDialog', f'Value pre-filled from the output of "{link_source}"'))
@@ -309,16 +350,103 @@ class ParamDialog(QDialog):
     def _make_file_picker(
         self, param: Dict[str, Any], initial_val: Any, *, directory: bool
     ) -> QWidget:
-        """Build a QLineEdit + Browse button for file or directory selection."""
+        """Build a QLineEdit + link + Browse row for file or directory selection.
+
+        The link button lets the user fill the parameter from another script's
+        declared output. Typing or browsing manually clears the link.
+        """
+        name: str = param.get('name', '')
         container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        vbox = QVBoxLayout(container)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(2)
+
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        vbox.addLayout(row)
 
         line_edit = QLineEdit()
         if initial_val is not None:
             line_edit.setText(str(initial_val))
-        layout.addWidget(line_edit)
+        row.addWidget(line_edit)
+
+        hint_label = QLabel()
+        hint_label.setStyleSheet('color: #888888; font-size: 10px;')
+        hint_label.hide()
+        vbox.addWidget(hint_label)
+
+        def source_name(link: str) -> str:
+            script_id = link.split('.', 1)[0]
+            pinfo = self._all_plugins.get(script_id)
+            return _localize(pinfo.name, script_id) if pinfo is not None else script_id
+
+        def update_hint() -> None:
+            link = self._links.get(name, '')
+            if link:
+                source = source_name(link)
+                hint_label.setText(f'<i>{QCoreApplication.translate("ParamDialog", "Source: ")}{source}</i>')
+                hint_label.setToolTip(
+                    QCoreApplication.translate('ParamDialog', 'Value pre-filled from the output of "{0}"').format(source)
+                )
+                hint_label.show()
+            else:
+                hint_label.hide()
+
+        def clear_link() -> None:
+            if self._links.pop(name, None):
+                line_edit.setPlaceholderText('')
+                update_hint()
+
+        def set_link(link: str) -> None:
+            self._links[name] = link
+            resolved = _resolve_link(link, self._pipeline_context)
+            if resolved is not None:
+                line_edit.setText(str(resolved))
+            else:
+                line_edit.clear()
+                line_edit.setPlaceholderText(
+                    QCoreApplication.translate('ParamDialog', 'Will be produced by "{0}"').format(source_name(link))
+                )
+            update_hint()
+
+        line_edit.textEdited.connect(lambda _text: clear_link())
+
+        if self._all_plugins:
+            link_btn = QPushButton()
+            link_btn.setFixedWidth(32)
+            link_btn.setFocusPolicy(Qt.NoFocus)
+            link_btn.setToolTip(QCoreApplication.translate('ParamDialog', 'Use the output of another script'))
+            try:
+                import icon_loader
+                link_btn.setIcon(icon_loader.get_icon('link', icon_loader.glyph_color(), 16))
+            except ImportError:
+                link_btn.setText('🔗')
+
+            def open_link_menu() -> None:
+                menu = QMenu(self)
+                current_link = self._links.get(name, '')
+                own_id = getattr(self._plugin_info, 'id', None)
+                for script_id in sorted(self._all_plugins):
+                    pinfo = self._all_plugins[script_id]
+                    if script_id == own_id or not getattr(pinfo, 'outputs', None):
+                        continue
+                    for output_key, output_desc in pinfo.outputs.items():
+                        link = f'{script_id}.{output_key}'
+                        action = menu.addAction(
+                            f'{_localize(pinfo.name, script_id)} → {_localize(output_desc, output_key)}'
+                        )
+                        action.setCheckable(True)
+                        action.setChecked(link == current_link)
+                        action.triggered.connect(lambda checked=False, l=link: set_link(l))
+                if menu.actions():
+                    menu.addSeparator()
+                manual_text = 'Manual folder…' if directory else 'Manual file…'
+                manual = menu.addAction(QCoreApplication.translate('ParamDialog', manual_text))
+                manual.triggered.connect(clear_link)
+                menu.exec(link_btn.mapToGlobal(link_btn.rect().bottomLeft()))
+
+            link_btn.clicked.connect(open_link_menu)
+            row.addWidget(link_btn)
 
         btn = QPushButton('Browse…')
         btn.setFixedWidth(90)
@@ -333,6 +461,7 @@ class ParamDialog(QDialog):
                 )
                 if path:
                     line_edit.setText(path)
+                    clear_link()
         else:
             def browse():
                 ext_filter = ''
@@ -344,9 +473,20 @@ class ParamDialog(QDialog):
                 )
                 if path:
                     line_edit.setText(path)
+                    clear_link()
 
         btn.clicked.connect(browse)
-        layout.addWidget(btn)
+        row.addWidget(btn)
+
+        # Reflect the initial link state (hint + placeholder for a value that
+        # will only exist after the source script runs).
+        update_hint()
+        if self._links.get(name) and not line_edit.text():
+            line_edit.setPlaceholderText(
+                QCoreApplication.translate('ParamDialog', 'Will be produced by "{0}"').format(
+                    source_name(self._links[name])
+                )
+            )
 
         # Store the inner QLineEdit so we can retrieve its text later.
         # We use a custom attribute on the container widget.
@@ -433,6 +573,10 @@ class ParamDialog(QDialog):
                 continue
 
             if value is None or (isinstance(value, str) and not value):
+                # A linked file/directory param counts as filled: the value
+                # will be produced by the source script at run time.
+                if ptype in ('file', 'directory') and self._links.get(name):
+                    continue
                 label = _resolve_label(param, 'label') or name
                 missing_labels.append(label)
 
@@ -463,20 +607,43 @@ class ParamDialog(QDialog):
             if param.get('name')
         }
 
+    def get_links(self) -> Dict[str, str]:
+        """Return the user's link overrides: ``{param_name: link_or_empty}``.
+
+        Only parameters whose current link differs from the manifest default
+        are included; an empty string means the user unlinked a manifest link.
+        Call this after ``exec()`` returns ``QDialog.Accepted``.
+        """
+        overrides: Dict[str, str] = {}
+        for param in self._plugin_info.parameters or []:
+            name = param.get('name')
+            if not name:
+                continue
+            manifest_link = param.get('link', '') or ''
+            current = self._links.get(name, '')
+            if current != manifest_link:
+                overrides[name] = current
+        return overrides
+
 
 # ---------------------------------------------------------------------------
 # Helpers for the main window (used by NeuroCrunch.py)
 # ---------------------------------------------------------------------------
 
-def is_script_configured(plugin_info, saved_values: Dict[str, Any]) -> bool:
+def is_script_configured(
+    plugin_info, saved_values: Dict[str, Any], user_links: Optional[Dict[str, str]] = None
+) -> bool:
     """Return True when all ``required`` parameters in *plugin_info* have
     non-empty values in *saved_values*.
 
     A script with no required parameters is always considered configured.
     Numeric and boolean parameters with a saved value are always considered
-    configured (they cannot be "empty").
+    configured (they cannot be "empty"). A required file/directory parameter
+    with an effective link (manifest default or user override) counts as
+    configured: its value is produced by the source script at run time.
     """
     parameters: List[Dict[str, Any]] = plugin_info.parameters or []
+    effective_links = compute_effective_links(plugin_info, user_links)
     for param in parameters:
         if not param.get('required', False):
             continue
@@ -488,6 +655,10 @@ def is_script_configured(plugin_info, saved_values: Dict[str, Any]) -> bool:
         if ptype in ('int', 'float', 'bool'):
             if val is None:
                 return False
+            continue
+
+        # Linked file/directory params are filled at run time.
+        if ptype in ('file', 'directory') and effective_links.get(name):
             continue
 
         # String-like types must be non-empty.

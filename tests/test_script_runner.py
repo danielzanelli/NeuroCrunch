@@ -29,6 +29,9 @@ def _make_qt_mock():
         'AlignRight': 0, 'AlignVCenter': 0, 'AlignCenter': 0, 'NoFocus': 0,
     })()
     qtcore.QColor = type('QColor', (), {'__init__': lambda self, *a, **k: None})
+    qtcore.QCoreApplication = type('QCoreApplication', (), {
+        'translate': staticmethod(lambda context, text, *a, **k: text),
+    })
 
     class _Signal:
         def __init__(self, *_types):
@@ -97,8 +100,8 @@ def _make_qt_mock():
     for _w in (
         'QCheckBox', 'QComboBox', 'QDialog', 'QDialogButtonBox',
         'QDoubleSpinBox', 'QFileDialog', 'QFormLayout', 'QHBoxLayout',
-        'QLabel', 'QLineEdit', 'QMessageBox', 'QPushButton', 'QScrollArea',
-        'QSpinBox', 'QTextEdit', 'QVBoxLayout', 'QWidget',
+        'QLabel', 'QLineEdit', 'QMenu', 'QMessageBox', 'QPushButton',
+        'QScrollArea', 'QSpinBox', 'QTextEdit', 'QVBoxLayout', 'QWidget',
     ):
         setattr(qtwidgets, _w, _widget_stub(_w))
     pyside6.QtWidgets = qtwidgets
@@ -112,12 +115,19 @@ sys.modules.setdefault('PySide6.QtCore', _qtcore)
 sys.modules.setdefault('PySide6.QtGui', _qtgui)
 sys.modules.setdefault('PySide6.QtWidgets', _qtwidgets)
 
-# Ensure QThread and Signal are present even if another test file registered
-# a lighter mock first.
+# Ensure QThread, Signal and QCoreApplication are present even if another
+# test file registered a lighter mock first.
 _installed_qtcore = sys.modules['PySide6.QtCore']
-for _attr, _val in (('QThread', _qtcore.QThread), ('Signal', _qtcore.Signal)):
+for _attr, _val in (
+    ('QThread', _qtcore.QThread),
+    ('Signal', _qtcore.Signal),
+    ('QCoreApplication', _qtcore.QCoreApplication),
+):
     if not hasattr(_installed_qtcore, _attr):
         setattr(_installed_qtcore, _attr, _val)
+_installed_qtwidgets = sys.modules['PySide6.QtWidgets']
+if not hasattr(_installed_qtwidgets, 'QMenu'):
+    _installed_qtwidgets.QMenu = _qtwidgets.QMenu
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
@@ -501,6 +511,102 @@ class ScriptRunnerTests(unittest.TestCase):
         runner = ScriptRunner([('script_a', plugin, {})], ctx)
         runner.start()
         self.assertEqual(ctx.get_outputs('script_a'), {'echoed': 'linked_value'})
+
+    def test_user_link_overrides_manifest_link(self):
+        path = self._script_path()
+        _write_script(path, '''
+            def run(params):
+                return {"echoed": params["value"]}
+        ''')
+        plugin = self._make_plugin(
+            parameters=[{'name': 'value', 'link': 'upstream.result'}]
+        )
+        ctx = PipelineContext()
+        ctx.set_outputs('upstream', {'result': 'manifest_value'})
+        ctx.set_outputs('other', {'result': 'user_value'})
+        runner = ScriptRunner(
+            [('script_a', plugin, {})], ctx,
+            links_by_script={'script_a': {'value': 'other.result'}},
+        )
+        runner.start()
+        self.assertEqual(ctx.get_outputs('script_a'), {'echoed': 'user_value'})
+
+    def test_stale_file_link_falls_back_to_saved_value(self):
+        path = self._script_path()
+        _write_script(path, '''
+            def run(params):
+                return {"echoed": params["input_csv"]}
+        ''')
+        plugin = self._make_plugin(
+            parameters=[{'name': 'input_csv', 'type': 'file', 'link': 'upstream.out_csv'}]
+        )
+        existing = self._script_path('saved.csv')
+        _write_script(existing, 'a,b\n')
+        ctx = PipelineContext()
+        ctx.set_outputs('upstream', {'out_csv': os.path.join(self._tmp.name, 'deleted.csv')})
+        logs, _, _, _, _ = self._run([('script_a', plugin, {'input_csv': existing})], ctx)
+        self.assertEqual(ctx.get_outputs('script_a'), {'echoed': existing})
+        self.assertTrue(any('missing file' in l for l in logs))
+
+    def test_required_file_param_empty_fails_before_exec(self):
+        path = self._script_path()
+        _write_script(path, '''
+            def run(params):
+                return {"ran": True}
+        ''')
+        plugin = self._make_plugin(
+            parameters=[{'name': 'input_csv', 'type': 'file', 'required': True}]
+        )
+        ctx = PipelineContext()
+        logs, _, finished, done, _ = self._run([('script_a', plugin, {})], ctx)
+        self.assertEqual(finished, [('script_a', False)])
+        self.assertEqual(done, [False])
+        self.assertEqual(ctx.get_outputs('script_a'), {})
+        self.assertTrue(any('input_csv' in l for l in logs))
+
+    # --- Context seeding (persistence across runs) -------------------------
+
+    def test_seed_prepopulates_outputs(self):
+        ctx = PipelineContext()
+        ctx.seed({'upstream': {'out': '/data/a.csv'}})
+        self.assertEqual(ctx.get_outputs('upstream'), {'out': '/data/a.csv'})
+
+    def test_seed_ignores_malformed_data(self):
+        ctx = PipelineContext()
+        ctx.seed(None)
+        ctx.seed({'bad': 'not-a-dict'})
+        self.assertEqual(ctx.get_outputs('bad'), {})
+
+    def test_outputs_carry_across_runner_instances_via_seed(self):
+        """Run A, persist its outputs, seed a fresh context, run B linked to A."""
+        path_a = self._script_path('a.py')
+        path_b = self._script_path('b.py')
+        produced = os.path.join(self._tmp.name, 'produced.csv')
+        _write_script(path_a, f'''
+            def run(params):
+                path = {produced!r}
+                with open(path, 'w') as f:
+                    f.write('data')
+                return {{"out_csv": path}}
+        ''')
+        _write_script(path_b, '''
+            def run(params):
+                return {"echoed": params["input_csv"]}
+        ''')
+        plugin_a = self._make_plugin('a', path_a)
+        plugin_b = self._make_plugin(
+            'b', path_b,
+            parameters=[{'name': 'input_csv', 'type': 'file', 'link': 'a.out_csv'}],
+        )
+
+        ctx1 = PipelineContext()
+        ScriptRunner([('a', plugin_a, {})], ctx1).start()
+        persisted = {k: dict(v) for k, v in ctx1.as_dict().items()}
+
+        ctx2 = PipelineContext()
+        ctx2.seed(persisted)
+        ScriptRunner([('b', plugin_b, {})], ctx2).start()
+        self.assertEqual(ctx2.get_outputs('b'), {'echoed': produced})
 
 
 if __name__ == '__main__':

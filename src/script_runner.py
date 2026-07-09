@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QThread, Signal
 
-from param_dialog import _resolve_link
+from param_dialog import _resolve_link, compute_effective_links
 
 
 class _PipelineCancelled(BaseException):
@@ -83,6 +83,11 @@ class PipelineContext:
     def as_dict(self) -> PipelineContextData:
         """Return the underlying ``{script_id: {output_key: value}}`` mapping."""
         return self.data
+
+    def seed(self, data: Optional[PipelineContextData]) -> None:
+        """Pre-populate the context with outputs recorded by earlier runs."""
+        if isinstance(data, dict):
+            self.data = {k: dict(v) for k, v in data.items() if isinstance(v, dict)}
 
     def load(self) -> None:
         """Load previously persisted context from ``session_dir``, if present."""
@@ -240,6 +245,10 @@ class ScriptRunner(QThread):
     pipeline_context:
         Shared ``PipelineContext`` instance, updated after each script
         finishes with its declared outputs.
+    links_by_script:
+        Optional ``{script_id: {param_name: link_or_empty}}`` of user link
+        overrides, merged over each manifest's ``link`` defaults when
+        resolving parameters.
     """
 
     log_message = Signal(str)
@@ -253,10 +262,12 @@ class ScriptRunner(QThread):
         pipeline: List[Tuple[str, Any, Dict[str, Any]]],
         pipeline_context: PipelineContext,
         parent=None,
+        links_by_script: Optional[Dict[str, Dict[str, str]]] = None,
     ) -> None:
         super().__init__(parent)
         self._pipeline = pipeline
         self._context = pipeline_context
+        self._links_by_script = links_by_script or {}
         self._stop_requested = False
         self._cancel_event = threading.Event()
         self._worker_tid: Optional[int] = None
@@ -315,7 +326,7 @@ class ScriptRunner(QThread):
                     overall_success = False
                     break
 
-                resolved_params = self._resolve_linked_params(plugin_info, params)
+                resolved_params = self._resolve_linked_params(script_id, plugin_info, params)
 
                 self.script_started.emit(script_id)
                 self.log_message.emit(f'--- Running "{plugin_info.name}" ---')
@@ -349,19 +360,31 @@ class ScriptRunner(QThread):
     # ------------------------------------------------------------------
 
     def _resolve_linked_params(
-        self, plugin_info: Any, params: Dict[str, Any]
+        self, script_id: str, plugin_info: Any, params: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Return a copy of *params* with any ``link``-ed values refreshed
-        from the current pipeline context."""
+        """Return a copy of *params* with any linked values refreshed from the
+        current pipeline context (manifest links merged with user overrides).
+
+        A file/directory link that resolves to a path that no longer exists is
+        skipped with a warning, keeping the saved value instead."""
         resolved = dict(params)
-        for param in plugin_info.parameters or []:
-            link = param.get('link')
-            name = param.get('name')
-            if not link or not name:
-                continue
+        param_types = {p.get('name'): p.get('type', 'string') for p in plugin_info.parameters or []}
+        links = compute_effective_links(plugin_info, self._links_by_script.get(script_id))
+        for name, link in links.items():
             linked_val = _resolve_link(link, self._context.as_dict())
-            if linked_val is not None:
-                resolved[name] = linked_val
+            if linked_val is None:
+                continue
+            if (
+                param_types.get(name) in ('file', 'directory')
+                and isinstance(linked_val, str)
+                and not os.path.exists(linked_val)
+            ):
+                self.log_message.emit(
+                    f'Warning: linked output "{link}" for parameter "{name}" points to a '
+                    'missing file; using the saved value instead.'
+                )
+                continue
+            resolved[name] = linked_val
         return resolved
 
     def _run_script(
@@ -378,6 +401,19 @@ class ScriptRunner(QThread):
         """
         entry_point = plugin_info.entry_point
         script_dir = os.path.dirname(entry_point)
+
+        # Required file/directory params must be non-empty by now: a linked
+        # value may legitimately be empty until its source script has run.
+        for param in plugin_info.parameters or []:
+            if not param.get('required') or param.get('type') not in ('file', 'directory'):
+                continue
+            name = param.get('name', '')
+            if not str(params.get(name) or '').strip():
+                self.log_message.emit(
+                    f'"{plugin_info.name}": required parameter "{name}" is empty '
+                    '(has the linked script run yet?).'
+                )
+                return False, {}
 
         # Read and compile the script source.
         try:

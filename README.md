@@ -219,6 +219,8 @@ Link a parameter to a previous script's output by adding a `"link"` field:
 
 When a user runs `process_video` first, NeuroCrunch auto-fills this parameter with the output path. The field is still editable.
 
+The manifest `link` is only a default: in the parameter dialog, every file/folder parameter has a link button (🔗) where users can pick any other script's declared output — or switch back to a manually chosen file. Output paths produced by a run are remembered (and stored in saved `.config` files), so a linked parameter also resolves when the source script ran in an earlier session.
+
 #### Localized Labels
 
 Multi-language parameter labels:

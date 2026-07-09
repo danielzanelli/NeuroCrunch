@@ -9,8 +9,8 @@
     {
       "name": "input_csv",
       "type": "file",
-      "label": "Input CSV",
-      "description": "CSV file with the fluorescence traces",
+      "label": {"en": "Input CSV", "es": "CSV de entrada"},
+      "description": {"en": "CSV file with the fluorescence traces", "es": "Archivo CSV con las trazas de fluorescencia"},
       "required": true,
       "extensions": [".csv"],
       "link": "remove_bleaching.corrected_csv"
@@ -18,8 +18,8 @@
     {
       "name": "threshold_std",
       "type": "float",
-      "label": "Threshold (standard deviations)",
-      "description": "Number of standard deviations above the mean to consider a cell active",
+      "label": {"en": "Threshold (standard deviations)", "es": "Umbral (desviaciones estándar)"},
+      "description": {"en": "Number of standard deviations above the mean to consider a cell active", "es": "Número de desviaciones estándar por encima de la media para considerar una célula activa"},
       "default": 2.5,
       "min": 0.5,
       "max": 10.0,
@@ -28,8 +28,8 @@
     {
       "name": "min_duration",
       "type": "int",
-      "label": "Minimum duration (frames)",
-      "description": "Minimum number of consecutive frames above the threshold to count as an event",
+      "label": {"en": "Minimum duration (frames)", "es": "Duración mínima (cuadros)"},
+      "description": {"en": "Minimum number of consecutive frames above the threshold to count as an event", "es": "Número mínimo de cuadros consecutivos por encima del umbral para contar como un evento"},
       "default": 3,
       "min": 1,
       "max": 1000
@@ -37,11 +37,11 @@
     {
       "name": "output_dir",
       "type": "directory",
-      "label": "Output folder",
+      "label": {"en": "Output folder", "es": "Carpeta de salida"},
       "required": true
     }
   ],
   "outputs": {
-    "active_csv": "Path to the CSV with the traces of active cells only"
+    "active_csv": {"en": "Path to the CSV with the traces of active cells only", "es": "Ruta del CSV con las trazas de las células activas únicamente"}
   }
 }

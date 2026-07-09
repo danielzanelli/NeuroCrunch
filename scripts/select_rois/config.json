@@ -9,28 +9,28 @@
     {
       "name": "input_video",
       "type": "file",
-      "label": "Input video",
-      "description": "Video file on which the ROIs will be drawn",
+      "label": {"en": "Input video", "es": "Video de entrada"},
+      "description": {"en": "Video file on which the ROIs will be drawn", "es": "Archivo de video sobre el que se dibujarán las ROIs"},
       "required": true,
       "extensions": [".tif", ".tiff", ".avi", ".mp4"]
     },
     {
       "name": "roi_type",
       "type": "choice",
-      "label": "ROI type",
-      "description": "Geometric shape of the regions of interest",
+      "label": {"en": "ROI type", "es": "Tipo de ROI"},
+      "description": {"en": "Geometric shape of the regions of interest", "es": "Forma geométrica de las regiones de interés"},
       "options": ["circular", "rectangular", "polygonal"],
       "default": "circular"
     },
     {
       "name": "output_dir",
       "type": "directory",
-      "label": "Output folder",
-      "description": "Folder where the ROI files will be saved",
+      "label": {"en": "Output folder", "es": "Carpeta de salida"},
+      "description": {"en": "Folder where the ROI files will be saved", "es": "Carpeta donde se guardarán los archivos de ROIs"},
       "required": true
     }
   ],
   "outputs": {
-    "roi_zip": "Path to the ZIP file with the selected ROIs"
+    "roi_zip": {"en": "Path to the ZIP file with the selected ROIs", "es": "Ruta del archivo ZIP con las ROIs seleccionadas"}
   }
 }

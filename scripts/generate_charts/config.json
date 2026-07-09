@@ -9,8 +9,8 @@
     {
       "name": "input_csv",
       "type": "file",
-      "label": "Input CSV",
-      "description": "CSV file with the traces to plot",
+      "label": {"en": "Input CSV", "es": "CSV de entrada"},
+      "description": {"en": "CSV file with the traces to plot", "es": "Archivo CSV con las trazas a graficar"},
       "required": true,
       "extensions": [".csv"],
       "link": "select_active.active_csv"
@@ -18,24 +18,24 @@
     {
       "name": "format",
       "type": "choice",
-      "label": "Image format",
+      "label": {"en": "Image format", "es": "Formato de imagen"},
       "options": ["png", "svg", "pdf"],
       "default": "png"
     },
     {
       "name": "title",
       "type": "string",
-      "label": "Chart title",
-      "description": "Title that will appear at the top of each chart"
+      "label": {"en": "Chart title", "es": "Título del gráfico"},
+      "description": {"en": "Title that will appear at the top of each chart", "es": "Título que aparecerá en la parte superior de cada gráfico"}
     },
     {
       "name": "output_dir",
       "type": "directory",
-      "label": "Output folder",
+      "label": {"en": "Output folder", "es": "Carpeta de salida"},
       "required": true
     }
   ],
   "outputs": {
-    "figures_dir": "Path to the folder with the generated charts"
+    "figures_dir": {"en": "Path to the folder with the generated charts", "es": "Ruta de la carpeta con los gráficos generados"}
   }
 }

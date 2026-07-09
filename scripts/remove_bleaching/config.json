@@ -9,8 +9,8 @@
     {
       "name": "input_csv",
       "type": "file",
-      "label": "Input CSV",
-      "description": "CSV file with the raw fluorescence traces",
+      "label": {"en": "Input CSV", "es": "CSV de entrada"},
+      "description": {"en": "CSV file with the raw fluorescence traces", "es": "Archivo CSV con las trazas de fluorescencia sin procesar"},
       "required": true,
       "extensions": [".csv"],
       "link": "process_video.output_csv"
@@ -18,15 +18,15 @@
     {
       "name": "metrics",
       "type": "string",
-      "label": "Metrics to process",
-      "description": "Comma-separated list (e.g. Mean,Max). Empty = all",
+      "label": {"en": "Metrics to process", "es": "Métricas a procesar"},
+      "description": {"en": "Comma-separated list (e.g. Mean,Max). Empty = all", "es": "Lista separada por comas (p. ej. Mean,Max). Vacío = todas"},
       "default": "Mean"
     },
     {
       "name": "baseline_lam",
       "type": "float",
-      "label": "ALS baseline: lambda",
-      "description": "Regularization of the first ALS correction",
+      "label": {"en": "ALS baseline: lambda", "es": "Línea base ALS: lambda"},
+      "description": {"en": "Regularization of the first ALS correction", "es": "Regularización de la primera corrección ALS"},
       "default": 100000.0,
       "min": 0.0,
       "decimals": 6
@@ -34,8 +34,8 @@
     {
       "name": "baseline_p",
       "type": "float",
-      "label": "ALS baseline: p",
-      "description": "Weight asymmetry of the first ALS correction",
+      "label": {"en": "ALS baseline: p", "es": "Línea base ALS: p"},
+      "description": {"en": "Weight asymmetry of the first ALS correction", "es": "Asimetría de peso de la primera corrección ALS"},
       "default": 0.01,
       "min": 0.0,
       "max": 1.0,
@@ -44,8 +44,8 @@
     {
       "name": "baseline_niter",
       "type": "int",
-      "label": "ALS baseline: iterations",
-      "description": "Iterations for the first ALS correction",
+      "label": {"en": "ALS baseline: iterations", "es": "Línea base ALS: iteraciones"},
+      "description": {"en": "Iterations for the first ALS correction", "es": "Iteraciones para la primera corrección ALS"},
       "default": 10,
       "min": 1,
       "max": 200
@@ -53,8 +53,8 @@
     {
       "name": "baseline_lam_factor",
       "type": "float",
-      "label": "ALS baseline: lambda factor",
-      "description": "Lambda factor for the adaptive ramp at the start and end",
+      "label": {"en": "ALS baseline: lambda factor", "es": "Línea base ALS: factor lambda"},
+      "description": {"en": "Lambda factor for the adaptive ramp at the start and end", "es": "Factor lambda para la rampa adaptativa al inicio y al final"},
       "default": 0.001,
       "min": 0.0,
       "decimals": 6
@@ -62,8 +62,8 @@
     {
       "name": "baseline_rampup_fraction",
       "type": "float",
-      "label": "ALS baseline: ramp-up fraction",
-      "description": "Initial fraction of samples with a lambda ramp",
+      "label": {"en": "ALS baseline: ramp-up fraction", "es": "Línea base ALS: fracción de rampa ascendente"},
+      "description": {"en": "Initial fraction of samples with a lambda ramp", "es": "Fracción inicial de muestras con rampa de lambda"},
       "default": 0.2,
       "min": 0.0,
       "max": 1.0,
@@ -72,8 +72,8 @@
     {
       "name": "baseline_rampdown_fraction",
       "type": "float",
-      "label": "ALS baseline: ramp-down fraction",
-      "description": "Final fraction of samples with a lambda ramp",
+      "label": {"en": "ALS baseline: ramp-down fraction", "es": "Línea base ALS: fracción de rampa descendente"},
+      "description": {"en": "Final fraction of samples with a lambda ramp", "es": "Fracción final de muestras con rampa de lambda"},
       "default": 0.2,
       "min": 0.0,
       "max": 1.0,
@@ -82,8 +82,8 @@
     {
       "name": "smooth_lam",
       "type": "float",
-      "label": "ALS final smoothing: lambda",
-      "description": "Regularization for the final smoothing over the corrected signal",
+      "label": {"en": "ALS final smoothing: lambda", "es": "Suavizado final ALS: lambda"},
+      "description": {"en": "Regularization for the final smoothing over the corrected signal", "es": "Regularización para el suavizado final sobre la señal corregida"},
       "default": 10.0,
       "min": 0.0,
       "decimals": 6
@@ -91,8 +91,8 @@
     {
       "name": "smooth_p",
       "type": "float",
-      "label": "ALS final smoothing: p",
-      "description": "Weight asymmetry of the final smoothing",
+      "label": {"en": "ALS final smoothing: p", "es": "Suavizado final ALS: p"},
+      "description": {"en": "Weight asymmetry of the final smoothing", "es": "Asimetría de peso del suavizado final"},
       "default": 0.5,
       "min": 0.0,
       "max": 1.0,
@@ -101,8 +101,8 @@
     {
       "name": "smooth_niter",
       "type": "int",
-      "label": "ALS final smoothing: iterations",
-      "description": "Iterations for the final smoothing",
+      "label": {"en": "ALS final smoothing: iterations", "es": "Suavizado final ALS: iteraciones"},
+      "description": {"en": "Iterations for the final smoothing", "es": "Iteraciones para el suavizado final"},
       "default": 10,
       "min": 1,
       "max": 200
@@ -110,14 +110,14 @@
     {
       "name": "output_dir",
       "type": "directory",
-      "label": "Output folder",
-      "description": "Folder where the corrected CSV will be saved",
+      "label": {"en": "Output folder", "es": "Carpeta de salida"},
+      "description": {"en": "Folder where the corrected CSV will be saved", "es": "Carpeta donde se guardará el CSV corregido"},
       "required": true
     }
   ],
   "outputs": {
-    "baseline_csv": "Path to the CSV with the estimated ALS baseline",
-    "corrected_csv": "Path to the CSV file with the corrected traces"
-    ,"smoothed_csv": "Path to the CSV with the final smoothed signal"
+    "baseline_csv": {"en": "Path to the CSV with the estimated ALS baseline", "es": "Ruta del CSV con la línea base ALS estimada"},
+    "corrected_csv": {"en": "Path to the CSV file with the corrected traces", "es": "Ruta del archivo CSV con las trazas corregidas"}
+    ,"smoothed_csv": {"en": "Path to the CSV with the final smoothed signal", "es": "Ruta del CSV con la señal final suavizada"}
   }
 }

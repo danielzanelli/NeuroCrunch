@@ -44,13 +44,13 @@ from PySide6.QtWidgets import (
 PipelineContext = Dict[str, Dict[str, Any]]
 
 
-def _resolve_label(field: Dict[str, Any], key: str = 'label') -> str:
+def _resolve_label(field: Dict[str, Any], key: str = 'label', language: str = 'en') -> str:
     """Return a human-readable string for *key* in *field*, handling locale maps.
 
     Manifest labels can be either a plain string or a dict mapping locale codes
     to strings (e.g. ``{"en": "…", "es": "…"}``).  This helper always returns a
-    plain string, preferring English, then any available value, then falling back
-    to the parameter ``name``.
+    plain string, preferring *language*, then English, then any available value,
+    then falling back to the parameter ``name``.
     """
     value = field.get(key)
     if value is None:
@@ -58,18 +58,20 @@ def _resolve_label(field: Dict[str, Any], key: str = 'label') -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, dict):
-        return value.get('en') or value.get('es') or next(iter(value.values()), field.get('name', ''))
+        return (
+            value.get(language) or value.get('en') or next(iter(value.values()), field.get('name', ''))
+        )
     return str(value)
 
 
-def _localize(value: Any, fallback: str = '') -> str:
-    """Return a plain string from *value*, which may be a locale map."""
+def _localize(value: Any, fallback: str = '', language: str = 'en') -> str:
+    """Return a plain string from *value*, which may be a locale map, preferring *language*."""
     if value is None:
         return fallback
     if isinstance(value, str):
         return value
     if isinstance(value, dict):
-        return value.get('en') or value.get('es') or next(iter(value.values()), fallback)
+        return value.get(language) or value.get('en') or next(iter(value.values()), fallback)
     return str(value)
 
 
@@ -125,6 +127,9 @@ class ParamDialog(QDialog):
         parameters.  Pass ``{}`` when no context is available yet.
     parent:
         Parent widget (the main window).
+    language:
+        Active UI language code (e.g. ``'en'``, ``'es'``) used to resolve
+        locale-map labels/descriptions in the manifest.
     """
 
     # Column index in the "Configured" table column — not used here but
@@ -139,9 +144,11 @@ class ParamDialog(QDialog):
         parent: Optional[QWidget] = None,
         all_plugins: Optional[Dict[str, Any]] = None,
         current_links: Optional[Dict[str, str]] = None,
+        language: str = 'en',
     ) -> None:
         super().__init__(parent)
         self._plugin_info = plugin_info
+        self._language = language or 'en'
         self._current_values = dict(current_values) if current_values else {}
         self._pipeline_context = pipeline_context if isinstance(pipeline_context, dict) else {}
         # {script_id: PluginInfo} of all discovered plugins, used to offer
@@ -162,7 +169,9 @@ class ParamDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        self.setWindowTitle(QCoreApplication.translate('ParamDialog', f'Configure: {self._plugin_info.name}'))
+        self.setWindowTitle(
+            QCoreApplication.translate('ParamDialog', 'Configure: {0}').format(self._plugin_info.name)
+        )
         self.setMinimumWidth(480)
 
         outer_layout = QVBoxLayout(self)
@@ -207,8 +216,8 @@ class ParamDialog(QDialog):
         """Add a label + widget row for *param* to *form_layout*."""
         name: str = param.get('name', '')
         ptype: str = param.get('type', 'string')
-        label_text: str = _resolve_label(param, 'label') or name
-        description: str = _resolve_label(param, 'description')
+        label_text: str = _resolve_label(param, 'label', self._language) or name
+        description: str = _resolve_label(param, 'description', self._language)
         required: bool = bool(param.get('required', False))
         default = param.get('default')
         link: str = self._links.get(name, '')
@@ -254,7 +263,11 @@ class ParamDialog(QDialog):
         if link_source and ptype not in ('file', 'directory'):
             hint_label = QLabel(f'<i>{QCoreApplication.translate("ParamDialog", "Source: ")}{link_source}</i>')
             hint_label.setStyleSheet('color: #888888; font-size: 10px;')
-            hint_label.setToolTip(QCoreApplication.translate('ParamDialog', f'Value pre-filled from the output of "{link_source}"'))
+            hint_label.setToolTip(
+                QCoreApplication.translate(
+                    'ParamDialog', 'Value pre-filled from the output of "{0}"'
+                ).format(link_source)
+            )
             container = QWidget()
             vbox = QVBoxLayout(container)
             vbox.setContentsMargins(0, 0, 0, 0)
@@ -378,7 +391,7 @@ class ParamDialog(QDialog):
         def source_name(link: str) -> str:
             script_id = link.split('.', 1)[0]
             pinfo = self._all_plugins.get(script_id)
-            return _localize(pinfo.name, script_id) if pinfo is not None else script_id
+            return _localize(pinfo.name, script_id, self._language) if pinfo is not None else script_id
 
         def update_hint() -> None:
             link = self._links.get(name, '')
@@ -433,7 +446,8 @@ class ParamDialog(QDialog):
                     for output_key, output_desc in pinfo.outputs.items():
                         link = f'{script_id}.{output_key}'
                         action = menu.addAction(
-                            f'{_localize(pinfo.name, script_id)} → {_localize(output_desc, output_key)}'
+                            f'{_localize(pinfo.name, script_id, self._language)} → '
+                            f'{_localize(output_desc, output_key, self._language)}'
                         )
                         action.setCheckable(True)
                         action.setChecked(link == current_link)
@@ -448,7 +462,7 @@ class ParamDialog(QDialog):
             link_btn.clicked.connect(open_link_menu)
             row.addWidget(link_btn)
 
-        btn = QPushButton('Browse…')
+        btn = QPushButton(QCoreApplication.translate('ParamDialog', 'Browse…'))
         btn.setFixedWidth(90)
         btn.setFocusPolicy(Qt.NoFocus)
 
@@ -457,7 +471,7 @@ class ParamDialog(QDialog):
         if directory:
             def browse():
                 path = QFileDialog.getExistingDirectory(
-                    self, 'Select folder', line_edit.text() or ''
+                    self, QCoreApplication.translate('ParamDialog', 'Select folder'), line_edit.text() or ''
                 )
                 if path:
                     line_edit.setText(path)
@@ -467,9 +481,12 @@ class ParamDialog(QDialog):
                 ext_filter = ''
                 if extensions:
                     patterns = ' '.join(f'*{e}' for e in extensions)
-                    ext_filter = f'Files ({patterns});;All files (*)'
+                    ext_filter = (
+                        QCoreApplication.translate('ParamDialog', 'Files ({0})').format(patterns)
+                        + ';;' + QCoreApplication.translate('ParamDialog', 'All files (*)')
+                    )
                 path, _ = QFileDialog.getOpenFileName(
-                    self, 'Select file', line_edit.text() or '', ext_filter
+                    self, QCoreApplication.translate('ParamDialog', 'Select file'), line_edit.text() or '', ext_filter
                 )
                 if path:
                     line_edit.setText(path)
@@ -577,15 +594,16 @@ class ParamDialog(QDialog):
                 # will be produced by the source script at run time.
                 if ptype in ('file', 'directory') and self._links.get(name):
                     continue
-                label = _resolve_label(param, 'label') or name
+                label = _resolve_label(param, 'label', self._language) or name
                 missing_labels.append(label)
 
         if missing_labels:
             QMessageBox.warning(
                 self,
-                'Required parameters',
-                'The following parameters are required and have not been filled in:\n\n'
-                + '\n'.join(f'• {lbl}' for lbl in missing_labels),
+                QCoreApplication.translate('ParamDialog', 'Required parameters'),
+                QCoreApplication.translate(
+                    'ParamDialog', 'The following parameters are required and have not been filled in:\n\n'
+                ) + '\n'.join(f'• {lbl}' for lbl in missing_labels),
             )
             return
 

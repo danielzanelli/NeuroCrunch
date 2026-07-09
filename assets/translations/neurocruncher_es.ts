@@ -143,6 +143,166 @@
         <source>Double-click a file to preview it</source>
         <translation>Doble clic en un archivo para previsualizarlo</translation>
     </message>
+    <message>
+        <source>Error opening file explorer: {0}</source>
+        <translation>Error al abrir el explorador de archivos: {0}</translation>
+    </message>
+    <message>
+        <source>Error opening the file:\n{0}</source>
+        <translation>Error al abrir el archivo:\n{0}</translation>
+    </message>
+    <message>
+        <source>Select column range</source>
+        <translation>Seleccionar rango de columnas</translation>
+    </message>
+    <message>
+        <source>Total columns: {0}\nMaximum allowed: {1}\n</source>
+        <translation>Columnas totales: {0}\nMáximo permitido: {1}\n</translation>
+    </message>
+    <message>
+        <source>Start column (0-indexed):</source>
+        <translation>Columna inicial (indexado desde 0):</translation>
+    </message>
+    <message>
+        <source>End column (0-indexed, max +{0} from start):</source>
+        <translation>Columna final (indexado desde 0, máx. +{0} desde el inicio):</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>Aceptar</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancelar</translation>
+    </message>
+    <message>
+        <source>Error</source>
+        <translation>Error</translation>
+    </message>
+    <message>
+        <source>The end column must be >= start column</source>
+        <translation>La columna final debe ser mayor o igual que la columna inicial</translation>
+    </message>
+    <message>
+        <source>Cannot plot more than {0} columns</source>
+        <translation>No se pueden graficar más de {0} columnas</translation>
+    </message>
+    <message>
+        <source>Order {0} reassigned from "{1}": disabled.</source>
+        <translation>Orden {0} reasignado desde "{1}": deshabilitado.</translation>
+    </message>
+    <message>
+        <source>Configuration saved to: {0}</source>
+        <translation>Configuración guardada en: {0}</translation>
+    </message>
+    <message>
+        <source>Error saving configuration: {0}</source>
+        <translation>Error al guardar la configuración: {0}</translation>
+    </message>
+    <message>
+        <source>Error: the configuration file does not have the expected format.</source>
+        <translation>Error: el archivo de configuración no tiene el formato esperado.</translation>
+    </message>
+    <message>
+        <source>Working folder restored: {0}</source>
+        <translation>Carpeta de trabajo restaurada: {0}</translation>
+    </message>
+    <message>
+        <source>Configuration loaded from: {0}</source>
+        <translation>Configuración cargada desde: {0}</translation>
+    </message>
+    <message>
+        <source>Error loading configuration: {0}</source>
+        <translation>Error al cargar la configuración: {0}</translation>
+    </message>
+    <message>
+        <source>Parameters saved for "{0}"</source>
+        <translation>Parámetros guardados para "{0}"</translation>
+    </message>
+    <message>
+        <source>Starting script: {0}</source>
+        <translation>Iniciando script: {0}</translation>
+    </message>
+    <message>
+        <source>Progress: {0}%</source>
+        <translation>Progreso: {0}%</translation>
+    </message>
+    <message>
+        <source>Script "{0}" completed.</source>
+        <translation>Script "{0}" completado.</translation>
+    </message>
+    <message>
+        <source>Script "{0}" finished with an error.</source>
+        <translation>Script "{0}" finalizado con error.</translation>
+    </message>
+    <message>
+        <source>Error loading data for chart:\n{0}</source>
+        <translation>Error al cargar los datos para el gráfico:\n{0}</translation>
+    </message>
+    <message>
+        <source>Loaded: {0} rows, {1} columns</source>
+        <translation>Cargado: {0} filas, {1} columnas</translation>
+    </message>
+    <message>
+        <source>Columns that include:</source>
+        <translation>Columnas que incluyen:</translation>
+    </message>
+    <message>
+        <source>Start column:</source>
+        <translation>Columna inicial:</translation>
+    </message>
+    <message>
+        <source>End column:</source>
+        <translation>Columna final:</translation>
+    </message>
+    <message>
+        <source>Plot</source>
+        <translation>Graficar</translation>
+    </message>
+    <message>
+        <source>Warning: Could not create the interactive legend:\n{0}</source>
+        <translation>Advertencia: no se pudo crear la leyenda interactiva:\n{0}</translation>
+    </message>
+    <message>
+        <source>No ROIs found in {0}</source>
+        <translation>No se encontraron ROIs en {0}</translation>
+    </message>
+    <message>
+        <source>ROIs loaded: {0} regions from {1}</source>
+        <translation>ROIs cargadas: {0} regiones desde {1}</translation>
+    </message>
+    <message>
+        <source>Error loading ROI:\n{0}</source>
+        <translation>Error al cargar la ROI:\n{0}</translation>
+    </message>
+    <message>
+        <source>Playing video: {0}</source>
+        <translation>Reproduciendo video: {0}</translation>
+    </message>
+    <message>
+        <source>Error loading video:\n{0}</source>
+        <translation>Error al cargar el video:\n{0}</translation>
+    </message>
+    <message>
+        <source>Loading PDF (QPdfView): {0}</source>
+        <translation>Cargando PDF (QPdfView): {0}</translation>
+    </message>
+    <message>
+        <source>Could not display the PDF with QtPdf and QtWebEngine is not available: {0}</source>
+        <translation>No se pudo mostrar el PDF con QtPdf y QtWebEngine no está disponible: {0}</translation>
+    </message>
+    <message>
+        <source>Loading PDF (QWebEngineView): {0}</source>
+        <translation>Cargando PDF (QWebEngineView): {0}</translation>
+    </message>
+    <message>
+        <source>Error loading PDF:\n{0}</source>
+        <translation>Error al cargar el PDF:\n{0}</translation>
+    </message>
+    <message>
+        <source>Error loading text file:\n{0}</source>
+        <translation>Error al cargar el archivo de texto:\n{0}</translation>
+    </message>
 </context>
 <context>
     <name>CSVReaderWorker</name>
@@ -192,6 +352,81 @@
     <message>
         <source>Will be produced by "{0}"</source>
         <translation>Será generado por "{0}"</translation>
+    </message>
+    <message>
+        <source>Select folder</source>
+        <translation>Seleccionar carpeta</translation>
+    </message>
+    <message>
+        <source>Select file</source>
+        <translation>Seleccionar archivo</translation>
+    </message>
+    <message>
+        <source>Browse…</source>
+        <translation>Examinar…</translation>
+    </message>
+    <message>
+        <source>Files ({0})</source>
+        <translation>Archivos ({0})</translation>
+    </message>
+    <message>
+        <source>All files (*)</source>
+        <translation>Todos los archivos (*)</translation>
+    </message>
+    <message>
+        <source>Required parameters</source>
+        <translation>Parámetros requeridos</translation>
+    </message>
+    <message>
+        <source>The following parameters are required and have not been filled in:\n\n</source>
+        <translation>Los siguientes parámetros son obligatorios y no se han completado:\n\n</translation>
+    </message>
+</context>
+<context>
+    <name>ScriptRunner</name>
+    <message>
+        <source>Pipeline stopped before running "{0}".</source>
+        <translation>Pipeline detenido antes de ejecutar "{0}".</translation>
+    </message>
+    <message>
+        <source>--- Running "{0}" ---</source>
+        <translation>--- Ejecutando "{0}" ---</translation>
+    </message>
+    <message>
+        <source>"{0}" finished with an error. Pipeline stopped.</source>
+        <translation>"{0}" finalizó con un error. Pipeline detenido.</translation>
+    </message>
+    <message>
+        <source>Warning: linked output "{0}" for parameter "{1}" points to a missing file; using the saved value instead.</source>
+        <translation>Advertencia: la salida vinculada "{0}" para el parámetro "{1}" apunta a un archivo inexistente; se usará el valor guardado.</translation>
+    </message>
+    <message>
+        <source>"{0}": required parameter "{1}" is empty (has the linked script run yet?).</source>
+        <translation>"{0}": el parámetro requerido "{1}" está vacío (¿ya se ejecutó el script vinculado?).</translation>
+    </message>
+    <message>
+        <source>Could not read the script "{0}": {1}</source>
+        <translation>No se pudo leer el script "{0}": {1}</translation>
+    </message>
+    <message>
+        <source>Syntax error in "{0}": {1}</source>
+        <translation>Error de sintaxis en "{0}": {1}</translation>
+    </message>
+    <message>
+        <source>"{0}" does not define a run(params) or main(params) function.</source>
+        <translation>"{0}" no define una función run(params) o main(params).</translation>
+    </message>
+    <message>
+        <source>"{0}" finished with an error (sys.exit({1})).</source>
+        <translation>"{0}" finalizó con un error (sys.exit({1})).</translation>
+    </message>
+    <message>
+        <source>Error in "{0}": {1}: {2}</source>
+        <translation>Error en "{0}": {1}: {2}</translation>
+    </message>
+    <message>
+        <source>"{0}" cancelled by the user.</source>
+        <translation>"{0}" cancelado por el usuario.</translation>
     </message>
 </context>
 <context>

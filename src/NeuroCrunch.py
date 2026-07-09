@@ -73,7 +73,9 @@ class CSVReaderWorker(QThread):
         """Run in background thread."""
         try:
             filename = os.path.basename(self.file_path)
-            self.progress_updated.emit(QCoreApplication.translate('CSVReaderWorker', f'Opening CSV {filename}: 0%'))
+            self.progress_updated.emit(
+                QCoreApplication.translate('CSVReaderWorker', 'Opening CSV {0}: 0%').format(filename)
+            )
 
             if self.file_path.lower().endswith('.csv'):
                 # Count total lines upfront so progress can be calculated correctly
@@ -327,7 +329,7 @@ class NeuroCrunch(QMainWindow):
             self.print(self.tr('No local folder selected.'))
             return
         if not os.path.exists(self.local_folder):
-            self.print(self.tr(f'Local folder "{self.local_folder}" does not exist.'))
+            self.print(self.tr('Local folder "{0}" does not exist.').format(self.local_folder))
             return
 
         content = self.get_dir_content(self.local_folder)
@@ -351,7 +353,7 @@ class NeuroCrunch(QMainWindow):
         try:
             os.makedirs(path, exist_ok=True)
         except OSError as e:
-            self.print(self.tr(f'Could not create user plugins folder "{path}": {str(e)}'))
+            self.print(self.tr('Could not create user plugins folder "{0}": {1}').format(path, str(e)))
 
         return path
 
@@ -367,10 +369,10 @@ class NeuroCrunch(QMainWindow):
         try:
             os.makedirs(path, exist_ok=True)
         except OSError as e:
-            self.print(self.tr(f'Could not open scripts folder "{path}": {str(e)}'))
+            self.print(self.tr('Could not open scripts folder "{0}": {1}').format(path, str(e)))
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
-        self.print(self.tr(f'User scripts folder: {path}'))
+        self.print(self.tr('User scripts folder: {0}').format(path))
 
     def rescan_scripts(self):
         """Re-discover bundled + user scripts and refresh the scripts table.
@@ -414,17 +416,17 @@ class NeuroCrunch(QMainWindow):
 
     def _on_update_available(self, release):
         version = release.get('version', '')
-        self.statusBar().showMessage(self.tr(f'NeuroCrunch {version} available'))
+        self.statusBar().showMessage(self.tr('NeuroCrunch {0} available').format(version))
         asset = release.get('asset')
         if not asset:
             QMessageBox.information(
                 self, self.tr('Update available'),
-                self.tr(f'There is a new version ({version}), but there is no installer for this ')
-                + self.tr('platform.\nDownload it manually from:\n') + release.get("html_url", ""))
+                self.tr('There is a new version ({0}), but there is no installer for this platform.\nDownload it manually from:\n').format(version)
+                + release.get("html_url", ""))
             return
         reply = QMessageBox.question(
             self, self.tr('Update available'),
-            self.tr(f'A new version is available ({version}).\nDownload it now?'))
+            self.tr('A new version is available ({0}).\nDownload it now?').format(version))
         if reply == QMessageBox.Yes:
             self._start_update_download(asset)
 
@@ -434,10 +436,10 @@ class NeuroCrunch(QMainWindow):
         if not url or not name:
             self.print(self.tr('The update asset does not have a valid URL or name.'))
             return
-        self.print(self.tr(f'Downloading update: {name}...'))
+        self.print(self.tr('Downloading update: {0}...').format(name))
         self._update_downloader = UpdateDownloader(url, name)
         self._update_downloader.progress.connect(
-            lambda pct: self.statusBar().showMessage(self.tr(f'Downloading update: {pct}%')))
+            lambda pct: self.statusBar().showMessage(self.tr('Downloading update: {0}%').format(pct)))
         self._update_downloader.finished_ok.connect(self._on_update_downloaded)
         self._update_downloader.error.connect(self.print)
         self._update_downloader.start()
@@ -544,7 +546,7 @@ class NeuroCrunch(QMainWindow):
     def open_in_file_explorer(self, file_path):
         """Open file or folder in system file explorer"""
         if not os.path.exists(file_path):
-            self.print(self.tr(f'The file/folder "{file_path}" does not exist.'))
+            self.print(self.tr('The file/folder "{0}" does not exist.').format(file_path))
             return
 
         try:
@@ -558,9 +560,9 @@ class NeuroCrunch(QMainWindow):
                 # Linux: open with file manager
                 subprocess.Popen(['xdg-open', os.path.dirname(file_path)])
 
-            self.print(self.tr(f'Opening in file explorer: {file_path}'))
+            self.print(self.tr('Opening in file explorer: {0}').format(file_path))
         except Exception as e:
-            self.print(f'Error opening file explorer: {str(e)}')
+            self.print(self.tr('Error opening file explorer: {0}').format(str(e)))
 
 
 
@@ -599,23 +601,23 @@ class NeuroCrunch(QMainWindow):
                 else:
                     self.show_text_file(file_path)
             except Exception as e:
-                self.print(self.tr(f"Error opening the file:\n{str(e)}"))
+                self.print(self.tr('Error opening the file:\n{0}').format(str(e)))
 
     def show_column_range_dialog(self, total_columns):
         """Show a dialog to let user select column range. Returns (start_col, end_col) or None if cancelled."""
         max_selectable = min(MAX_PLOT_COLUMNS, total_columns)
         dialog = QDialog(self)
-        dialog.setWindowTitle('Select column range')
+        dialog.setWindowTitle(self.tr('Select column range'))
         dialog.setModal(True)
 
         layout = QVBoxLayout()
 
         # Add description
-        desc_label = QLabel(f'Total columns: {total_columns}\nMaximum allowed: {max_selectable}\n')
+        desc_label = QLabel(self.tr('Total columns: {0}\nMaximum allowed: {1}\n').format(total_columns, max_selectable))
         layout.addWidget(desc_label)
 
         # Start column spinbox
-        start_label = QLabel('Start column (0-indexed):')
+        start_label = QLabel(self.tr('Start column (0-indexed):'))
         self.start_spin = QSpinBox()
         self.start_spin.setMinimum(0)
         self.start_spin.setMaximum(total_columns - 1)
@@ -624,7 +626,7 @@ class NeuroCrunch(QMainWindow):
         layout.addWidget(self.start_spin)
 
         # End column spinbox
-        end_label = QLabel(f'End column (0-indexed, max +{max_selectable} from start):')
+        end_label = QLabel(self.tr('End column (0-indexed, max +{0} from start):').format(max_selectable))
         self.end_spin = QSpinBox()
         self.end_spin.setMinimum(0)
         self.end_spin.setMaximum(total_columns - 1)
@@ -634,8 +636,8 @@ class NeuroCrunch(QMainWindow):
 
         # Buttons
         button_layout = QHBoxLayout()
-        ok_button = QPushButton('OK')
-        cancel_button = QPushButton('Cancel')
+        ok_button = QPushButton(self.tr('OK'))
+        cancel_button = QPushButton(self.tr('Cancel'))
         ok_button.clicked.connect(dialog.accept)
         cancel_button.clicked.connect(dialog.reject)
         button_layout.addWidget(ok_button)
@@ -650,11 +652,11 @@ class NeuroCrunch(QMainWindow):
 
             # Validate range
             if end < start:
-                QMessageBox.warning(self, 'Error', 'The end column must be >= start column')
+                QMessageBox.warning(self, self.tr('Error'), self.tr('The end column must be >= start column'))
                 return None
 
             if (end - start + 1) > MAX_PLOT_COLUMNS:
-                QMessageBox.warning(self, 'Error', f'Cannot plot more than {MAX_PLOT_COLUMNS} columns')
+                QMessageBox.warning(self, self.tr('Error'), self.tr('Cannot plot more than {0} columns').format(MAX_PLOT_COLUMNS))
                 return None
 
             return (start, end)
@@ -844,7 +846,9 @@ class NeuroCrunch(QMainWindow):
                     self.config[other_id]['execution_order'] = None
                     self.config[other_id]['enabled'] = False
                     self.print(
-                        f'Order {new_order} reassigned from "{self.plugins[other_id].name}": disabled.'
+                        self.tr('Order {0} reassigned from "{1}": disabled.').format(
+                            new_order, self.plugins[other_id].name
+                        )
                     )
                     break
 
@@ -867,9 +871,9 @@ class NeuroCrunch(QMainWindow):
             data['__working_directory__'] = self.local_folder
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            self.print(f'Configuration saved to: {os.path.basename(file_path)}')
+            self.print(self.tr('Configuration saved to: {0}').format(os.path.basename(file_path)))
         except Exception as e:
-            self.print(f'Error saving configuration: {str(e)}')
+            self.print(self.tr('Error saving configuration: {0}').format(str(e)))
 
     def load_config(self) -> None:
         """Load a previously saved .config file into self.config and refresh the table."""
@@ -883,7 +887,7 @@ class NeuroCrunch(QMainWindow):
             with open(file_path, 'r', encoding='utf-8') as f:
                 loaded = json.load(f)
             if not isinstance(loaded, dict):
-                self.print('Error: the configuration file does not have the expected format.')
+                self.print(self.tr('Error: the configuration file does not have the expected format.'))
                 return
             # Restore the working directory if it was saved and still exists.
             saved_cwd = loaded.pop('__working_directory__', None)
@@ -901,10 +905,10 @@ class NeuroCrunch(QMainWindow):
                 self.local_folder = saved_cwd
                 self.ui.file_viewer.setHeaderLabel(self.local_folder)
                 self.refresh_local_folder()
-                self.print(f'Working folder restored: {saved_cwd}')
-            self.print(f'Configuration loaded from: {os.path.basename(file_path)}')
+                self.print(self.tr('Working folder restored: {0}').format(saved_cwd))
+            self.print(self.tr('Configuration loaded from: {0}').format(os.path.basename(file_path)))
         except (OSError, json.JSONDecodeError) as e:
-            self.print(f'Error loading configuration: {str(e)}')
+            self.print(self.tr('Error loading configuration: {0}').format(str(e)))
 
     def open_param_dialog(self, row: int, column: int) -> None:
         """Open the parameter configuration dialog for the script in *row*.
@@ -928,14 +932,14 @@ class NeuroCrunch(QMainWindow):
 
         dialog = ParamDialog(
             plugin_info, current_values, self.pipeline_context_store.as_dict(), self,
-            all_plugins=self.plugins, current_links=current_links,
+            all_plugins=self.plugins, current_links=current_links, language=self.current_language,
         )
         if dialog.exec() == ParamDialog.DialogCode.Accepted:
             values = dialog.get_values()
             self.config[script_id]['parameters'] = values
             self.config[script_id]['links'] = dialog.get_links()
             self.config[script_id]['last_modified'] = datetime.datetime.now().strftime('%Y/%m/%d - %H:%M')
-            self.print(f'Parameters saved for "{plugin_info.name}"')
+            self.print(self.tr('Parameters saved for "{0}"').format(plugin_info.name))
             self.refresh_scripts_table()
 
     def _build_pipeline(self):
@@ -1012,7 +1016,7 @@ class NeuroCrunch(QMainWindow):
         self._script_runner.log_message.connect(self._on_log_message)
         self._script_runner.progress_changed.connect(self._on_progress_changed)
         self._script_runner.script_started.connect(
-            lambda script_id: self.print(f'Starting script: {self.plugins[script_id].name}')
+            lambda script_id: self.print(self.tr('Starting script: {0}').format(self.plugins[script_id].name))
         )
         self._script_runner.script_finished.connect(self._on_script_finished)
         self._script_runner.pipeline_done.connect(self._on_pipeline_done)
@@ -1036,11 +1040,14 @@ class NeuroCrunch(QMainWindow):
         Shown in the status bar so it updates in place, without clobbering log
         lines the script prints between progress updates.
         """
-        self.statusBar().showMessage(f'Progress: {percent}%')
+        self.statusBar().showMessage(self.tr('Progress: {0}%').format(percent))
 
     def _on_script_finished(self, script_id: str, success: bool) -> None:
-        status = 'completed' if success else 'with error'
-        self.print(f'Script "{self.plugins[script_id].name}" {status}.')
+        name = self.plugins[script_id].name
+        if success:
+            self.print(self.tr('Script "{0}" completed.').format(name))
+        else:
+            self.print(self.tr('Script "{0}" finished with an error.').format(name))
 
     def _on_pipeline_done(self, success: bool) -> None:
         self.ui.btn_execute_scripts.setEnabled(True)
@@ -1130,12 +1137,12 @@ class NeuroCrunch(QMainWindow):
 
     def _on_csv_error(self, error_msg):
         """Handle CSV loading error."""
-        self.print(f"Error loading data for chart:\n{error_msg}")
+        self.print(self.tr('Error loading data for chart:\n{0}').format(error_msg))
 
     def _on_csv_loaded(self, data):
         """Handle CSV loaded from background thread."""
 
-        self.print(self.tr(f'Loaded: {len(data)} rows, {len(data.columns)} columns'))
+        self.print(self.tr('Loaded: {0} rows, {1} columns').format(len(data), len(data.columns)))
         self.data = data
 
         # Create two spinboxes and a button at the bottom of the self.ui.plot_frame
@@ -1165,17 +1172,17 @@ class NeuroCrunch(QMainWindow):
         columns_layout = QHBoxLayout()
 
         # Add description
-        desc_label = QLabel(f'Total columns: {total_columns}\nMaximum allowed: {max_selectable}\n')
+        desc_label = QLabel(self.tr('Total columns: {0}\nMaximum allowed: {1}\n').format(total_columns, max_selectable))
         columns_layout.addWidget(desc_label)
 
         # Regex finder for column names
-        regex_label = QLabel('Columns that include:')
+        regex_label = QLabel(self.tr('Columns that include:'))
         self.regex_input = QLineEdit()
         columns_layout.addWidget(regex_label)
         columns_layout.addWidget(self.regex_input)
 
         # Start column spinbox
-        start_label = QLabel('Start column:')
+        start_label = QLabel(self.tr('Start column:'))
         self.start_spin = QSpinBox()
         self.start_spin.setMinimum(0)
         self.start_spin.setMaximum(total_columns - 1)
@@ -1184,7 +1191,7 @@ class NeuroCrunch(QMainWindow):
         columns_layout.addWidget(self.start_spin)
 
         # End column spinbox
-        end_label = QLabel(f'End column:')
+        end_label = QLabel(self.tr('End column:'))
         self.end_spin = QSpinBox()
         self.end_spin.setMinimum(0)
         self.end_spin.setMaximum(total_columns - 1)
@@ -1193,7 +1200,7 @@ class NeuroCrunch(QMainWindow):
         columns_layout.addWidget(self.end_spin)
 
         # Button
-        ok_button = QPushButton('Plot')
+        ok_button = QPushButton(self.tr('Plot'))
         ok_button.clicked.connect(self.plot_data)
         columns_layout.addWidget(ok_button)
         columns_widget.setLayout(columns_layout)
@@ -1229,7 +1236,7 @@ class NeuroCrunch(QMainWindow):
             try:
                 legend = self.ui.plot_widget.addLegend()
             except Exception as e:
-                self.print(f"Warning: Could not create the interactive legend:\n{str(e)}")
+                self.print(self.tr('Warning: Could not create the interactive legend:\n{0}').format(str(e)))
                 legend = None
 
             # Plot selected columns and save references
@@ -1289,7 +1296,7 @@ class NeuroCrunch(QMainWindow):
                     # Non-fatal: continue without clickable legend
                     pass
         except Exception as e:
-            self.print(f"Error loading data for chart:\n{str(e)}")
+            self.print(self.tr('Error loading data for chart:\n{0}').format(str(e)))
             self.ui.plot_widget.clear()
 
     def load_and_display_roi(self, roi_zip_path):
@@ -1297,12 +1304,12 @@ class NeuroCrunch(QMainWindow):
         try:
             rois = read_roi.read_roi_zip(roi_zip_path)
             if not rois:
-                self.print(self.tr(f'No ROIs found in {os.path.basename(roi_zip_path)}'))
+                self.print(self.tr('No ROIs found in {0}').format(os.path.basename(roi_zip_path)))
                 return
             self.roi_data = rois
-            self.print(self.tr(f'ROIs loaded: {len(rois)} regions from {os.path.basename(roi_zip_path)}'))
+            self.print(self.tr('ROIs loaded: {0} regions from {1}').format(len(rois), os.path.basename(roi_zip_path)))
         except Exception as e:
-            self.print(f'Error loading ROI:\n{str(e)}')
+            self.print(self.tr('Error loading ROI:\n{0}').format(str(e)))
 
     def show_video(self, file_path):
         """Shows a video using QVideoSink so ROIs can be painted onto each decoded frame."""
@@ -1400,10 +1407,10 @@ class NeuroCrunch(QMainWindow):
                 self.media_player.play()
 
             self.play_button.setIcon(icon_loader.get_icon('pause', icon_loader.glyph_color(), 14))
-            self.print(self.tr(f'Playing video: {os.path.basename(file_path)}'))
+            self.print(self.tr('Playing video: {0}').format(os.path.basename(file_path)))
 
         except Exception as e:
-            self.print(f"Error loading video:\n{str(e)}")
+            self.print(self.tr('Error loading video:\n{0}').format(str(e)))
             self.ui.video_player.hide()
 
     def _on_video_frame_received(self, frame):
@@ -1510,7 +1517,7 @@ class NeuroCrunch(QMainWindow):
             layout.addWidget(self._pdf_view)
             layout.setContentsMargins(0, 0, 0, 0)
             self._pdf_view.show()
-            self.print(self.tr(f'Loading PDF (QPdfView): {os.path.basename(file_path)}'))
+            self.print(self.tr('Loading PDF (QPdfView): {0}').format(os.path.basename(file_path)))
             return
         except Exception:
             # QtPdf not available or failed — fall back to QWebEngineView below
@@ -1519,8 +1526,10 @@ class NeuroCrunch(QMainWindow):
         # Fallback: use QWebEngineView but ensure a safe widget name and focus
         if QWebEngineView is None:
             self.print(
-                f'Could not display the PDF with QtPdf and QtWebEngine is not available: '
-                f'{os.path.basename(file_path)}')
+                self.tr('Could not display the PDF with QtPdf and QtWebEngine is not available: {0}').format(
+                    os.path.basename(file_path)
+                )
+            )
             self.ui.pdf_viewer.hide()
             return
         try:
@@ -1538,9 +1547,9 @@ class NeuroCrunch(QMainWindow):
             web_view.show()
             web_view.setFocus()
             self._web_pdf_view = web_view
-            self.print(self.tr(f'Loading PDF (QWebEngineView): {os.path.basename(file_path)}'))
+            self.print(self.tr('Loading PDF (QWebEngineView): {0}').format(os.path.basename(file_path)))
         except Exception as e:
-            self.print(f"Error loading PDF:\n{str(e)}")
+            self.print(self.tr('Error loading PDF:\n{0}').format(str(e)))
             self.ui.pdf_viewer.hide()
 
     def show_text_file(self, file_path):
@@ -1562,7 +1571,7 @@ class NeuroCrunch(QMainWindow):
                 content = f.read()
                 self.ui.text_viewer.setPlainText(content)
         except Exception as e:
-            self.print(f"Error loading text file:\n{str(e)}")
+            self.print(self.tr('Error loading text file:\n{0}').format(str(e)))
             self.ui.text_viewer.hide()
 
     def toggle_play_pause(self):

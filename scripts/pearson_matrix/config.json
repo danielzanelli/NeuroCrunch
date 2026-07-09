@@ -9,8 +9,8 @@
     {
       "name": "input_csv",
       "type": "file",
-      "label": "Input CSV",
-      "description": "CSV file with the fluorescence traces",
+      "label": {"en": "Input CSV", "es": "CSV de entrada"},
+      "description": {"en": "CSV file with the fluorescence traces", "es": "Archivo CSV con las trazas de fluorescencia"},
       "required": true,
       "extensions": [".csv"],
       "link": "select_active.active_csv"
@@ -18,8 +18,8 @@
     {
       "name": "correlation_threshold",
       "type": "float",
-      "label": "Correlation threshold",
-      "description": "Minimum Pearson correlation value to consider two cells as correlated",
+      "label": {"en": "Correlation threshold", "es": "Umbral de correlación"},
+      "description": {"en": "Minimum Pearson correlation value to consider two cells as correlated", "es": "Valor mínimo de correlación de Pearson para considerar dos células como correlacionadas"},
       "default": 0.5,
       "min": 0.0,
       "max": 1.0,
@@ -28,18 +28,18 @@
     {
       "name": "notes",
       "type": "text",
-      "label": "Notes / remarks",
-      "description": "Free text to record observations about this analysis"
+      "label": {"en": "Notes / remarks", "es": "Notas / observaciones"},
+      "description": {"en": "Free text to record observations about this analysis", "es": "Texto libre para registrar observaciones sobre este análisis"}
     },
     {
       "name": "output_dir",
       "type": "directory",
-      "label": "Output folder",
+      "label": {"en": "Output folder", "es": "Carpeta de salida"},
       "required": true
     }
   ],
   "outputs": {
-    "matrix_csv": "Path to the CSV with the correlation matrix",
-    "heatmap_png": "Path to the correlation heatmap image"
+    "matrix_csv": {"en": "Path to the CSV with the correlation matrix", "es": "Ruta del CSV con la matriz de correlación"},
+    "heatmap_png": {"en": "Path to the correlation heatmap image", "es": "Ruta de la imagen del mapa de calor de correlación"}
   }
 }

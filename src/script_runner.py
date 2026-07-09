@@ -20,9 +20,14 @@ import tempfile
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QCoreApplication, QThread, Signal
 
 from param_dialog import _resolve_link, compute_effective_links
+
+
+def _tr(text: str) -> str:
+    """Translate *text* in the ``ScriptRunner`` context."""
+    return QCoreApplication.translate('ScriptRunner', text)
 
 
 class _PipelineCancelled(BaseException):
@@ -321,7 +326,7 @@ class ScriptRunner(QThread):
             for script_id, plugin_info, params in self._pipeline:
                 if self._stop_requested:
                     self.log_message.emit(
-                        f'Pipeline stopped before running "{plugin_info.name}".'
+                        _tr('Pipeline stopped before running "{0}".').format(plugin_info.name)
                     )
                     overall_success = False
                     break
@@ -329,7 +334,7 @@ class ScriptRunner(QThread):
                 resolved_params = self._resolve_linked_params(script_id, plugin_info, params)
 
                 self.script_started.emit(script_id)
-                self.log_message.emit(f'--- Running "{plugin_info.name}" ---')
+                self.log_message.emit(_tr('--- Running "{0}" ---').format(plugin_info.name))
 
                 success, outputs = self._run_script(script_id, plugin_info, resolved_params)
 
@@ -342,7 +347,7 @@ class ScriptRunner(QThread):
                     overall_success = False
                     if not self._stop_requested:
                         self.log_message.emit(
-                            f'"{plugin_info.name}" finished with an error. Pipeline stopped.'
+                            _tr('"{0}" finished with an error. Pipeline stopped.').format(plugin_info.name)
                         )
                     break
         except _PipelineCancelled:
@@ -380,8 +385,10 @@ class ScriptRunner(QThread):
                 and not os.path.exists(linked_val)
             ):
                 self.log_message.emit(
-                    f'Warning: linked output "{link}" for parameter "{name}" points to a '
-                    'missing file; using the saved value instead.'
+                    _tr(
+                        'Warning: linked output "{0}" for parameter "{1}" points to a '
+                        'missing file; using the saved value instead.'
+                    ).format(link, name)
                 )
                 continue
             resolved[name] = linked_val
@@ -410,8 +417,10 @@ class ScriptRunner(QThread):
             name = param.get('name', '')
             if not str(params.get(name) or '').strip():
                 self.log_message.emit(
-                    f'"{plugin_info.name}": required parameter "{name}" is empty '
-                    '(has the linked script run yet?).'
+                    _tr(
+                        '"{0}": required parameter "{1}" is empty '
+                        '(has the linked script run yet?).'
+                    ).format(plugin_info.name, name)
                 )
                 return False, {}
 
@@ -421,7 +430,7 @@ class ScriptRunner(QThread):
                 source = f.read()
         except OSError as e:
             self.log_message.emit(
-                f'Could not read the script "{entry_point}": {e}'
+                _tr('Could not read the script "{0}": {1}').format(entry_point, e)
             )
             return False, {}
 
@@ -429,7 +438,7 @@ class ScriptRunner(QThread):
             code = compile(source, entry_point, 'exec')
         except SyntaxError as e:
             self.log_message.emit(
-                f'Syntax error in "{plugin_info.name}": {e}'
+                _tr('Syntax error in "{0}": {1}').format(plugin_info.name, e)
             )
             return False, {}
 
@@ -460,7 +469,9 @@ class ScriptRunner(QThread):
             run_fn = namespace.get('run') or namespace.get('main')
             if run_fn is None or not callable(run_fn):
                 self.log_message.emit(
-                    f'"{plugin_info.name}" does not define a run(params) or main(params) function.'
+                    _tr('"{0}" does not define a run(params) or main(params) function.').format(
+                        plugin_info.name
+                    )
                 )
                 return False, {}
 
@@ -486,12 +497,14 @@ class ScriptRunner(QThread):
             exit_code = e.code
             if exit_code not in (None, 0):
                 self.log_message.emit(
-                    f'"{plugin_info.name}" finished with an error (sys.exit({exit_code})).'
+                    _tr('"{0}" finished with an error (sys.exit({1})).').format(
+                        plugin_info.name, exit_code
+                    )
                 )
                 success = False
         except Exception as e:  # noqa: BLE001
             self.log_message.emit(
-                f'Error in "{plugin_info.name}": {type(e).__name__}: {e}'
+                _tr('Error in "{0}": {1}: {2}').format(plugin_info.name, type(e).__name__, e)
             )
             success = False
         finally:
@@ -504,7 +517,7 @@ class ScriptRunner(QThread):
                 pass
 
         if self._stop_requested and success:
-            self.log_message.emit(f'"{plugin_info.name}" cancelled by the user.')
+            self.log_message.emit(_tr('"{0}" cancelled by the user.').format(plugin_info.name))
             success = False
 
         return success, outputs

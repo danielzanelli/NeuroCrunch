@@ -143,6 +143,166 @@
         <source>Double-click a file to preview it</source>
         <translation>Double-click a file to preview it</translation>
     </message>
+    <message>
+        <source>Error opening file explorer: {0}</source>
+        <translation>Error opening file explorer: {0}</translation>
+    </message>
+    <message>
+        <source>Error opening the file:\n{0}</source>
+        <translation>Error opening the file:\n{0}</translation>
+    </message>
+    <message>
+        <source>Select column range</source>
+        <translation>Select column range</translation>
+    </message>
+    <message>
+        <source>Total columns: {0}\nMaximum allowed: {1}\n</source>
+        <translation>Total columns: {0}\nMaximum allowed: {1}\n</translation>
+    </message>
+    <message>
+        <source>Start column (0-indexed):</source>
+        <translation>Start column (0-indexed):</translation>
+    </message>
+    <message>
+        <source>End column (0-indexed, max +{0} from start):</source>
+        <translation>End column (0-indexed, max +{0} from start):</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>OK</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Error</source>
+        <translation>Error</translation>
+    </message>
+    <message>
+        <source>The end column must be >= start column</source>
+        <translation>The end column must be >= start column</translation>
+    </message>
+    <message>
+        <source>Cannot plot more than {0} columns</source>
+        <translation>Cannot plot more than {0} columns</translation>
+    </message>
+    <message>
+        <source>Order {0} reassigned from "{1}": disabled.</source>
+        <translation>Order {0} reassigned from "{1}": disabled.</translation>
+    </message>
+    <message>
+        <source>Configuration saved to: {0}</source>
+        <translation>Configuration saved to: {0}</translation>
+    </message>
+    <message>
+        <source>Error saving configuration: {0}</source>
+        <translation>Error saving configuration: {0}</translation>
+    </message>
+    <message>
+        <source>Error: the configuration file does not have the expected format.</source>
+        <translation>Error: the configuration file does not have the expected format.</translation>
+    </message>
+    <message>
+        <source>Working folder restored: {0}</source>
+        <translation>Working folder restored: {0}</translation>
+    </message>
+    <message>
+        <source>Configuration loaded from: {0}</source>
+        <translation>Configuration loaded from: {0}</translation>
+    </message>
+    <message>
+        <source>Error loading configuration: {0}</source>
+        <translation>Error loading configuration: {0}</translation>
+    </message>
+    <message>
+        <source>Parameters saved for "{0}"</source>
+        <translation>Parameters saved for "{0}"</translation>
+    </message>
+    <message>
+        <source>Starting script: {0}</source>
+        <translation>Starting script: {0}</translation>
+    </message>
+    <message>
+        <source>Progress: {0}%</source>
+        <translation>Progress: {0}%</translation>
+    </message>
+    <message>
+        <source>Script "{0}" completed.</source>
+        <translation>Script "{0}" completed.</translation>
+    </message>
+    <message>
+        <source>Script "{0}" finished with an error.</source>
+        <translation>Script "{0}" finished with an error.</translation>
+    </message>
+    <message>
+        <source>Error loading data for chart:\n{0}</source>
+        <translation>Error loading data for chart:\n{0}</translation>
+    </message>
+    <message>
+        <source>Loaded: {0} rows, {1} columns</source>
+        <translation>Loaded: {0} rows, {1} columns</translation>
+    </message>
+    <message>
+        <source>Columns that include:</source>
+        <translation>Columns that include:</translation>
+    </message>
+    <message>
+        <source>Start column:</source>
+        <translation>Start column:</translation>
+    </message>
+    <message>
+        <source>End column:</source>
+        <translation>End column:</translation>
+    </message>
+    <message>
+        <source>Plot</source>
+        <translation>Plot</translation>
+    </message>
+    <message>
+        <source>Warning: Could not create the interactive legend:\n{0}</source>
+        <translation>Warning: Could not create the interactive legend:\n{0}</translation>
+    </message>
+    <message>
+        <source>No ROIs found in {0}</source>
+        <translation>No ROIs found in {0}</translation>
+    </message>
+    <message>
+        <source>ROIs loaded: {0} regions from {1}</source>
+        <translation>ROIs loaded: {0} regions from {1}</translation>
+    </message>
+    <message>
+        <source>Error loading ROI:\n{0}</source>
+        <translation>Error loading ROI:\n{0}</translation>
+    </message>
+    <message>
+        <source>Playing video: {0}</source>
+        <translation>Playing video: {0}</translation>
+    </message>
+    <message>
+        <source>Error loading video:\n{0}</source>
+        <translation>Error loading video:\n{0}</translation>
+    </message>
+    <message>
+        <source>Loading PDF (QPdfView): {0}</source>
+        <translation>Loading PDF (QPdfView): {0}</translation>
+    </message>
+    <message>
+        <source>Could not display the PDF with QtPdf and QtWebEngine is not available: {0}</source>
+        <translation>Could not display the PDF with QtPdf and QtWebEngine is not available: {0}</translation>
+    </message>
+    <message>
+        <source>Loading PDF (QWebEngineView): {0}</source>
+        <translation>Loading PDF (QWebEngineView): {0}</translation>
+    </message>
+    <message>
+        <source>Error loading PDF:\n{0}</source>
+        <translation>Error loading PDF:\n{0}</translation>
+    </message>
+    <message>
+        <source>Error loading text file:\n{0}</source>
+        <translation>Error loading text file:\n{0}</translation>
+    </message>
 </context>
 <context>
     <name>CSVReaderWorker</name>
@@ -192,6 +352,81 @@
     <message>
         <source>Will be produced by "{0}"</source>
         <translation>Will be produced by "{0}"</translation>
+    </message>
+    <message>
+        <source>Select folder</source>
+        <translation>Select folder</translation>
+    </message>
+    <message>
+        <source>Select file</source>
+        <translation>Select file</translation>
+    </message>
+    <message>
+        <source>Browse…</source>
+        <translation>Browse…</translation>
+    </message>
+    <message>
+        <source>Files ({0})</source>
+        <translation>Files ({0})</translation>
+    </message>
+    <message>
+        <source>All files (*)</source>
+        <translation>All files (*)</translation>
+    </message>
+    <message>
+        <source>Required parameters</source>
+        <translation>Required parameters</translation>
+    </message>
+    <message>
+        <source>The following parameters are required and have not been filled in:\n\n</source>
+        <translation>The following parameters are required and have not been filled in:\n\n</translation>
+    </message>
+</context>
+<context>
+    <name>ScriptRunner</name>
+    <message>
+        <source>Pipeline stopped before running "{0}".</source>
+        <translation>Pipeline stopped before running "{0}".</translation>
+    </message>
+    <message>
+        <source>--- Running "{0}" ---</source>
+        <translation>--- Running "{0}" ---</translation>
+    </message>
+    <message>
+        <source>"{0}" finished with an error. Pipeline stopped.</source>
+        <translation>"{0}" finished with an error. Pipeline stopped.</translation>
+    </message>
+    <message>
+        <source>Warning: linked output "{0}" for parameter "{1}" points to a missing file; using the saved value instead.</source>
+        <translation>Warning: linked output "{0}" for parameter "{1}" points to a missing file; using the saved value instead.</translation>
+    </message>
+    <message>
+        <source>"{0}": required parameter "{1}" is empty (has the linked script run yet?).</source>
+        <translation>"{0}": required parameter "{1}" is empty (has the linked script run yet?).</translation>
+    </message>
+    <message>
+        <source>Could not read the script "{0}": {1}</source>
+        <translation>Could not read the script "{0}": {1}</translation>
+    </message>
+    <message>
+        <source>Syntax error in "{0}": {1}</source>
+        <translation>Syntax error in "{0}": {1}</translation>
+    </message>
+    <message>
+        <source>"{0}" does not define a run(params) or main(params) function.</source>
+        <translation>"{0}" does not define a run(params) or main(params) function.</translation>
+    </message>
+    <message>
+        <source>"{0}" finished with an error (sys.exit({1})).</source>
+        <translation>"{0}" finished with an error (sys.exit({1})).</translation>
+    </message>
+    <message>
+        <source>Error in "{0}": {1}: {2}</source>
+        <translation>Error in "{0}": {1}: {2}</translation>
+    </message>
+    <message>
+        <source>"{0}" cancelled by the user.</source>
+        <translation>"{0}" cancelled by the user.</translation>
     </message>
 </context>
 <context>

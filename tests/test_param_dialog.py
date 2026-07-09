@@ -76,6 +76,7 @@ if not hasattr(sys.modules['PySide6.QtWidgets'], 'QMenu'):
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from param_dialog import (  # noqa: E402
+    _localize,
     _resolve_label,
     _resolve_link,
     compute_effective_links,
@@ -114,6 +115,34 @@ class TestResolveLabel:
     def test_none_label(self):
         param = {'name': 'x', 'label': None}
         assert _resolve_label(param) == 'x'
+
+    def test_locale_map_prefers_active_language(self):
+        param = {'name': 'fps', 'label': {'en': 'Frames per second', 'es': 'Frames por segundo'}}
+        assert _resolve_label(param, 'label', language='es') == 'Frames por segundo'
+
+    def test_locale_map_falls_back_to_english_when_language_missing(self):
+        param = {'name': 'fps', 'label': {'en': 'Frames per second'}}
+        assert _resolve_label(param, 'label', language='es') == 'Frames per second'
+
+    def test_locale_map_falls_back_to_any_value_when_no_match(self):
+        param = {'name': 'fps', 'label': {'fr': 'Images par seconde'}}
+        assert _resolve_label(param, 'label', language='es') == 'Images par seconde'
+
+
+class TestLocalize:
+    def test_plain_string_ignores_language(self):
+        assert _localize('Select ROIs', language='es') == 'Select ROIs'
+
+    def test_prefers_active_language(self):
+        value = {'en': 'Select ROIs', 'es': 'Seleccionar ROIs'}
+        assert _localize(value, language='es') == 'Seleccionar ROIs'
+
+    def test_falls_back_to_english(self):
+        value = {'en': 'Select ROIs'}
+        assert _localize(value, language='es') == 'Select ROIs'
+
+    def test_falls_back_to_fallback_when_none(self):
+        assert _localize(None, fallback='select_rois', language='es') == 'select_rois'
 
 
 # ---------------------------------------------------------------------------

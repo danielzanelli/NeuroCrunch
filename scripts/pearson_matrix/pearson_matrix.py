@@ -1,16 +1,16 @@
 # This Python file uses the following encoding: utf-8
 # SPDX-License-Identifier: Apache-2.0
-"""matriz_pearson — Matriz de correlación de Pearson entre trazas.
+"""pearson_matrix — Pearson correlation matrix between traces.
 
-Lee un CSV de trazas (columnas = células, filas = tiempo), calcula la matriz de
-correlación de Pearson entre todas las células y guarda:
-  * matrix_csv   — la matriz de correlación como CSV
-  * heatmap_png  — un mapa de calor de la matriz
+Reads a CSV of traces (columns = cells, rows = time), computes the Pearson
+correlation matrix between all cells and saves:
+  * matrix_csv   — the correlation matrix as a CSV
+  * heatmap_png  — a heatmap of the matrix
 
-``umbral_correlacion`` se usa para informar cuántos pares de células superan ese
-valor absoluto de correlación.
+``correlation_threshold`` is used to report how many cell pairs exceed that
+absolute correlation value.
 
-Contrato: ver README.md > "<script_name>.py — execution contract".
+Contract: see README.md > "<script_name>.py — execution contract".
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import os
 import numpy as np
 import pandas as pd
 
-IGNORED_COLUMNS = {"", "Slice", "frame", "tiempo_s", "tiempo", "time"}
+IGNORED_COLUMNS = {"", "Slice", "frame", "time_s", "time"}
 
 
 def _signal_columns(df: pd.DataFrame):
@@ -31,35 +31,35 @@ def _signal_columns(df: pd.DataFrame):
 def run(params):
     input_csv = params["input_csv"]
     output_dir = params["output_dir"]
-    umbral = float(params.get("umbral_correlacion", 0.5))
+    threshold = float(params.get("correlation_threshold", 0.5))
 
     if not os.path.isfile(input_csv):
-        raise FileNotFoundError(f"No se encontró el CSV de entrada: {input_csv}")
+        raise FileNotFoundError(f"Input CSV not found: {input_csv}")
     os.makedirs(output_dir, exist_ok=True)
 
-    print(f"Leyendo trazas: {os.path.basename(input_csv)}")
+    print(f"Reading traces: {os.path.basename(input_csv)}")
     df = pd.read_csv(input_csv)
     signal_cols = _signal_columns(df)
     if len(signal_cols) < 2:
-        raise ValueError("Se necesitan al menos 2 columnas de señal para correlacionar.")
+        raise ValueError("At least 2 signal columns are needed to correlate.")
 
-    print(f"  Calculando correlación de Pearson entre {len(signal_cols)} células...")
+    print(f"  Computing Pearson correlation between {len(signal_cols)} cells...")
     print("PROGRESS:30")
     corr = df[signal_cols].corr(method="pearson")
 
     base = os.path.splitext(os.path.basename(input_csv))[0]
     matrix_path = os.path.join(output_dir, f"{base}_pearson.csv")
     corr.to_csv(matrix_path)
-    print(f"Matriz guardada: {matrix_path}")
+    print(f"Matrix saved: {matrix_path}")
     print("PROGRESS:60")
 
-    # Contar pares (triángulo superior) que superan el umbral en valor absoluto.
+    # Count pairs (upper triangle) that exceed the threshold in absolute value.
     n = len(signal_cols)
     upper = np.triu(np.ones((n, n), dtype=bool), k=1)
     vals = corr.to_numpy()
-    n_pairs = int(np.sum((np.abs(vals) >= umbral) & upper))
+    n_pairs = int(np.sum((np.abs(vals) >= threshold) & upper))
     total_pairs = n * (n - 1) // 2
-    print(f"Pares con |correlación| >= {umbral}: {n_pairs} / {total_pairs}")
+    print(f"Pairs with |correlation| >= {threshold}: {n_pairs} / {total_pairs}")
 
     import matplotlib
     matplotlib.use("Agg")
@@ -67,16 +67,16 @@ def run(params):
 
     fig, ax = plt.subplots(figsize=(max(4, n * 0.3), max(4, n * 0.3)))
     im = ax.imshow(vals, cmap="RdBu_r", vmin=-1, vmax=1)
-    ax.set_title("Matriz de correlación de Pearson")
+    ax.set_title("Pearson correlation matrix")
     ax.set_xticks(range(n))
     ax.set_yticks(range(n))
     ax.set_xticklabels(signal_cols, rotation=90, fontsize=6)
     ax.set_yticklabels(signal_cols, fontsize=6)
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="r de Pearson")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Pearson r")
     heatmap_path = os.path.join(output_dir, f"{base}_pearson_heatmap.png")
     fig.savefig(heatmap_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"Mapa de calor guardado: {heatmap_path}")
+    print(f"Heatmap saved: {heatmap_path}")
     print("PROGRESS:100")
 
     return {"matrix_csv": matrix_path, "heatmap_png": heatmap_path}
@@ -84,9 +84,9 @@ def run(params):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Matriz de correlación de Pearson.")
+    parser = argparse.ArgumentParser(description="Pearson correlation matrix.")
     parser.add_argument("--input_csv", required=True)
     parser.add_argument("--output_dir", required=True)
-    parser.add_argument("--umbral_correlacion", type=float, default=0.5)
+    parser.add_argument("--correlation_threshold", type=float, default=0.5)
     args = parser.parse_args()
     print(run(vars(args)))

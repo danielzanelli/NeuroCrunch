@@ -1,0 +1,45 @@
+{
+  "id": "pearson_matrix",
+  "name": "Pearson Matrix",
+  "description": "Computes a Pearson correlation matrix between the selected traces.",
+  "version": "1.0.0",
+  "author": "Daniel Zanelli",
+  "category": "analysis",
+  "parameters": [
+    {
+      "name": "input_csv",
+      "type": "file",
+      "label": "Input CSV",
+      "description": "CSV file with the fluorescence traces",
+      "required": true,
+      "extensions": [".csv"],
+      "link": "select_active.active_csv"
+    },
+    {
+      "name": "correlation_threshold",
+      "type": "float",
+      "label": "Correlation threshold",
+      "description": "Minimum Pearson correlation value to consider two cells as correlated",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "decimals": 2
+    },
+    {
+      "name": "notes",
+      "type": "text",
+      "label": "Notes / remarks",
+      "description": "Free text to record observations about this analysis"
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": "Output folder",
+      "required": true
+    }
+  ],
+  "outputs": {
+    "matrix_csv": "Path to the CSV with the correlation matrix",
+    "heatmap_png": "Path to the correlation heatmap image"
+  }
+}

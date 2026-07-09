@@ -310,7 +310,7 @@ class ScriptRunner(QThread):
             for script_id, plugin_info, params in self._pipeline:
                 if self._stop_requested:
                     self.log_message.emit(
-                        f'Pipeline detenido antes de ejecutar "{plugin_info.name}".'
+                        f'Pipeline stopped before running "{plugin_info.name}".'
                     )
                     overall_success = False
                     break
@@ -318,7 +318,7 @@ class ScriptRunner(QThread):
                 resolved_params = self._resolve_linked_params(plugin_info, params)
 
                 self.script_started.emit(script_id)
-                self.log_message.emit(f'--- Ejecutando "{plugin_info.name}" ---')
+                self.log_message.emit(f'--- Running "{plugin_info.name}" ---')
 
                 success, outputs = self._run_script(script_id, plugin_info, resolved_params)
 
@@ -331,7 +331,7 @@ class ScriptRunner(QThread):
                     overall_success = False
                     if not self._stop_requested:
                         self.log_message.emit(
-                            f'"{plugin_info.name}" finalizó con error. Pipeline detenido.'
+                            f'"{plugin_info.name}" finished with an error. Pipeline stopped.'
                         )
                     break
         except _PipelineCancelled:
@@ -385,7 +385,7 @@ class ScriptRunner(QThread):
                 source = f.read()
         except OSError as e:
             self.log_message.emit(
-                f'No se pudo leer el script "{entry_point}": {e}'
+                f'Could not read the script "{entry_point}": {e}'
             )
             return False, {}
 
@@ -393,7 +393,7 @@ class ScriptRunner(QThread):
             code = compile(source, entry_point, 'exec')
         except SyntaxError as e:
             self.log_message.emit(
-                f'Error de sintaxis en "{plugin_info.name}": {e}'
+                f'Syntax error in "{plugin_info.name}": {e}'
             )
             return False, {}
 
@@ -424,7 +424,7 @@ class ScriptRunner(QThread):
             run_fn = namespace.get('run') or namespace.get('main')
             if run_fn is None or not callable(run_fn):
                 self.log_message.emit(
-                    f'"{plugin_info.name}" no define una función run(params) ni main(params).'
+                    f'"{plugin_info.name}" does not define a run(params) or main(params) function.'
                 )
                 return False, {}
 
@@ -450,12 +450,12 @@ class ScriptRunner(QThread):
             exit_code = e.code
             if exit_code not in (None, 0):
                 self.log_message.emit(
-                    f'"{plugin_info.name}" terminó con error (sys.exit({exit_code})).'
+                    f'"{plugin_info.name}" finished with an error (sys.exit({exit_code})).'
                 )
                 success = False
         except Exception as e:  # noqa: BLE001
             self.log_message.emit(
-                f'Error en "{plugin_info.name}": {type(e).__name__}: {e}'
+                f'Error in "{plugin_info.name}": {type(e).__name__}: {e}'
             )
             success = False
         finally:
@@ -468,7 +468,7 @@ class ScriptRunner(QThread):
                 pass
 
         if self._stop_requested and success:
-            self.log_message.emit(f'"{plugin_info.name}" cancelado por el usuario.')
+            self.log_message.emit(f'"{plugin_info.name}" cancelled by the user.')
             success = False
 
         return success, outputs

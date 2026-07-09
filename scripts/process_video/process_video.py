@@ -1,21 +1,21 @@
 # This Python file uses the following encoding: utf-8
 # SPDX-License-Identifier: Apache-2.0
-"""procesar_video — Extrae trazas de fluorescencia de un video con ROIs.
+"""process_video — Extracts fluorescence traces from a video with ROIs.
 
-Calcula métricas (máximo, media, desvío estándar, integral) dentro de cada ROI
-cuadro a cuadro y guarda el resultado como un archivo CSV.
+Computes metrics (maximum, mean, standard deviation, integral) within each ROI
+frame by frame and saves the result as a CSV file.
 
-Uso desde línea de comandos:
-    python main.py --input_video video.tif --input_roi rois.zip \\
-                   --output_dir ./resultados [--fps 10] [--normalizar] \\
-                   [--no-metrica_max] [--no-metrica_mean] [--no-metrica_std] [--no-metrica_int]
+Command-line usage:
+    python process_video.py --input_video video.tif --input_roi rois.zip \\
+                   --output_dir ./results [--fps 10] [--normalize] \\
+                   [--no-metric_max] [--no-metric_mean] [--no-metric_std] [--no-metric_int]
 
-    # O bien, pasando todos los parámetros como JSON string:
-    python main.py --params_json '{"input_video": "...", "input_roi": "...", ...}'
+    # Alternatively, passing all parameters as a JSON string:
+    python process_video.py --params_json '{"input_video": "...", "input_roi": "...", ...}'
 
-    # Contrato usado por ScriptRunner (Fase 4): lee los parámetros desde un
-    # archivo JSON y escribe las salidas declaradas en otro archivo JSON:
-    python main.py --nc_params params.json --nc_output output.json
+    # Contract used by ScriptRunner: reads parameters from a JSON file and writes
+    # the declared outputs to another JSON file:
+    python process_video.py --nc_params params.json --nc_output output.json
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ try:
     import read_roi
 except ImportError:
     print(
-        "ERROR: La librería 'read_roi' no está instalada. Ejecute: pip install read-roi",
+        "ERROR: The 'read_roi' library is not installed. Run: pip install read-roi",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -101,7 +101,7 @@ def build_masks(
     total_rois = len(rois)
     for idx, (name, roi) in enumerate(rois.items(), 1):
         if idx % 100 == 0 or idx == total_rois:
-            print(f"  Progreso: {idx}/{total_rois} máscaras generadas...", flush=True)
+            print(f"  Progress: {idx}/{total_rois} masks generated...", flush=True)
             sys.stdout.flush()
         try:
             roi_type = roi.get("type", "").lower()
@@ -113,7 +113,7 @@ def build_masks(
                     masks[name] = _polygon_mask(xs, ys, shape)
                 else:
                     print(
-                        f"  Advertencia: ROI '{name}' tiene menos de 3 vértices, se omite.",
+                        f"  Warning: ROI '{name}' has fewer than 3 vertices, skipping.",
                         file=sys.stderr,
                     )
                     masks[name] = None
@@ -140,14 +140,14 @@ def build_masks(
                     )
                 else:
                     print(
-                        f"  Advertencia: Tipo de ROI desconocido '{roi_type}' para '{name}', se omite.",
+                        f"  Warning: Unknown ROI type '{roi_type}' for '{name}', skipping.",
                         file=sys.stderr,
                     )
                     masks[name] = None
 
         except Exception as exc:
             print(
-                f"  Error creando máscara para ROI '{name}': {exc}", file=sys.stderr
+                f"  Error creating mask for ROI '{name}': {exc}", file=sys.stderr
             )
             masks[name] = None
 
@@ -163,7 +163,7 @@ def _iter_tif(path: str) -> Generator[Tuple[int, np.ndarray], None, None]:
     """Yield (frame_index, 2-D float64 array) from a TIFF stack."""
     if not _HAS_TIFFFILE:
         raise ImportError(
-            "'tifffile' no está instalado. Ejecute: pip install tifffile"
+            "'tifffile' is not installed. Run: pip install tifffile"
         )
     stack = tifffile.imread(path)
     if stack.ndim == 2:
@@ -184,18 +184,18 @@ def _iter_tif(path: str) -> Generator[Tuple[int, np.ndarray], None, None]:
                 gray = frame[:, :, 0]
             yield i, gray.astype(np.float64)
     else:
-        raise ValueError(f"Dimensiones de TIFF inesperadas: {stack.shape}")
+        raise ValueError(f"Unexpected TIFF dimensions: {stack.shape}")
 
 
 def _iter_cv2(path: str) -> Generator[Tuple[int, np.ndarray], None, None]:
     """Yield (frame_index, 2-D float64 greyscale array) using OpenCV."""
     if not _HAS_CV2:
         raise ImportError(
-            "'opencv-python' no está instalado. Ejecute: pip install opencv-python"
+            "'opencv-python' is not installed. Run: pip install opencv-python"
         )
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
-        raise IOError(f"No se pudo abrir el video: {path}")
+        raise IOError(f"Could not open the video: {path}")
     frame_idx = 0
     try:
         while True:
@@ -309,7 +309,7 @@ def compute_metrics_fast(pixels: np.ndarray, selected: List[str]) -> List[float]
     for metric_name in selected:
         func = METRIC_REGISTRY.get(metric_name)
         if func is None:
-            raise KeyError(f"Metrica desconocida: {metric_name}")
+            raise KeyError(f"Unknown metric: {metric_name}")
         values.append(float(func(pixels, cache)))
     return values
 
@@ -317,51 +317,51 @@ def compute_metrics_fast(pixels: np.ndarray, selected: List[str]) -> List[float]
 def selected_metrics_from_params(params: Dict[str, Any]) -> List[str]:
     """Collect selected metrics preserving order: max, mean, std, int."""
     metric_keys = [
-        ("max", "metrica_max"),
-        ("mean", "metrica_mean"),
-        ("std", "metrica_std"),
-        ("int", "metrica_int"),
+        ("max", "metric_max"),
+        ("mean", "metric_mean"),
+        ("std", "metric_std"),
+        ("int", "metric_int"),
     ]
     selected = [k for k, p in metric_keys if params.get(p, True)]
     if not selected:
-        print("ERROR: Al menos una métrica debe estar seleccionada.", file=sys.stderr)
+        print("ERROR: At least one metric must be selected.", file=sys.stderr)
         sys.exit(1)
     return selected
 
 
-def build_output_columns(neuron_ids: List[int], metricas: List[str]) -> List[str]:
-    """Create output columns: frame, tiempo_s, then neuron_metric columns."""
-    return ["frame", "tiempo_s"] + [
+def build_output_columns(neuron_ids: List[int], metrics: List[str]) -> List[str]:
+    """Create output columns: frame, time_s, then neuron_metric columns."""
+    return ["frame", "time_s"] + [
         f"{neuron_id}_{metric}"
         for neuron_id in neuron_ids
-        for metric in metricas
+        for metric in metrics
     ]
 
 
 def process_frames(
     input_video: str,
     roi_flat_indices: List[np.ndarray],
-    metricas: List[str],
+    metrics: List[str],
     fps: int,
 ) -> List[List[Any]]:
     """Run the main frame loop and return all rows for the output DataFrame."""
     total = estimate_frame_count(input_video)
     total_str = str(total) if total else "?"
-    print(f"Procesando: {os.path.basename(input_video)}")
-    print(f"  Metricas: {', '.join(metricas)}")
+    print(f"Processing: {os.path.basename(input_video)}")
+    print(f"  Metrics: {', '.join(metrics)}")
 
     rows: List[List[Any]] = []
     for frame_idx, frame in iter_video(input_video):
         frame_flat = frame.ravel()
         row: List[Any] = [frame_idx, round(frame_idx / fps, 6)]
         for flat_idx in roi_flat_indices:
-            row.extend(compute_metrics_fast(frame_flat[flat_idx], metricas))
+            row.extend(compute_metrics_fast(frame_flat[flat_idx], metrics))
         rows.append(row)
 
         if (frame_idx + 1) % 100 == 0:
-            print(f"  Cuadro {frame_idx + 1}/{total_str}...", flush=True)
+            print(f"  Frame {frame_idx + 1}/{total_str}...", flush=True)
 
-    print(f"  Total de cuadros procesados: {len(rows)}")
+    print(f"  Total frames processed: {len(rows)}")
     return rows
 
 
@@ -389,9 +389,9 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     input_roi   = params["input_roi"]
     output_dir  = params["output_dir"]
     fps         = int(params.get("fps", 10))
-    normalizar  = bool(params.get("normalizar", False))
+    normalize   = bool(params.get("normalize", False))
 
-    metricas = selected_metrics_from_params(params)
+    metrics = selected_metrics_from_params(params)
 
     # Normalize all file paths to absolute paths (critical for subprocess execution)
     input_video = os.path.abspath(os.path.normpath(input_video))
@@ -401,40 +401,40 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     # Validate inputs
     for label, path in (("input_video", input_video), ("input_roi", input_roi)):
         if not os.path.isfile(path):
-            print(f"ERROR: No se encontró '{label}': {path}", file=sys.stderr)
+            print(f"ERROR: '{label}' not found: {path}", file=sys.stderr)
             sys.exit(1)
 
     os.makedirs(output_dir, exist_ok=True)
 
     # ---- Load ROIs ----------------------------------------------------------
-    print(f"Cargando ROIs desde: {os.path.basename(input_roi)}")
+    print(f"Loading ROIs from: {os.path.basename(input_roi)}")
     rois = read_roi.read_roi_zip(input_roi)
     if not rois:
-        print("ERROR: No se encontraron ROIs en el archivo ZIP.", file=sys.stderr)
+        print("ERROR: No ROIs found in the ZIP file.", file=sys.stderr)
         sys.exit(1)
     print(f"  {len(rois)} ROI(s): {', '.join(rois.keys())}")
 
     # ---- Determine image dimensions from first frame -------------------------
-    print("Leyendo primer cuadro para determinar dimensiones...")
+    print("Reading first frame to determine dimensions...")
     first_frame: Optional[np.ndarray] = None
     for _, frame in iter_video(input_video):
         first_frame = frame
         break
     if first_frame is None:
-        print("ERROR: No se pudo leer ningún cuadro del video.", file=sys.stderr)
+        print("ERROR: Could not read any frame from the video.", file=sys.stderr)
         sys.exit(1)
     H, W = first_frame.shape[:2]
-    print(f"  Resolución: {W} × {H} px")
+    print(f"  Resolution: {W} × {H} px")
 
     # ---- Build ROI masks -----------------------------------------------------
-    print("Generando máscaras de ROIs...")
+    print("Generating ROI masks...")
     all_masks = build_masks(rois, (H, W))
     valid_masks = {name: mask for name, mask in all_masks.items() if mask is not None}
     if not valid_masks:
-        print("ERROR: No se pudo crear ninguna máscara válida.", file=sys.stderr)
+        print("ERROR: Could not create any valid mask.", file=sys.stderr)
         sys.exit(1)
     skipped = len(all_masks) - len(valid_masks)
-    print(f"  {len(valid_masks)} válidas" + (f", {skipped} omitidas." if skipped else "."))
+    print(f"  {len(valid_masks)} valid" + (f", {skipped} skipped." if skipped else "."))
 
     # Build stable neuron index mapping (1..N) in ROI insertion order.
     roi_items = list(valid_masks.items())
@@ -445,30 +445,30 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
 
     # ---- Build output column names -------------------------------------------
     # Frame | Time (s) | ROI1_max | ROI1_mean | ... | ROIn_int
-    columns = build_output_columns(neuron_ids, metricas)
+    columns = build_output_columns(neuron_ids, metrics)
 
     # ---- Process frames ------------------------------------------------------
     rows = process_frames(
         input_video=input_video,
         roi_flat_indices=roi_flat_indices,
-        metricas=metricas,
+        metrics=metrics,
         fps=fps,
     )
 
     # ---- Build and optionally normalise DataFrame ----------------------------
     df = pd.DataFrame(rows, columns=columns)
 
-    if normalizar:
-        print("Normalizando señales (Z-score)...")
+    if normalize:
+        print("Normalizing signals (Z-score)...")
         signal_cols = columns[2:]
         df[signal_cols] = zscore_normalize(df[signal_cols])
 
     # ---- Save CSV ------------------------------------------------------------
     video_stem = os.path.splitext(os.path.basename(input_video))[0]
-    output_csv = os.path.join(output_dir, f"{video_stem}_trazas.csv")
+    output_csv = os.path.join(output_dir, f"{video_stem}_traces.csv")
     df.to_csv(output_csv, index=False)
-    print(f"CSV guardado en: {output_csv}")
-    print(f"  {len(df)} filas × {len(df.columns)} columnas")
+    print(f"CSV saved to: {output_csv}")
+    print(f"  {len(df)} rows × {len(df.columns)} columns")
 
     # Emit structured output for the pipeline runner
     print(f"OUTPUT:output_csv={output_csv}")
@@ -487,32 +487,32 @@ run = main
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Extrae trazas de fluorescencia de un video usando ROIs."
+        description="Extracts fluorescence traces from a video using ROIs."
     )
     parser.add_argument(
         "--nc_params",
         type=str,
-        help="Ruta a un archivo JSON con todos los parámetros (contrato de ScriptRunner).",
+        help="Path to a JSON file with all parameters (ScriptRunner contract).",
     )
     parser.add_argument(
         "--nc_output",
         type=str,
-        help="Ruta donde escribir las salidas declaradas como JSON (contrato de ScriptRunner).",
+        help="Path to write the declared outputs as JSON (ScriptRunner contract).",
     )
     parser.add_argument(
         "--params_json",
         type=str,
-        help="Todos los parámetros como JSON string (alternativa a los flags individuales).",
+        help="All parameters as a JSON string (alternative to the individual flags).",
     )
-    parser.add_argument("--input_video",  type=str, help="Ruta al video de entrada")
-    parser.add_argument("--input_roi",    type=str, help="Ruta al ZIP de ROIs")
+    parser.add_argument("--input_video",  type=str, help="Path to the input video")
+    parser.add_argument("--input_roi",    type=str, help="Path to the ROI ZIP")
     parser.add_argument("--fps",          type=int, default=10)
-    parser.add_argument("--output_dir",   type=str, help="Carpeta de salida")
-    parser.add_argument("--normalizar",   action="store_true", default=False)
-    parser.add_argument("--metrica_max",  action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--metrica_mean", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--metrica_std",  action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--metrica_int",  action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--output_dir",   type=str, help="Output folder")
+    parser.add_argument("--normalize",    action="store_true", default=False)
+    parser.add_argument("--metric_max",  action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--metric_mean", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--metric_std",  action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--metric_int",  action=argparse.BooleanOptionalAction, default=True)
 
     args = parser.parse_args()
 
@@ -521,28 +521,28 @@ if __name__ == "__main__":
             with open(args.nc_params, "r", encoding="utf-8") as f:
                 params = json.load(f)
         except (OSError, json.JSONDecodeError) as exc:
-            print(f"ERROR: no se pudo leer --nc_params: {exc}", file=sys.stderr)
+            print(f"ERROR: could not read --nc_params: {exc}", file=sys.stderr)
             sys.exit(1)
         params.pop("_context", None)
     elif args.params_json:
         try:
             params = json.loads(args.params_json)
         except json.JSONDecodeError as exc:
-            print(f"ERROR: JSON inválido en --params_json: {exc}", file=sys.stderr)
+            print(f"ERROR: invalid JSON in --params_json: {exc}", file=sys.stderr)
             sys.exit(1)
     else:
         if not args.input_video or not args.input_roi or not args.output_dir:
-            parser.error("Se requieren --input_video, --input_roi y --output_dir")
+            parser.error("--input_video, --input_roi and --output_dir are required")
         params = {
             "input_video":  args.input_video,
             "input_roi":    args.input_roi,
             "fps":          args.fps,
             "output_dir":   args.output_dir,
-            "normalizar":   args.normalizar,
-            "metrica_max":  args.metrica_max,
-            "metrica_mean": args.metrica_mean,
-            "metrica_std":  args.metrica_std,
-            "metrica_int":  args.metrica_int,
+            "normalize":    args.normalize,
+            "metric_max":   args.metric_max,
+            "metric_mean":  args.metric_mean,
+            "metric_std":   args.metric_std,
+            "metric_int":   args.metric_int,
         }
 
     try:
@@ -556,5 +556,5 @@ if __name__ == "__main__":
             with open(args.nc_output, "w", encoding="utf-8") as f:
                 json.dump(outputs or {}, f, ensure_ascii=False, indent=2)
         except OSError as exc:
-            print(f"ERROR: no se pudo escribir --nc_output: {exc}", file=sys.stderr)
+            print(f"ERROR: could not write --nc_output: {exc}", file=sys.stderr)
             sys.exit(1)

@@ -1,0 +1,36 @@
+{
+  "id": "select_rois",
+  "name": "Select ROIs",
+  "description": "Selects regions of interest (ROIs) in the imaging data.",
+  "version": "1.0.0",
+  "author": "Daniel Zanelli",
+  "category": "preprocessing",
+  "parameters": [
+    {
+      "name": "input_video",
+      "type": "file",
+      "label": "Input video",
+      "description": "Video file on which the ROIs will be drawn",
+      "required": true,
+      "extensions": [".tif", ".tiff", ".avi", ".mp4"]
+    },
+    {
+      "name": "roi_type",
+      "type": "choice",
+      "label": "ROI type",
+      "description": "Geometric shape of the regions of interest",
+      "options": ["circular", "rectangular", "polygonal"],
+      "default": "circular"
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": "Output folder",
+      "description": "Folder where the ROI files will be saved",
+      "required": true
+    }
+  ],
+  "outputs": {
+    "roi_zip": "Path to the ZIP file with the selected ROIs"
+  }
+}

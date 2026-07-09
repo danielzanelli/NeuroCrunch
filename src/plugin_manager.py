@@ -77,7 +77,7 @@ class PluginManager:
             try:
                 entries = sorted(os.listdir(directory))
             except PermissionError as e:
-                self._warn(f'No se pudo leer la carpeta de scripts "{directory}": {e}')
+                self._warn(f'Could not read the scripts folder "{directory}": {e}')
                 continue
 
             for entry in entries:
@@ -97,18 +97,18 @@ class PluginManager:
         folder_name = os.path.basename(folder_path)
         config_path = os.path.join(folder_path, CONFIG_FILENAME)
         if not os.path.isfile(config_path):
-            self._warn(f'Carpeta de script omitida (sin {CONFIG_FILENAME}): "{folder_path}"')
+            self._warn(f'Script folder skipped (no {CONFIG_FILENAME}): "{folder_path}"')
             return None
 
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
         except (OSError, json.JSONDecodeError) as e:
-            self._warn(f'No se pudo leer la configuración "{config_path}": {e}')
+            self._warn(f'Could not read the configuration "{config_path}": {e}')
             return None
 
         if not isinstance(config, dict):
-            self._warn(f'Configuración inválida "{config_path}": se esperaba un objeto JSON.')
+            self._warn(f'Invalid configuration "{config_path}": a JSON object was expected.')
             return None
 
         if not self._validate_manifest(config, config_path):
@@ -116,7 +116,7 @@ class PluginManager:
 
         missing = [key for key in REQUIRED_CONFIG_FIELDS if key not in config]
         if missing:
-            self._warn(f'Configuración "{config_path}" incompleta, faltan campos: {", ".join(missing)}')
+            self._warn(f'Configuration "{config_path}" is incomplete, missing fields: {", ".join(missing)}')
             return None
 
         # id and entry_point are auto-derived from the folder name when absent.
@@ -124,7 +124,7 @@ class PluginManager:
         entry_point_rel = config.get('entry_point') or f'{folder_name}.py'
         entry_point_path = os.path.join(folder_path, entry_point_rel)
         if not os.path.isfile(entry_point_path):
-            self._warn(f'Script omitido, archivo de entrada no encontrado: "{entry_point_path}"')
+            self._warn(f'Script skipped, entry-point file not found: "{entry_point_path}"')
             return None
 
         return PluginInfo(
@@ -150,7 +150,7 @@ class PluginManager:
         try:
             jsonschema.validate(instance=manifest, schema=schema)
         except jsonschema.exceptions.ValidationError as e:
-            self._warn(f'Manifiesto inválido "{manifest_path}": {e.message}')
+            self._warn(f'Invalid manifest "{manifest_path}": {e.message}')
             return False
 
         return True
@@ -163,7 +163,7 @@ class PluginManager:
             with open(self.schema_path, 'r', encoding='utf-8') as f:
                 self._schema = json.load(f)
         except (OSError, json.JSONDecodeError) as e:
-            logger.warning('No se pudo cargar el schema de configuración "%s": %s', self.schema_path, e)
+            logger.warning('Could not load the configuration schema "%s": %s', self.schema_path, e)
             self._schema = {}
 
         return self._schema

@@ -172,12 +172,12 @@ class UpdateChecker(QThread):
         try:
             data = _fetch_latest_release(self.repo)
         except Exception as exc:  # network/HTTP/JSON — surface, don't crash startup
-            self.error.emit(f'No se pudo verificar actualizaciones: {exc}')
+            self.error.emit(f'Could not check for updates: {exc}')
             return
 
         tag = str(data.get('tag_name', ''))
         if not tag:
-            self.error.emit('La última versión no tiene tag_name.')
+            self.error.emit('The latest release has no tag_name.')
             return
 
         if is_newer(tag, self.current_version):
@@ -224,7 +224,7 @@ class UpdateDownloader(QThread):
                     if total:
                         self.progress.emit(min(int(downloaded / total * 100), 100))
         except Exception as exc:
-            self.error.emit(f'Error al descargar la actualización: {exc}')
+            self.error.emit(f'Error downloading the update: {exc}')
             return
         self.finished_ok.emit(dest_path)
 

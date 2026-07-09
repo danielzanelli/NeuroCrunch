@@ -64,7 +64,7 @@ a = Analysis(
         # PyInstaller aborts because it refuses to freeze multiple Qt bindings.
         'PyQt5', 'PyQt6', 'PySide2',
         # Unused packages pulled in transitively — trims the bundle. scipy (~73 MB)
-        # is not imported by the app or any bundled script (matriz_pearson uses
+        # is not imported by the app or any bundled script (pearson_matrix uses
         # pandas.corr, not scipy). Re-add it here AND to collect_all if a future
         # script needs it.
         'scipy', 'IPython', 'jedi', 'parso', 'pytest', '_pytest',

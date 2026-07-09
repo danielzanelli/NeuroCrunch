@@ -48,23 +48,33 @@ from updater import read_current_version, UpdateChecker, UpdateDownloader, apply
 
 MAX_PLOT_COLUMNS = 100  # Maximum number of columns allowed to plot at once
 
+# Source language of the codebase; selected when no translator is needed.
+DEFAULT_LANGUAGE = 'en'
+# (code, display name) pairs offered in the preferences dialog. Display names
+# are shown in their own language, so they are intentionally not translated.
+AVAILABLE_LANGUAGES = [
+    ('en', 'English'),
+    ('es', 'Español'),
+]
+SETTINGS_FILENAME = 'settings.json'
+
 
 class CSVReaderWorker(QThread):
     """Worker thread to read CSV files with progress reporting."""
     progress_updated = Signal(str)  # Signal to update progress
     data_loaded = Signal(object)  # Signal when data is loaded
     error_occurred = Signal(str)  # Signal when error occurs
-    
+
     def __init__(self, file_path):
         super().__init__()
         self.file_path = file_path
-    
+
     def run(self):
         """Run in background thread."""
         try:
             filename = os.path.basename(self.file_path)
-            self.progress_updated.emit(QCoreApplication.translate('CSVReaderWorker', f'Abriendo CSV {filename}: 0%'))
-            
+            self.progress_updated.emit(QCoreApplication.translate('CSVReaderWorker', f'Opening CSV {filename}: 0%'))
+
             if self.file_path.lower().endswith('.csv'):
                 # Count total lines upfront so progress can be calculated correctly
                 with open(self.file_path, 'rb') as f:
@@ -79,20 +89,20 @@ class CSVReaderWorker(QThread):
                     chunks.append(chunk)
                     loaded_rows += len(chunk)
                     progress = min(int((loaded_rows / max(total_lines, 1)) * 100), 100)
-                    self.progress_updated.emit(f'Abriendo CSV {filename}: {progress}%')
-                
+                    self.progress_updated.emit(f'Opening CSV {filename}: {progress}%')
+
                 if chunks:
                     data = pd.concat(chunks, ignore_index=True)
                 else:
                     data = pd.read_csv(self.file_path)
-                    
+
             elif self.file_path.lower().endswith(('.xls', '.xlsx')):
-                self.progress_updated.emit(f'Abriendo archivo {filename}: 0%')
+                self.progress_updated.emit(f'Opening file {filename}: 0%')
                 data = pd.read_excel(self.file_path)
-                self.progress_updated.emit(f'Abriendo archivo {filename}: 100%')
+                self.progress_updated.emit(f'Opening file {filename}: 100%')
             else:
-                raise ValueError('Formato de archivo no soportado para gráficos.')
-            
+                raise ValueError('File format not supported for charts.')
+
             self.data_loaded.emit(data)
         except Exception as e:
             self.error_occurred.emit(str(e))
@@ -114,12 +124,16 @@ class NeuroCrunch(QMainWindow):
         self.ui.main_splitter.setSizes([250, 550, 480])
         self.ui.right_splitter.setSizes([440, 260])
 
-        # Set up translation
+        # Set up translation. The language is read from the persisted user
+        # settings, defaulting to English (the source language).
         self.translator = None
-        self.current_language = 'es'  # Default to Spanish
-        self._translation_dict = {}
-        self._use_json_translations = False
+        self.settings = load_settings()
+        self.current_language = self.settings.get('language', DEFAULT_LANGUAGE)
         self._setup_translator()
+        # setupUi() ran before the translator was installed, so re-apply the
+        # translations to the already-built UI for a non-English startup.
+        if self.translator is not None:
+            self.ui.retranslateUi(self)
 
 
         # Set all viewers to hidden initially; the image label doubles as the
@@ -128,7 +142,7 @@ class NeuroCrunch(QMainWindow):
         self.ui.plot_frame.hide()
         self.ui.pdf_viewer.hide()
         self.ui.video_player.hide()
-        self.ui.image_viewer.setText(self.tr('Doble clic en un archivo para previsualizarlo'))
+        self.ui.image_viewer.setText(self.tr('Double-click a file to preview it'))
         self.ui.image_viewer.setAlignment(Qt.AlignCenter)
         self.ui.image_viewer.show()
 
@@ -168,7 +182,7 @@ class NeuroCrunch(QMainWindow):
             '#3987e5', '#199e70', '#c98500', '#008300',
             '#9085e9', '#e66767', '#d55181', '#d95926',
         ]
-        
+
 
         # ...
 
@@ -179,21 +193,23 @@ class NeuroCrunch(QMainWindow):
         self.ui.btn_save_config.clicked.connect(self.save_config)
         self.ui.btn_load_config.clicked.connect(self.load_config)
         self.ui.btn_execute_scripts.clicked.connect(self.toggle_pipeline)
-        # "Abrir Carpeta de Scripts" — opens the writable user-plugins directory where
-        # users drop their own script folders; Refrescar afterwards picks them up.
+        # "Open Scripts Folder" — opens the writable user-plugins directory where
+        # users drop their own script folders; Refresh afterwards picks them up.
         self.ui.btn_open_scripts_dir.clicked.connect(self.open_scripts_folder)
+        # Gear button — opens the preferences dialog (language selection).
+        self.ui.btn_preferences.clicked.connect(self.open_preferences)
 
         # File viewer context menu
         self.ui.file_viewer.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.ui.file_viewer.customContextMenuRequested.connect(self.show_file_context_menu)        
+        self.ui.file_viewer.customContextMenuRequested.connect(self.show_file_context_menu)
         self.ui.file_viewer.itemDoubleClicked.connect(self.on_file_viewer_double_clicked)
 
         # Scripts table — double-click a row to open the parameter configuration dialog
         self.ui.table_data_columns.cellDoubleClicked.connect(self.open_param_dialog)
         # Note: checkbox changes are now handled by individual QCheckBox widgets
 
-        
-        self.print(self.tr('Programa inicializado') + ' - ' + datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
+
+        self.print(self.tr('Program initialized') + ' - ' + datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
 
         # Silently check GitHub Releases for a newer version once the UI is up.
         self._update_checker = None
@@ -201,54 +217,81 @@ class NeuroCrunch(QMainWindow):
         QTimer.singleShot(0, self.check_for_updates)
 
     def _setup_translator(self):
-        """Load translations for the current language."""
+        """Install the translator for the current language.
+
+        English is the source language, so it needs no translator. For any other
+        language a compiled Qt ``.qm`` catalog is preferred when present, falling
+        back to the human-editable JSON catalog via :class:`JsonTranslator` (so
+        translations work even without Qt's ``lrelease`` compiler).
+        """
         from PySide6.QtCore import QTranslator
-        import json
+        from json_translator import JsonTranslator, load_json_catalog
 
-        asset_path = get_asset_path()
-        translations_dir = os.path.join(asset_path, 'translations')
+        app = QApplication.instance()
 
-        if not os.path.exists(translations_dir):
+        # Remove any translator installed for a previous language.
+        if self.translator is not None:
+            app.removeTranslator(self.translator)
+            self.translator = None
+
+        if self.current_language == DEFAULT_LANGUAGE:
+            return  # source language — nothing to translate
+
+        translations_dir = os.path.join(get_asset_path(), 'translations')
+        if not os.path.isdir(translations_dir):
             return
 
-        # Try to load .qm file first (binary format)
-        translator = QTranslator()
+        qm_translator = QTranslator()
         qm_file = os.path.join(translations_dir, f'neurocruncher_{self.current_language}.qm')
+        if os.path.isfile(qm_file) and qm_translator.load(qm_file):
+            self.translator = qm_translator
+        else:
+            catalog = load_json_catalog(translations_dir, self.current_language)
+            if catalog:
+                self.translator = JsonTranslator(catalog)
 
-        if os.path.exists(qm_file):
-            if translator.load(qm_file):
-                self.translator = translator
-                QApplication.instance().installTranslator(translator)
-                return
-
-        # Fallback: try JSON format (for development/testing)
-        json_file = os.path.join(translations_dir, f'neurocruncher_{self.current_language}.qm.json')
-        if os.path.exists(json_file):
-            try:
-                with open(json_file, 'r', encoding='utf-8') as f:
-                    self._translation_dict = json.load(f)
-                    self._use_json_translations = True
-                return
-            except Exception:
-                pass
-
-        # No translations found, use default (source language)
+        if self.translator is not None:
+            app.installTranslator(self.translator)
 
     def tr(self, text: str, context: str = 'NeuroCrunch') -> str:
-        """Translate a string using QCoreApplication.translate or JSON fallback."""
-        # Use Qt's translation system if available
-        translated = QCoreApplication.translate(context, text)
-        if translated != text:  # Translation found
-            return translated
+        """Translate *text* via the installed translator (source text if none)."""
+        return QCoreApplication.translate(context, text)
 
-        # Fallback: check JSON translations
-        if hasattr(self, '_use_json_translations') and self._use_json_translations:
-            trans_dict = getattr(self, '_translation_dict', {})
-            context_trans = trans_dict.get(context, {})
-            if text in context_trans:
-                return context_trans[text]
+    def open_preferences(self) -> None:
+        """Open the preferences dialog and apply any language change."""
+        from preferences_dialog import PreferencesDialog
 
-        return text
+        dialog = PreferencesDialog(self.current_language, AVAILABLE_LANGUAGES, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.set_language(dialog.selected_language())
+
+    def set_language(self, language: str) -> None:
+        """Switch the UI language at runtime and persist the choice."""
+        if not language or language == self.current_language:
+            return
+        self.current_language = language
+        self._setup_translator()
+        self._retranslate_ui()
+        self.settings['language'] = language
+        save_settings(self.settings)
+
+    def _retranslate_ui(self) -> None:
+        """Re-apply translations to widgets after a language change."""
+        # Static UI: button texts, tooltips, table headers, panel titles.
+        self.ui.retranslateUi(self)
+
+        # Strings set from code are not covered by retranslateUi:
+        if getattr(self, '_current_image_pixmap', None) is None:
+            self.ui.image_viewer.setText(self.tr('Double-click a file to preview it'))
+            self.ui.image_viewer.setAlignment(Qt.AlignCenter)
+
+        # Keep the Run/Stop toggle label consistent with the runner state
+        # (retranslateUi always resets it to the "Run" caption).
+        runner = self._script_runner
+        if runner is not None and runner.isRunning():
+            self.ui.btn_execute_scripts.setText(self.tr('Stop'))
+        else:
+            self.ui.btn_execute_scripts.setText(self.tr('Run'))
 
 
 
@@ -256,7 +299,7 @@ class NeuroCrunch(QMainWindow):
         self.ui.log.append( datetime.datetime.now().strftime('%H:%M:%S - ') + str(text))
         self.ui.log.moveCursor(QTextCursor.End)
         self.ui.log.ensureCursorVisible()
-    
+
     def print_progress(self, text):
         """Update the last line in the log (for progress reporting)."""
         cursor = self.ui.log.textCursor()
@@ -268,7 +311,7 @@ class NeuroCrunch(QMainWindow):
         self.ui.log.ensureCursorVisible()
 
     def select_local_folder(self):
-        selected_folder = askdirectory(title=self.tr('Seleccionar carpeta local'))
+        selected_folder = askdirectory(title=self.tr('Select local folder'))
         if selected_folder:
             self.local_folder = selected_folder
             self.ui.file_viewer.setHeaderLabel(self.local_folder)
@@ -276,19 +319,19 @@ class NeuroCrunch(QMainWindow):
             self.pipeline_context_store.cleanup()
             self.pipeline_context_store = PipelineContext()
             self.refresh_local_folder()
-        
+
     def refresh_local_folder(self):
         self.ui.file_viewer.clear()
         if not self.local_folder:
-            self.print(self.tr('No se seleccionó ninguna carpeta local.'))
+            self.print(self.tr('No local folder selected.'))
             return
         if not os.path.exists(self.local_folder):
-            self.print(self.tr(f'La carpeta local "{self.local_folder}" no existe.'))
+            self.print(self.tr(f'Local folder "{self.local_folder}" does not exist.'))
             return
-        
+
         content = self.get_dir_content(self.local_folder)
         self.populate_file_viewer(content, self.ui.file_viewer.invisibleRootItem(), self.local_folder)
-                
+
     def get_user_plugins_dir(self):
         """Resolve the writable, per-user directory where community/user-installed scripts live.
 
@@ -307,7 +350,7 @@ class NeuroCrunch(QMainWindow):
         try:
             os.makedirs(path, exist_ok=True)
         except OSError as e:
-            self.print(self.tr(f'No se pudo crear la carpeta de plugins de usuario "{path}": {str(e)}'))
+            self.print(self.tr(f'Could not create user plugins folder "{path}": {str(e)}'))
 
         return path
 
@@ -317,16 +360,16 @@ class NeuroCrunch(QMainWindow):
         Official scripts are bundled read-only inside the application; users add
         their own by dropping a folder (with config.json + <name>.py) into this
         directory, which survives app updates. After adding scripts, pressing
-        Refrescar re-scans and shows them.
+        Refresh re-scans and shows them.
         """
         path = self.user_plugins_folder
         try:
             os.makedirs(path, exist_ok=True)
         except OSError as e:
-            self.print(self.tr(f'No se pudo abrir la carpeta de scripts "{path}": {str(e)}'))
+            self.print(self.tr(f'Could not open scripts folder "{path}": {str(e)}'))
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
-        self.print(self.tr(f'Carpeta de scripts de usuario: {path}'))
+        self.print(self.tr(f'User scripts folder: {path}'))
 
     def rescan_scripts(self):
         """Re-discover bundled + user scripts and refresh the scripts table.
@@ -342,7 +385,7 @@ class NeuroCrunch(QMainWindow):
             self.print(warning)
 
     def on_refresh_clicked(self):
-        """Refrescar button: refresh the file browser and re-scan for scripts."""
+        """Refresh button: refresh the file browser and re-scan for scripts."""
         self.refresh_local_folder()
         self.rescan_scripts()
 
@@ -365,17 +408,17 @@ class NeuroCrunch(QMainWindow):
 
     def _on_update_available(self, release):
         version = release.get('version', '')
-        self.statusBar().showMessage(self.tr(f'NeuroCrunch {version} disponible'))
+        self.statusBar().showMessage(self.tr(f'NeuroCrunch {version} available'))
         asset = release.get('asset')
         if not asset:
             QMessageBox.information(
-                self, self.tr('Actualización disponible'),
-                self.tr(f'Hay una nueva versión ({version}), pero no hay instalador para esta ')
-                + self.tr('plataforma.\nDescárgala manualmente desde:\n') + release.get("html_url", ""))
+                self, self.tr('Update available'),
+                self.tr(f'There is a new version ({version}), but there is no installer for this ')
+                + self.tr('platform.\nDownload it manually from:\n') + release.get("html_url", ""))
             return
         reply = QMessageBox.question(
-            self, self.tr('Actualización disponible'),
-            self.tr(f'Hay una nueva versión disponible ({version}).\n¿Descargarla ahora?'))
+            self, self.tr('Update available'),
+            self.tr(f'A new version is available ({version}).\nDownload it now?'))
         if reply == QMessageBox.Yes:
             self._start_update_download(asset)
 
@@ -383,21 +426,21 @@ class NeuroCrunch(QMainWindow):
         url = asset.get('browser_download_url')
         name = asset.get('name')
         if not url or not name:
-            self.print(self.tr('El asset de actualización no tiene URL o nombre válidos.'))
+            self.print(self.tr('The update asset does not have a valid URL or name.'))
             return
-        self.print(self.tr(f'Descargando actualización: {name}...'))
+        self.print(self.tr(f'Downloading update: {name}...'))
         self._update_downloader = UpdateDownloader(url, name)
         self._update_downloader.progress.connect(
-            lambda pct: self.statusBar().showMessage(self.tr(f'Descargando actualización: {pct}%')))
+            lambda pct: self.statusBar().showMessage(self.tr(f'Downloading update: {pct}%')))
         self._update_downloader.finished_ok.connect(self._on_update_downloaded)
         self._update_downloader.error.connect(self.print)
         self._update_downloader.start()
 
     def _on_update_downloaded(self, path):
-        self.statusBar().showMessage(self.tr('Descarga completa'))
+        self.statusBar().showMessage(self.tr('Download complete'))
         reply = QMessageBox.question(
-            self, self.tr('Aplicar actualización'),
-            self.tr('La actualización se descargó correctamente.\n¿Reiniciar NeuroCrunch para aplicarla?'))
+            self, self.tr('Apply update'),
+            self.tr('The update was downloaded successfully.\nRestart NeuroCrunch to apply it?'))
         if reply == QMessageBox.Yes:
             apply_update(path)
             QApplication.quit()
@@ -411,19 +454,19 @@ class NeuroCrunch(QMainWindow):
         content = []
 
         if os.path.isfile(path):
-            raise ValueError(f'El path "{path}" es un archivo, se esperaba una carpeta.')
+            raise ValueError(f'The path "{path}" is a file, a folder was expected.')
         if not os.path.exists(path):
-            raise ValueError(f'La carpeta "{path}" no existe.')
-        
+            raise ValueError(f'The folder "{path}" does not exist.')
+
         try:
             items = os.listdir(path)
         except PermissionError:
             return content
-        
+
         # Sort items: folders first, then files
         folders = sorted([item for item in items if os.path.isdir(os.path.join(path, item))])
         files = sorted([item for item in items if os.path.isfile(os.path.join(path, item))])
-        
+
         for folder in folders:
             folder_path = os.path.join(path, folder)
             try:
@@ -431,10 +474,10 @@ class NeuroCrunch(QMainWindow):
                 content.append((folder, self.get_dir_content(folder_path)))
             except PermissionError:
                 pass
-        
+
         for file in files:
             content.append(file)
-        
+
         return content
 
     def populate_file_viewer(self, content, parent_item, parent_path=''):
@@ -453,10 +496,10 @@ class NeuroCrunch(QMainWindow):
                 # Store full path
                 full_path = os.path.join(parent_path, folder_name)
                 dir_item.setData(0, Qt.UserRole, full_path)
-                
+
                 # Show expand arrow even if folder is empty
                 dir_item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
-                
+
                 self.populate_file_viewer(folder_contents, dir_item, full_path)
             else:
                 # This is a file
@@ -473,31 +516,31 @@ class NeuroCrunch(QMainWindow):
         item = self.ui.file_viewer.itemAt(position)
         if not item:
             return
-        
+
         file_path = item.data(0, Qt.UserRole)
         if not file_path:
             return
-        
+
         menu = QMenu()
-        
+
         # Open file action
-        open_action = menu.addAction(self.tr("Abrir"))
+        open_action = menu.addAction(self.tr("Open"))
         open_action.triggered.connect(lambda: self.on_file_viewer_double_clicked(item, 0))
 
         menu.addSeparator()
 
         # Open in location action
-        open_location_action = menu.addAction(self.tr("Mostrar en carpeta"))
+        open_location_action = menu.addAction(self.tr("Show in folder"))
         open_location_action.triggered.connect(lambda: self.open_in_file_explorer(file_path))
-        
+
         menu.exec(self.ui.file_viewer.mapToGlobal(position))
 
     def open_in_file_explorer(self, file_path):
         """Open file or folder in system file explorer"""
         if not os.path.exists(file_path):
-            self.print(self.tr(f'El archivo/carpeta "{file_path}" no existe.'))
+            self.print(self.tr(f'The file/folder "{file_path}" does not exist.'))
             return
-        
+
         try:
             if sys.platform == 'win32':
                 # Windows: open with /select to highlight the item
@@ -508,10 +551,10 @@ class NeuroCrunch(QMainWindow):
             else:
                 # Linux: open with file manager
                 subprocess.Popen(['xdg-open', os.path.dirname(file_path)])
-            
-            self.print(self.tr(f'Abriendo en explorador de archivos: {file_path}'))
+
+            self.print(self.tr(f'Opening in file explorer: {file_path}'))
         except Exception as e:
-            self.print(f'Error al abrir explorador: {str(e)}')
+            self.print(f'Error opening file explorer: {str(e)}')
 
 
 
@@ -529,7 +572,7 @@ class NeuroCrunch(QMainWindow):
         if os.path.isfile(file_path):
             # We can open images, text files, videos, CSVs (pyqtgraph) and PDFs directly in the app by showing them in the right panel and hiding the other display widgets.
             #  We try for different file types, last case being trying to open as text file, if it fails we print an error message in the log.
-            
+
             try:
                 # Images
                 if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
@@ -550,71 +593,71 @@ class NeuroCrunch(QMainWindow):
                 else:
                     self.show_text_file(file_path)
             except Exception as e:
-                self.print(self.tr(f"Error al abrir el archivo:\n{str(e)}"))
+                self.print(self.tr(f"Error opening the file:\n{str(e)}"))
 
     def show_column_range_dialog(self, total_columns):
         """Show a dialog to let user select column range. Returns (start_col, end_col) or None if cancelled."""
         max_selectable = min(MAX_PLOT_COLUMNS, total_columns)
         dialog = QDialog(self)
-        dialog.setWindowTitle('Seleccionar rango de columnas')
+        dialog.setWindowTitle('Select column range')
         dialog.setModal(True)
-        
+
         layout = QVBoxLayout()
-        
+
         # Add description
-        desc_label = QLabel(f'Total de columnas: {total_columns}\nMáximo permitido: {max_selectable}\n')
+        desc_label = QLabel(f'Total columns: {total_columns}\nMaximum allowed: {max_selectable}\n')
         layout.addWidget(desc_label)
-        
+
         # Start column spinbox
-        start_label = QLabel('Columna inicial (0-indexed):')
+        start_label = QLabel('Start column (0-indexed):')
         self.start_spin = QSpinBox()
         self.start_spin.setMinimum(0)
         self.start_spin.setMaximum(total_columns - 1)
         self.start_spin.setValue(0)
         layout.addWidget(start_label)
         layout.addWidget(self.start_spin)
-        
+
         # End column spinbox
-        end_label = QLabel(f'Columna final (0-indexed, max +{max_selectable} desde inicio):')
+        end_label = QLabel(f'End column (0-indexed, max +{max_selectable} from start):')
         self.end_spin = QSpinBox()
         self.end_spin.setMinimum(0)
         self.end_spin.setMaximum(total_columns - 1)
         self.end_spin.setValue(min(max_selectable - 1, total_columns - 1))
         layout.addWidget(end_label)
         layout.addWidget(self.end_spin)
-        
+
         # Buttons
         button_layout = QHBoxLayout()
         ok_button = QPushButton('OK')
-        cancel_button = QPushButton('Cancelar')
+        cancel_button = QPushButton('Cancel')
         ok_button.clicked.connect(dialog.accept)
         cancel_button.clicked.connect(dialog.reject)
         button_layout.addWidget(ok_button)
         button_layout.addWidget(cancel_button)
         layout.addLayout(button_layout)
-        
+
         dialog.setLayout(layout)
-        
+
         if dialog.exec() == QDialog.Accepted:
             start = self.start_spin.value()
             end = self.end_spin.value()
-            
+
             # Validate range
             if end < start:
-                QMessageBox.warning(self, 'Error', 'La columna final debe ser >= columna inicial')
+                QMessageBox.warning(self, 'Error', 'The end column must be >= start column')
                 return None
-            
+
             if (end - start + 1) > MAX_PLOT_COLUMNS:
-                QMessageBox.warning(self, 'Error', f'No se pueden plotear más de {MAX_PLOT_COLUMNS} columnas')
+                QMessageBox.warning(self, 'Error', f'Cannot plot more than {MAX_PLOT_COLUMNS} columns')
                 return None
-            
+
             return (start, end)
         return None
 
     def refresh_scripts_table(self):
         """
-            Refreshes the table_data_columns table with the current list of scripts and their config. 
-            
+            Refreshes the table_data_columns table with the current list of scripts and their config.
+
             Columns are:
                 0 - Script name
                 1 - Last modification timestamp
@@ -623,12 +666,12 @@ class NeuroCrunch(QMainWindow):
                 4 - Configured status (green = all required params set; double-click to open dialog)
 
             self.config: Dictionary where keys are script ids and values are dictionaries with script configuration, including:
-                - 'ejecutar': bool indicating if the script is enabled
-                - 'parametros': dict of parameter names and their current values
-                - 'ultima_modificacion': timestamp of last modification of the config for this script
-                - 'orden_ejecucion': Optional[int] execution order in the pipeline
+                - 'enabled': bool indicating if the script is enabled
+                - 'parameters': dict of parameter names and their current values
+                - 'last_modified': timestamp of last modification of the config for this script
+                - 'execution_order': Optional[int] execution order in the pipeline
 
-            If the script id is not in self.config, it will be added with default values (ejecutar=False, empty parametros, current timestamp).
+            If the script id is not in self.config, it will be added with default values (enabled=False, empty parameters, current timestamp).
 
             Script metadata (display name, description, version, author, category, official/community)
             comes from the PluginInfo objects in self.plugins, populated by PluginManager.discover_scripts.
@@ -647,23 +690,23 @@ class NeuroCrunch(QMainWindow):
         for script in self.scripts:
             if script not in self.config:
                 self.config[script] = {
-                    'ejecutar': False,
-                    'parametros': {},
-                    'ultima_modificacion': None,
-                    'orden_ejecucion': None
+                    'enabled': False,
+                    'parameters': {},
+                    'last_modified': None,
+                    'execution_order': None
                 }
 
-        # Scripts can only run if they have been configured; clear stale ejecutar flags
+        # Scripts can only run if they have been configured; clear stale enabled flags
         for s in self.scripts:
-            if self.config[s]['ultima_modificacion'] is None:
-                self.config[s]['ejecutar'] = False
-                self.config[s]['orden_ejecucion'] = None
+            if self.config[s]['last_modified'] is None:
+                self.config[s]['enabled'] = False
+                self.config[s]['execution_order'] = None
 
         # Number of scripts marked for execution; clear any orders that exceed that count
-        n_selected = sum(1 for s in self.scripts if self.config[s]['ejecutar'])
+        n_selected = sum(1 for s in self.scripts if self.config[s]['enabled'])
         for s in self.scripts:
-            if (self.config[s]['orden_ejecucion'] or 0) > n_selected:
-                self.config[s]['orden_ejecucion'] = None
+            if (self.config[s]['execution_order'] or 0) > n_selected:
+                self.config[s]['execution_order'] = None
 
         for script in self.scripts:
             plugin_info = self.plugins[script]
@@ -674,76 +717,71 @@ class NeuroCrunch(QMainWindow):
             # Script name (display name from the manifest, with rich metadata as a tooltip)
             script_item = QTableWidgetItem()
             script_item.setText(plugin_info.name)
-            origin = 'Oficial' if plugin_info.is_official else 'Comunidad'
+            origin = 'Official' if plugin_info.is_official else 'Community'
             script_item.setToolTip(
                 f'{plugin_info.name} (v{plugin_info.version})\n'
                 f'{plugin_info.description}\n'
-                f'Categoría: {plugin_info.category} · Autor: {plugin_info.author} · {origin}\n'
-                f'Doble clic para configurar parámetros'
+                f'Category: {plugin_info.category} · Author: {plugin_info.author} · {origin}\n'
+                f'Double-click to configure parameters'
             )
             table.setItem(row_position, 0, script_item)
 
             # Configuration timestamp — "-" until the user saves parameters
             timestamp_item = QTableWidgetItem()
-            ts = self.config[script]['ultima_modificacion']
+            ts = self.config[script]['last_modified']
             timestamp_item.setText(ts if ts is not None else '-')
             timestamp_item.setTextAlignment(Qt.AlignCenter)
             table.setItem(row_position, 1, timestamp_item)
 
-            # Checkbox for execution (Selección) — only interactive when the script has been configured
-            is_configured = self.config[script]['ultima_modificacion'] is not None
-            
+            # Checkbox for execution (Selection) — only interactive when the script has been configured
+            is_configured = self.config[script]['last_modified'] is not None
+
             # Create a centered checkbox widget
             checkbox_widget = QWidget()
             checkbox_layout = QHBoxLayout(checkbox_widget)
             checkbox_layout.setContentsMargins(0, 0, 0, 0)
             checkbox_layout.setAlignment(Qt.AlignCenter)
-            
+
             checkbox = QCheckBox()
-            checkbox.setChecked(self.config[script]['ejecutar'] if is_configured else False)
+            checkbox.setChecked(self.config[script]['enabled'] if is_configured else False)
             checkbox.setEnabled(is_configured)
             # Store the script_id in the checkbox for easy access
             checkbox.script_id = script
             checkbox.stateChanged.connect(self._on_checkbox_state_changed)
-            
+
             checkbox_layout.addWidget(checkbox)
             table.setCellWidget(row_position, 2, checkbox_widget)
 
             # Order dropdown — positions 1..n_selected; disabled when script is not selected
             order_combo = QComboBox()
             order_combo.addItem('—')
-            if self.config[script]['ejecutar']:
+            if self.config[script]['enabled']:
                 for i in range(1, n_selected + 1):
                     order_combo.addItem(str(i))
-                order_val = self.config[script]['orden_ejecucion']
+                order_val = self.config[script]['execution_order']
                 if order_val is not None and 1 <= order_val <= n_selected:
                     order_combo.setCurrentIndex(order_val)
                 else:
                     order_combo.setCurrentIndex(0)
             else:
                 order_combo.setEnabled(False)
-            
+
             # Center the combobox items
             for i in range(order_combo.count()):
                 order_combo.model().item(i).setTextAlignment(Qt.AlignCenter)
-            
+
             order_combo.currentIndexChanged.connect(
                 lambda idx, sid=script: self._on_combobox_order_changed(sid, idx)
             )
-            
+
             # Create a centered widget for the combobox
             order_widget = QWidget()
             order_layout = QHBoxLayout(order_widget)
             order_layout.setContentsMargins(0, 0, 0, 0)
             order_layout.setAlignment(Qt.AlignCenter)
             order_layout.addWidget(order_combo)
-            
+
             table.setCellWidget(row_position, 3, order_widget)
-
-
-
-
-
 
 
 
@@ -756,14 +794,14 @@ class NeuroCrunch(QMainWindow):
         sender = self.sender()
         if not isinstance(sender, QCheckBox) or not hasattr(sender, 'script_id'):
             return
-        
+
         script_id = sender.script_id
         checked = sender.isChecked()
-        
-        self.config[script_id]['ejecutar'] = checked
+
+        self.config[script_id]['enabled'] = checked
         if not checked:
-            self.config[script_id]['orden_ejecucion'] = None
-        
+            self.config[script_id]['execution_order'] = None
+
         self.refresh_scripts_table()
 
     def _on_combobox_order_changed(self, script_id: str, index: int) -> None:
@@ -776,23 +814,23 @@ class NeuroCrunch(QMainWindow):
         # Conflict resolution: clear and uncheck the script that currently holds this order
         if new_order is not None:
             for other_id in self.scripts:
-                if other_id != script_id and self.config[other_id]['orden_ejecucion'] == new_order:
-                    self.config[other_id]['orden_ejecucion'] = None
-                    self.config[other_id]['ejecutar'] = False
+                if other_id != script_id and self.config[other_id]['execution_order'] == new_order:
+                    self.config[other_id]['execution_order'] = None
+                    self.config[other_id]['enabled'] = False
                     self.print(
-                        f'Orden {new_order} reasignado de "{self.plugins[other_id].name}": desactivado.'
+                        f'Order {new_order} reassigned from "{self.plugins[other_id].name}": disabled.'
                     )
                     break
 
-        self.config[script_id]['orden_ejecucion'] = new_order
+        self.config[script_id]['execution_order'] = new_order
         self.refresh_scripts_table()
 
     def save_config(self) -> None:
         """Save the current script configuration to a JSON .config file."""
         file_path = asksaveasfilename(
-            title=self.tr('Guardar configuración'),
+            title=self.tr('Save configuration'),
             defaultextension='.config',
-            filetypes=[(self.tr('Archivo de configuración'), '*.config'), (self.tr('Todos los archivos'), '*.*')],
+            filetypes=[(self.tr('Configuration file'), '*.config'), (self.tr('All files'), '*.*')],
         )
         if not file_path:
             return
@@ -803,15 +841,15 @@ class NeuroCrunch(QMainWindow):
             data['__working_directory__'] = self.local_folder
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            self.print(f'Configuración guardada en: {os.path.basename(file_path)}')
+            self.print(f'Configuration saved to: {os.path.basename(file_path)}')
         except Exception as e:
-            self.print(f'Error al guardar configuración: {str(e)}')
+            self.print(f'Error saving configuration: {str(e)}')
 
     def load_config(self) -> None:
         """Load a previously saved .config file into self.config and refresh the table."""
         file_path = askopenfilename(
-            title=self.tr('Cargar configuración'),
-            filetypes=[(self.tr('Archivo de configuración'), '*.config'), (self.tr('Todos los archivos'), '*.*')],
+            title=self.tr('Load configuration'),
+            filetypes=[(self.tr('Configuration file'), '*.config'), (self.tr('All files'), '*.*')],
         )
         if not file_path:
             return
@@ -819,7 +857,7 @@ class NeuroCrunch(QMainWindow):
             with open(file_path, 'r', encoding='utf-8') as f:
                 loaded = json.load(f)
             if not isinstance(loaded, dict):
-                self.print('Error: el archivo de configuración no tiene el formato esperado.')
+                self.print('Error: the configuration file does not have the expected format.')
                 return
             # Restore the working directory if it was saved and still exists.
             saved_cwd = loaded.pop('__working_directory__', None)
@@ -832,17 +870,17 @@ class NeuroCrunch(QMainWindow):
                 self.local_folder = saved_cwd
                 self.ui.file_viewer.setHeaderLabel(self.local_folder)
                 self.refresh_local_folder()
-                self.print(f'Carpeta de trabajo restaurada: {saved_cwd}')
-            self.print(f'Configuración cargada desde: {os.path.basename(file_path)}')
+                self.print(f'Working folder restored: {saved_cwd}')
+            self.print(f'Configuration loaded from: {os.path.basename(file_path)}')
         except (OSError, json.JSONDecodeError) as e:
-            self.print(f'Error al cargar configuración: {str(e)}')
+            self.print(f'Error loading configuration: {str(e)}')
 
     def open_param_dialog(self, row: int, column: int) -> None:
         """Open the parameter configuration dialog for the script in *row*.
 
         Connected to ``table_data_columns.cellDoubleClicked``.  Saves the
         accepted values back into ``self.config`` and refreshes the table so
-        the "Configurado" column updates immediately.
+        the "Configured" column updates immediately.
         """
         if column == 2:  # checkbox column — ignore double-clicks
             return
@@ -854,46 +892,46 @@ class NeuroCrunch(QMainWindow):
         if plugin_info is None:
             return
 
-        current_values = self.config.get(script_id, {}).get('parametros', {})
+        current_values = self.config.get(script_id, {}).get('parameters', {})
 
         dialog = ParamDialog(plugin_info, current_values, self.pipeline_context_store.as_dict(), self)
         if dialog.exec() == ParamDialog.DialogCode.Accepted:
             values = dialog.get_values()
-            self.config[script_id]['parametros'] = values
-            self.config[script_id]['ultima_modificacion'] = datetime.datetime.now().strftime('%Y/%m/%d - %H:%M')
-            self.print(f'Parámetros guardados para "{plugin_info.name}"')
+            self.config[script_id]['parameters'] = values
+            self.config[script_id]['last_modified'] = datetime.datetime.now().strftime('%Y/%m/%d - %H:%M')
+            self.print(f'Parameters saved for "{plugin_info.name}"')
             self.refresh_scripts_table()
 
     def _build_pipeline(self):
         """Build the ordered ``(script_id, plugin_info, params)`` list of
-        scripts marked for execution, sorted by their ``orden_ejecucion``.
+        scripts marked for execution, sorted by their ``execution_order``.
 
         Returns ``None`` (after logging an explanatory message) if the
         pipeline cannot be built (nothing selected or missing order).
         """
         selected = [
             script_id for script_id in self.scripts
-            if self.config.get(script_id, {}).get('ejecutar')
+            if self.config.get(script_id, {}).get('enabled')
         ]
         if not selected:
-            self.print(self.tr('No hay scripts seleccionados para ejecutar.'))
+            self.print(self.tr('No scripts selected to run.'))
             return None
 
         missing_order = [
             self.plugins[s].name for s in selected
-            if self.config[s].get('orden_ejecucion') is None
+            if self.config[s].get('execution_order') is None
         ]
         if missing_order:
             self.print(
-                self.tr('Los siguientes scripts seleccionados no tienen un orden de ejecución asignado: ')
+                self.tr('The following selected scripts do not have an execution order assigned: ')
                 + ', '.join(missing_order)
             )
             return None
 
-        selected.sort(key=lambda s: self.config[s]['orden_ejecucion'])
+        selected.sort(key=lambda s: self.config[s]['execution_order'])
 
         pipeline = [
-            (script_id, self.plugins[script_id], self.config[script_id].get('parametros', {}))
+            (script_id, self.plugins[script_id], self.config[script_id].get('parameters', {}))
             for script_id in selected
         ]
         return pipeline
@@ -908,13 +946,13 @@ class NeuroCrunch(QMainWindow):
             # Pipeline is running — ask for confirmation before stopping
             reply = QMessageBox.warning(
                 self,
-                self.tr('Confirmar detención'),
-                self.tr('¿Estás seguro de que deseas detener el pipeline?\nEsto interrumpirá el proceso actual.'),
+                self.tr('Confirm stop'),
+                self.tr('Are you sure you want to stop the pipeline?\nThis will interrupt the current process.'),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
             if reply == QMessageBox.Yes:
-                self.print(self.tr('Deteniendo pipeline...'))
+                self.print(self.tr('Stopping pipeline...'))
                 self._script_runner.stop()
             return
 
@@ -924,14 +962,14 @@ class NeuroCrunch(QMainWindow):
             return
 
         self.ui.btn_execute_scripts.setEnabled(True)
-        self.ui.btn_execute_scripts.setText(self.tr('Detener'))
+        self.ui.btn_execute_scripts.setText(self.tr('Stop'))
         self.ui.btn_execute_scripts.setIcon(icon_loader.get_icon('square', '#ffffff', 16))
 
         self._script_runner = ScriptRunner(pipeline, self.pipeline_context_store, self)
         self._script_runner.log_message.connect(self._on_log_message)
         self._script_runner.progress_changed.connect(self._on_progress_changed)
         self._script_runner.script_started.connect(
-            lambda script_id: self.print(f'Iniciando script: {self.plugins[script_id].name}')
+            lambda script_id: self.print(f'Starting script: {self.plugins[script_id].name}')
         )
         self._script_runner.script_finished.connect(self._on_script_finished)
         self._script_runner.pipeline_done.connect(self._on_pipeline_done)
@@ -955,18 +993,18 @@ class NeuroCrunch(QMainWindow):
         Shown in the status bar so it updates in place, without clobbering log
         lines the script prints between progress updates.
         """
-        self.statusBar().showMessage(f'Progreso: {percent}%')
+        self.statusBar().showMessage(f'Progress: {percent}%')
 
     def _on_script_finished(self, script_id: str, success: bool) -> None:
-        status = 'completado' if success else 'con error'
+        status = 'completed' if success else 'with error'
         self.print(f'Script "{self.plugins[script_id].name}" {status}.')
 
     def _on_pipeline_done(self, success: bool) -> None:
         self.ui.btn_execute_scripts.setEnabled(True)
-        self.ui.btn_execute_scripts.setText(self.tr('Ejecutar'))
+        self.ui.btn_execute_scripts.setText(self.tr('Run'))
         self.ui.btn_execute_scripts.setIcon(icon_loader.get_icon('play', '#ffffff', 16))
         self.statusBar().clearMessage()
-        self.print(self.tr('Pipeline finalizado exitosamente.') if success else self.tr('Pipeline finalizado con errores.'))
+        self.print(self.tr('Pipeline completed successfully.') if success else self.tr('Pipeline completed with errors.'))
         # Clean up the temporary pipeline context and create a new one for the next run
         self.pipeline_context_store.cleanup()
         self.pipeline_context_store = PipelineContext()
@@ -1009,7 +1047,7 @@ class NeuroCrunch(QMainWindow):
         """Keep the displayed image scaled to the viewer as the window resizes."""
         super().resizeEvent(event)
         self._rescale_current_image()
-       
+
 
     def show_plot(self, file_path):
         """Shows a plot on the ui.plot_viewer pyqtgraph widget, hiding the other display widgets."""
@@ -1018,7 +1056,7 @@ class NeuroCrunch(QMainWindow):
         if hasattr(self, 'media_player'):
             self.media_player.stop()
             self.media_player.setSource(QUrl())
-        
+
         self.ui.image_viewer.hide()
         self.ui.text_viewer.hide()
         self.ui.plot_frame.show()
@@ -1031,20 +1069,20 @@ class NeuroCrunch(QMainWindow):
         self.csv_reader.data_loaded.connect(self._on_csv_loaded)
         self.csv_reader.error_occurred.connect(self._on_csv_error)
         self.csv_reader.start()
-    
+
     def _on_csv_progress(self, message):
         """Update progress in log."""
         self.print_progress(message)
         self.ui.log.repaint()
-    
+
     def _on_csv_error(self, error_msg):
         """Handle CSV loading error."""
-        self.print(f"Error al cargar datos para gráfico:\n{error_msg}")
-    
+        self.print(f"Error loading data for chart:\n{error_msg}")
+
     def _on_csv_loaded(self, data):
         """Handle CSV loaded from background thread."""
-        
-        self.print(self.tr(f'Cargado: {len(data)} filas, {len(data.columns)} columnas'))     
+
+        self.print(self.tr(f'Loaded: {len(data)} rows, {len(data.columns)} columns'))
         self.data = data
 
         # Create two spinboxes and a button at the bottom of the self.ui.plot_frame
@@ -1072,37 +1110,37 @@ class NeuroCrunch(QMainWindow):
 
         columns_widget = QWidget(self.ui.plot_frame)
         columns_layout = QHBoxLayout()
-        
+
         # Add description
-        desc_label = QLabel(f'Total de columnas: {total_columns}\nMáximo permitido: {max_selectable}\n')
+        desc_label = QLabel(f'Total columns: {total_columns}\nMaximum allowed: {max_selectable}\n')
         columns_layout.addWidget(desc_label)
 
         # Regex finder for column names
-        regex_label = QLabel('Columnas que incluyan:')
+        regex_label = QLabel('Columns that include:')
         self.regex_input = QLineEdit()
         columns_layout.addWidget(regex_label)
         columns_layout.addWidget(self.regex_input)
 
         # Start column spinbox
-        start_label = QLabel('Columna inicial:')
+        start_label = QLabel('Start column:')
         self.start_spin = QSpinBox()
         self.start_spin.setMinimum(0)
         self.start_spin.setMaximum(total_columns - 1)
         self.start_spin.setValue(0)
         columns_layout.addWidget(start_label)
         columns_layout.addWidget(self.start_spin)
-        
+
         # End column spinbox
-        end_label = QLabel(f'Columna final:')
+        end_label = QLabel(f'End column:')
         self.end_spin = QSpinBox()
         self.end_spin.setMinimum(0)
         self.end_spin.setMaximum(total_columns - 1)
         self.end_spin.setValue(1)
         columns_layout.addWidget(end_label)
         columns_layout.addWidget(self.end_spin)
-        
+
         # Button
-        ok_button = QPushButton('Plot')        
+        ok_button = QPushButton('Plot')
         ok_button.clicked.connect(self.plot_data)
         columns_layout.addWidget(ok_button)
         columns_widget.setLayout(columns_layout)
@@ -1115,12 +1153,12 @@ class NeuroCrunch(QMainWindow):
 
 
     def plot_data(self):
-        try:      
+        try:
 
             # Get column range from spinboxes
             start_col = self.start_spin.value()
             end_col = self.end_spin.value()
-            
+
             columns_to_plot = list(self.data.columns[start_col:end_col+1])
 
             # Filter columns by "regex" input (simple substring match)
@@ -1129,7 +1167,7 @@ class NeuroCrunch(QMainWindow):
                 columns_to_plot = [col for col in columns_to_plot if regex_filter in str(col)]
 
             columns_to_plot = columns_to_plot[:MAX_PLOT_COLUMNS]
-            
+
             # Clear previous plot and legend
             self.ui.plot_widget.clear()
             self._plot_items = {}
@@ -1138,7 +1176,7 @@ class NeuroCrunch(QMainWindow):
             try:
                 legend = self.ui.plot_widget.addLegend()
             except Exception as e:
-                self.print(f"Advertencia: No se pudo crear la leyenda interactiva:\n{str(e)}")
+                self.print(f"Warning: Could not create the interactive legend:\n{str(e)}")
                 legend = None
 
             # Plot selected columns and save references
@@ -1198,20 +1236,20 @@ class NeuroCrunch(QMainWindow):
                     # Non-fatal: continue without clickable legend
                     pass
         except Exception as e:
-            self.print(f"Error al cargar datos para gráfico:\n{str(e)}")
+            self.print(f"Error loading data for chart:\n{str(e)}")
             self.ui.plot_widget.clear()
-       
+
     def load_and_display_roi(self, roi_zip_path):
         """Load ROI zip and store data; ROIs are painted onto each subsequent video frame."""
         try:
             rois = read_roi.read_roi_zip(roi_zip_path)
             if not rois:
-                self.print(self.tr(f'No se encontraron ROIs en {os.path.basename(roi_zip_path)}'))
+                self.print(self.tr(f'No ROIs found in {os.path.basename(roi_zip_path)}'))
                 return
             self.roi_data = rois
-            self.print(self.tr(f'ROIs cargados: {len(rois)} regiones de {os.path.basename(roi_zip_path)}'))
+            self.print(self.tr(f'ROIs loaded: {len(rois)} regions from {os.path.basename(roi_zip_path)}'))
         except Exception as e:
-            self.print(f'Error al cargar ROI:\n{str(e)}')
+            self.print(f'Error loading ROI:\n{str(e)}')
 
     def show_video(self, file_path):
         """Shows a video using QVideoSink so ROIs can be painted onto each decoded frame."""
@@ -1309,10 +1347,10 @@ class NeuroCrunch(QMainWindow):
                 self.media_player.play()
 
             self.play_button.setIcon(icon_loader.get_icon('pause', icon_loader.glyph_color(), 14))
-            self.print(self.tr(f'Reproduciendo video: {os.path.basename(file_path)}'))
+            self.print(self.tr(f'Playing video: {os.path.basename(file_path)}'))
 
         except Exception as e:
-            self.print(f"Error al cargar video:\n{str(e)}")
+            self.print(f"Error loading video:\n{str(e)}")
             self.ui.video_player.hide()
 
     def _on_video_frame_received(self, frame):
@@ -1419,7 +1457,7 @@ class NeuroCrunch(QMainWindow):
             layout.addWidget(self._pdf_view)
             layout.setContentsMargins(0, 0, 0, 0)
             self._pdf_view.show()
-            self.print(self.tr(f'Cargando PDF (QPdfView): {os.path.basename(file_path)}'))
+            self.print(self.tr(f'Loading PDF (QPdfView): {os.path.basename(file_path)}'))
             return
         except Exception:
             # QtPdf not available or failed — fall back to QWebEngineView below
@@ -1428,7 +1466,7 @@ class NeuroCrunch(QMainWindow):
         # Fallback: use QWebEngineView but ensure a safe widget name and focus
         if QWebEngineView is None:
             self.print(
-                f'No se pudo mostrar el PDF con QtPdf y QtWebEngine no está disponible: '
+                f'Could not display the PDF with QtPdf and QtWebEngine is not available: '
                 f'{os.path.basename(file_path)}')
             self.ui.pdf_viewer.hide()
             return
@@ -1447,9 +1485,9 @@ class NeuroCrunch(QMainWindow):
             web_view.show()
             web_view.setFocus()
             self._web_pdf_view = web_view
-            self.print(self.tr(f'Cargando PDF (QWebEngineView): {os.path.basename(file_path)}'))
+            self.print(self.tr(f'Loading PDF (QWebEngineView): {os.path.basename(file_path)}'))
         except Exception as e:
-            self.print(f"Error al cargar PDF:\n{str(e)}")
+            self.print(f"Error loading PDF:\n{str(e)}")
             self.ui.pdf_viewer.hide()
 
     def show_text_file(self, file_path):
@@ -1466,12 +1504,12 @@ class NeuroCrunch(QMainWindow):
             if hasattr(self, 'media_player'):
                 self.media_player.stop()
                 self.media_player.setSource(QUrl())
-            
+
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
                 self.ui.text_viewer.setPlainText(content)
         except Exception as e:
-            self.print(f"Error al cargar archivo de texto:\n{str(e)}")
+            self.print(f"Error loading text file:\n{str(e)}")
             self.ui.text_viewer.hide()
 
     def toggle_play_pause(self):
@@ -1495,21 +1533,19 @@ class NeuroCrunch(QMainWindow):
         """Update slider and time label"""
         if not self.progress_slider.isSliderDown():
             self.progress_slider.setValue(position)
-        
+
         # Update time label
         current = position // 1000
         duration = self.media_player.duration() // 1000
         current_time = f"{current // 60:02d}:{current % 60:02d}"
         total_time = f"{duration // 60:02d}:{duration % 60:02d}"
         self.time_label.setText(f"{current_time} / {total_time}")
- 
 
 
 
 
 
 
-    
 ############################################################################################################
 
 def get_resource_base():
@@ -1531,6 +1567,43 @@ def get_asset_path():
     return os.path.join(get_resource_base(), 'assets')
 
 
+def get_user_config_dir():
+    """Writable, per-user directory for app settings (created on first use)."""
+    if sys.platform == 'win32':
+        base = os.environ.get('APPDATA') or os.path.expanduser('~')
+        path = os.path.join(base, 'NeuroCrunch')
+    elif sys.platform == 'darwin':
+        path = os.path.expanduser('~/Library/Application Support/NeuroCrunch')
+    else:
+        path = os.path.expanduser('~/.config/NeuroCrunch')
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError:
+        pass
+    return path
+
+
+def load_settings():
+    """Load persisted user settings ({} on any failure)."""
+    path = os.path.join(get_user_config_dir(), SETTINGS_FILENAME)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def save_settings(settings):
+    """Persist *settings* to the user config directory (best effort)."""
+    path = os.path.join(get_user_config_dir(), SETTINGS_FILENAME)
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
+
+
 def toggle_fullscreen(window):
     """Toggle fullscreen mode"""
     if window.isFullScreen():
@@ -1545,10 +1618,10 @@ if __name__ == "__main__":
 
     # Create the application instance
     app = QApplication(sys.argv)
-    
+
     # Get asset path
     asset_path = get_asset_path()
-    
+
     # Application/window icon.
     icon_path = os.path.join(asset_path, 'icons', 'app_icon.ico')
     app_icon = QIcon(icon_path) if os.path.exists(icon_path) else None
@@ -1561,23 +1634,23 @@ if __name__ == "__main__":
     if app_icon is not None:
         window.setWindowIcon(app_icon)
 
-    
+
     # Initialize dark mode manager
     dark_mode_manager = DarkModeManager(app, window, asset_path)
-    
+
     # Connect dark mode button
     window.ui.btn_darkmode.clicked.connect(dark_mode_manager.toggle_dark_mode)
-    
+
     # Setup fullscreen toggle with F11
     fullscreen_shortcut = QShortcut(QKeySequence(Qt.Key_F11), window)
     fullscreen_shortcut.activated.connect(lambda: toggle_fullscreen(window))
-    
+
     # Set the window size to full screen
     # window.showMaximized()
     window.show()
-    
+
     # Start with dark mode enabled
     dark_mode_manager.toggle_dark_mode()
-    
+
     # Start the application event loop
     sys.exit(app.exec())

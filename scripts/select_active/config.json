@@ -1,0 +1,47 @@
+{
+  "id": "select_active",
+  "name": "Select Active",
+  "description": "Selects active cells/traces based on activity criteria.",
+  "version": "1.0.0",
+  "author": "Daniel Zanelli",
+  "category": "processing",
+  "parameters": [
+    {
+      "name": "input_csv",
+      "type": "file",
+      "label": "Input CSV",
+      "description": "CSV file with the fluorescence traces",
+      "required": true,
+      "extensions": [".csv"],
+      "link": "remove_bleaching.corrected_csv"
+    },
+    {
+      "name": "threshold_std",
+      "type": "float",
+      "label": "Threshold (standard deviations)",
+      "description": "Number of standard deviations above the mean to consider a cell active",
+      "default": 2.5,
+      "min": 0.5,
+      "max": 10.0,
+      "decimals": 2
+    },
+    {
+      "name": "min_duration",
+      "type": "int",
+      "label": "Minimum duration (frames)",
+      "description": "Minimum number of consecutive frames above the threshold to count as an event",
+      "default": 3,
+      "min": 1,
+      "max": 1000
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": "Output folder",
+      "required": true
+    }
+  ],
+  "outputs": {
+    "active_csv": "Path to the CSV with the traces of active cells only"
+  }
+}

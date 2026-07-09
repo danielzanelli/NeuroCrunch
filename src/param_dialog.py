@@ -47,8 +47,8 @@ def _resolve_label(field: Dict[str, Any], key: str = 'label') -> str:
     """Return a human-readable string for *key* in *field*, handling locale maps.
 
     Manifest labels can be either a plain string or a dict mapping locale codes
-    to strings (e.g. ``{"es": "…", "en": "…"}``).  This helper always returns a
-    plain string, preferring Spanish, then any available value, then falling back
+    to strings (e.g. ``{"en": "…", "es": "…"}``).  This helper always returns a
+    plain string, preferring English, then any available value, then falling back
     to the parameter ``name``.
     """
     value = field.get(key)
@@ -57,7 +57,7 @@ def _resolve_label(field: Dict[str, Any], key: str = 'label') -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, dict):
-        return value.get('es') or value.get('en') or next(iter(value.values()), field.get('name', ''))
+        return value.get('en') or value.get('es') or next(iter(value.values()), field.get('name', ''))
     return str(value)
 
 
@@ -96,7 +96,7 @@ class ParamDialog(QDialog):
         Parent widget (the main window).
     """
 
-    # Column index in the "Configurado" table column — not used here but
+    # Column index in the "Configured" table column — not used here but
     # kept as a named constant for documentation clarity.
     COL_CONFIGURED = 4
 
@@ -123,7 +123,7 @@ class ParamDialog(QDialog):
 
     def _build_ui(self) -> None:
         from PySide6.QtCore import QCoreApplication
-        self.setWindowTitle(QCoreApplication.translate('ParamDialog', f'Configurar: {self._plugin_info.name}'))
+        self.setWindowTitle(QCoreApplication.translate('ParamDialog', f'Configure: {self._plugin_info.name}'))
         self.setMinimumWidth(480)
 
         outer_layout = QVBoxLayout(self)
@@ -144,7 +144,7 @@ class ParamDialog(QDialog):
         parameters: List[Dict[str, Any]] = self._plugin_info.parameters or []
 
         if not parameters:
-            no_params = QLabel(QCoreApplication.translate('ParamDialog', 'Este script no tiene parámetros configurables.'))
+            no_params = QLabel(QCoreApplication.translate('ParamDialog', 'This script has no configurable parameters.'))
             no_params.setAlignment(Qt.AlignCenter)
             form_layout.addRow(no_params)
         else:
@@ -158,8 +158,8 @@ class ParamDialog(QDialog):
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        button_box.button(QDialogButtonBox.StandardButton.Ok).setText(QCoreApplication.translate('ParamDialog', 'Aceptar'))
-        button_box.button(QDialogButtonBox.StandardButton.Cancel).setText(QCoreApplication.translate('ParamDialog', 'Cancelar'))
+        button_box.button(QDialogButtonBox.StandardButton.Ok).setText(QCoreApplication.translate('ParamDialog', 'Accept'))
+        button_box.button(QDialogButtonBox.StandardButton.Cancel).setText(QCoreApplication.translate('ParamDialog', 'Cancel'))
         button_box.accepted.connect(self._on_accept)
         button_box.rejected.connect(self.reject)
         outer_layout.addWidget(button_box)
@@ -211,9 +211,9 @@ class ParamDialog(QDialog):
 
         # Wrap with link hint if applicable
         if link_source:
-            hint_label = QLabel(f'<i>{QCoreApplication.translate("ParamDialog", "Fuente: ")}{link_source}</i>')
+            hint_label = QLabel(f'<i>{QCoreApplication.translate("ParamDialog", "Source: ")}{link_source}</i>')
             hint_label.setStyleSheet('color: #888888; font-size: 10px;')
-            hint_label.setToolTip(QCoreApplication.translate('ParamDialog', f'Valor pre-rellenado desde la salida de "{link_source}"'))
+            hint_label.setToolTip(QCoreApplication.translate('ParamDialog', f'Value pre-filled from the output of "{link_source}"'))
             container = QWidget()
             vbox = QVBoxLayout(container)
             vbox.setContentsMargins(0, 0, 0, 0)
@@ -301,7 +301,7 @@ class ParamDialog(QDialog):
             if isinstance(initial_val, bool):
                 w.setChecked(initial_val)
             elif isinstance(initial_val, str):
-                w.setChecked(initial_val.lower() in ('true', '1', 'yes', 'sí', 'si'))
+                w.setChecked(initial_val.lower() in ('true', '1', 'yes'))
             else:
                 w.setChecked(bool(initial_val))
         return w
@@ -320,7 +320,7 @@ class ParamDialog(QDialog):
             line_edit.setText(str(initial_val))
         layout.addWidget(line_edit)
 
-        btn = QPushButton('Examinar…')
+        btn = QPushButton('Browse…')
         btn.setFixedWidth(90)
         btn.setFocusPolicy(Qt.NoFocus)
 
@@ -329,7 +329,7 @@ class ParamDialog(QDialog):
         if directory:
             def browse():
                 path = QFileDialog.getExistingDirectory(
-                    self, 'Seleccionar carpeta', line_edit.text() or ''
+                    self, 'Select folder', line_edit.text() or ''
                 )
                 if path:
                     line_edit.setText(path)
@@ -338,9 +338,9 @@ class ParamDialog(QDialog):
                 ext_filter = ''
                 if extensions:
                     patterns = ' '.join(f'*{e}' for e in extensions)
-                    ext_filter = f'Archivos ({patterns});;Todos los archivos (*)'
+                    ext_filter = f'Files ({patterns});;All files (*)'
                 path, _ = QFileDialog.getOpenFileName(
-                    self, 'Seleccionar archivo', line_edit.text() or '', ext_filter
+                    self, 'Select file', line_edit.text() or '', ext_filter
                 )
                 if path:
                     line_edit.setText(path)
@@ -439,8 +439,8 @@ class ParamDialog(QDialog):
         if missing_labels:
             QMessageBox.warning(
                 self,
-                'Parámetros requeridos',
-                'Los siguientes parámetros son obligatorios y no han sido completados:\n\n'
+                'Required parameters',
+                'The following parameters are required and have not been filled in:\n\n'
                 + '\n'.join(f'• {lbl}' for lbl in missing_labels),
             )
             return

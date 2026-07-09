@@ -82,7 +82,7 @@
       "label": "CSV from previous step",
       "description": "Auto-filled from a previous script's output using 'link'. Still editable by the user.",
       "extensions": [".csv"],
-      "link": "procesar_video.output_csv"
+      "link": "process_video.output_csv"
     }
 
   ],

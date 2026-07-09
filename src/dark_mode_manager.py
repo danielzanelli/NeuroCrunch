@@ -79,6 +79,7 @@ class DarkModeManager:
         # Theme toggle shows the mode you would switch TO
         toggle_name = 'sun' if self.is_dark_mode else 'moon'
         ui.btn_darkmode.setIcon(icon_loader.get_icon(toggle_name, glyph, 18))
+        ui.btn_preferences.setIcon(icon_loader.get_icon('settings', glyph, 18))
         ui.btn_refresh.setIcon(icon_loader.get_icon('refresh-cw', glyph, 16))
         ui.btn_open_folder.setIcon(icon_loader.get_icon('folder-open', glyph, 16))
         ui.btn_load_config.setIcon(icon_loader.get_icon('file-input', glyph, 16))

@@ -44,34 +44,34 @@ Open a folder and browse its contents in a tree view. Double-click any file to p
 - **PDFs** (.pdf) — rendered with built-in PDF support (or a web-based fallback).
 - **Text** (any other file) — displayed as plain UTF-8 text.
 
-Right-click a file for options: **Abrir** (Open/preview) or **Mostrar en carpeta** (Show in file explorer).
+Right-click a file for options: **Open** (preview) or **Show in folder** (show in file explorer).
 
 ### Dark Mode
 
-Toggle between light and dark themes with the theme icon button in the **Pipeline de scripts** panel header. The app starts in dark mode by default. All viewer elements (graphs, text, video controls) adapt automatically.
+Toggle between light and dark themes with the theme icon button in the **Script pipeline** panel header. The app starts in dark mode by default. All viewer elements (graphs, text, video controls) adapt automatically.
 
 ### Visual, No-Code Pipeline
 
 Build analysis workflows by selecting scripts and configuring them, no code required:
 
-1. **Select scripts** — in the **Pipeline de scripts** table, check the boxes next to the scripts you want to run.
+1. **Select scripts** — in the **Script pipeline** table, check the boxes next to the scripts you want to run.
 2. **Configure each script** — double-click a script row to open its parameter dialog. Fill in required fields (marked with `*`). Many fields are auto-filled from previous script outputs; hover over the value to see which script supplied it.
-3. **Set execution order** — use the **Orden** (Order) dropdown to number the scripts in the order you want them to run. Conflicting orders are resolved automatically.
-4. **Run the pipeline** — click **Ejecutar** (Execute). Watch the live log as each script runs, with real-time progress updates. Press **Detener** (Stop) to cancel.
-5. **Save & reuse** — click **Guardar** (Save) to export your pipeline configuration (including the working folder) to a `.config` file; click **Cargar** (Load) to restore it later.
+3. **Set execution order** — use the **Order** dropdown to number the scripts in the order you want them to run. Conflicting orders are resolved automatically.
+4. **Run the pipeline** — click **Run**. Watch the live log as each script runs, with real-time progress updates. Press **Stop** to cancel.
+5. **Save & reuse** — click **Save** to export your pipeline configuration (including the working folder) to a `.config` file; click **Load** to restore it later.
 
 ### Built-in Calcium-Imaging Pipeline
 
 Six analysis scripts are bundled. Run them in sequence, or pick and mix:
 
-1. **Seleccionar ROIs** (preprocessing) — *not yet implemented* — will let you interactively draw regions of interest (circular, rectangular, or polygonal) over a calcium-imaging video and export them as a `.zip` file (ImageJ/FIJI-compatible format). For now, define ROIs using ImageJ/FIJI and import them.
-2. **Procesar Video** (preprocessing) — extracts fluorescence signal from each ROI. Measures max, mean, standard deviation, and integral of pixel intensity per ROI per frame; optional Z-score normalization. Output: CSV of raw traces.
-3. **Quitar Bleaching** (processing) — removes photobleaching (signal decay over time) using an Asymmetric Least Squares (ALS) algorithm with customizable parameters. Output: corrected and smoothed CSV.
-4. **Seleccionar Activas** (processing) — keeps only cells with activity above a noise threshold sustained for a minimum number of frames. Output: CSV of active cells only.
-5. **Matriz Pearson** (analysis) — computes pairwise Pearson correlations between active cells. Output: correlation matrix CSV + heatmap image (PNG).
-6. **Generar Graficos** (visualization) — produces summary plots from processed signals (overlay, raster, and mean±σ). Choose output format (PNG, SVG, PDF) and add a custom title.
+1. **Select ROIs** (preprocessing) — *not yet implemented* — will let you interactively draw regions of interest (circular, rectangular, or polygonal) over a calcium-imaging video and export them as a `.zip` file (ImageJ/FIJI-compatible format). For now, define ROIs using ImageJ/FIJI and import them.
+2. **Process Video** (preprocessing) — extracts fluorescence signal from each ROI. Measures max, mean, standard deviation, and integral of pixel intensity per ROI per frame; optional Z-score normalization. Output: CSV of raw traces.
+3. **Remove Bleaching** (processing) — removes photobleaching (signal decay over time) using an Asymmetric Least Squares (ALS) algorithm with customizable parameters. Output: corrected and smoothed CSV.
+4. **Select Active** (processing) — keeps only cells with activity above a noise threshold sustained for a minimum number of frames. Output: CSV of active cells only.
+5. **Pearson Matrix** (analysis) — computes pairwise Pearson correlations between active cells. Output: correlation matrix CSV + heatmap image (PNG).
+6. **Generate Charts** (visualization) — produces summary plots from processed signals (overlay, raster, and mean±σ). Choose output format (PNG, SVG, PDF) and add a custom title.
 
-**Typical workflow**: Procesar Video → Quitar Bleaching → Seleccionar Activas → Matriz Pearson → Generar Graficos. (Seleccionar ROIs will be inserted at the very start once it's implemented.)
+**Typical workflow**: Process Video → Remove Bleaching → Select Active → Pearson Matrix → Generate Charts. (Select ROIs will be inserted at the very start once it's implemented.)
 
 ### Extensibility & Community Scripts
 
@@ -89,11 +89,11 @@ Click the **Scripts** button to open your plugins folder directly.
 
 ### Auto-Updater
 
-On startup, NeuroCrunch silently checks GitHub for a newer release. If one is available, a prompt appears in the status bar: "NeuroCrunch *X.Y.Z* disponible". Click to download and apply the update automatically. The app restarts with the new version.
+On startup, NeuroCrunch silently checks GitHub for a newer release. If one is available, a prompt appears in the status bar: "NeuroCrunch *X.Y.Z* available". Click to download and apply the update automatically. The app restarts with the new version.
 
 ### Internationalization
 
-The app is available in **Spanish** (base language) and **English**. No in-app language switcher exists yet; the app uses your OS locale as the default and falls back to Spanish if your language isn't available.
+The codebase is written in **English** (base language), with **Spanish** provided through the translation layer. Switch languages from the **Preferences** dialog — click the gear icon in the **Script pipeline** panel header, pick a language, and the UI updates immediately. Your choice is saved and restored on the next launch. The app starts in English by default and falls back to English for any string a translation doesn't cover.
 
 ---
 
@@ -101,43 +101,43 @@ The app is available in **Spanish** (base language) and **English**. No in-app l
 
 ### Step-by-step walkthrough
 
-1. **Open a data folder** — click **Seleccionar carpeta** (Select folder) to browse for the folder containing your recordings, CSVs, ROI files, etc. The folder tree on the left will populate with all files.
+1. **Open a data folder** — click **Select folder** to browse for the folder containing your recordings, CSVs, ROI files, etc. The folder tree on the left will populate with all files.
 2. **Preview files** — double-click any file in the tree to open it in the center viewer.
-3. **Build a pipeline** — look at the **Pipeline de scripts** panel on the right:
+3. **Build a pipeline** — look at the **Script pipeline** panel on the right:
    - Double-click a script to configure it (a dialog will open with fields for each parameter).
    - Check the checkbox next to scripts you want to run.
-   - Use the **Orden** dropdown to set the order (1, 2, 3, …).
-4. **Run the pipeline** — click **Ejecutar**. Watch the **Registro** (log) panel at the bottom for real-time output and progress. If you need to stop early, click **Detener**.
-5. **Save your pipeline** — once configured, click **Guardar** to save the pipeline config and working folder path. Next time you open NeuroCrunch, you can click **Cargar** to restore it.
-6. **Extend with plugins** — click **Scripts** to open the user plugins folder. Add new scripts by creating subfolders with `config.json` + script files. Click the refresh icon (**Refrescar carpeta y scripts**) to reload the scripts list without restarting the app.
+   - Use the **Order** dropdown to set the order (1, 2, 3, …).
+4. **Run the pipeline** — click **Run**. Watch the **Log** panel at the bottom for real-time output and progress. If you need to stop early, click **Stop**.
+5. **Save your pipeline** — once configured, click **Save** to save the pipeline config and working folder path. Next time you open NeuroCrunch, you can click **Load** to restore it.
+6. **Extend with plugins** — click **Scripts** to open the user plugins folder. Add new scripts by creating subfolders with `config.json` + script files. Click the refresh icon (**Refresh folder and scripts**) to reload the scripts list without restarting the app.
 
 ### Example: Process a calcium-imaging video end-to-end
 
 Assume you have a video file `imaging.tif` and ROI definitions in `rois.zip` (e.g., from ImageJ).
 
-1. **Seleccionar carpeta** → navigate to the folder containing `imaging.tif` and `rois.zip`.
-2. **Configure Procesar Video**:
-   - Double-click "Procesar Video" in the scripts table.
-   - Video de entrada: browse to `imaging.tif`.
-   - Archivo de ROIs: browse to `rois.zip`.
-   - Frames por segundo: enter `10` (or your video's frame rate).
-   - Carpeta de salida: choose an output folder.
-   - Click **Aceptar**.
-3. **Configure Quitar Bleaching**:
-   - Double-click it. CSV de entrada will auto-fill from Procesar Video's output.
+1. **Select folder** → navigate to the folder containing `imaging.tif` and `rois.zip`.
+2. **Configure Process Video**:
+   - Double-click "Process Video" in the scripts table.
+   - Input video: browse to `imaging.tif`.
+   - ROI file: browse to `rois.zip`.
+   - Frames per second: enter `10` (or your video's frame rate).
+   - Output folder: choose an output folder.
+   - Click **Accept**.
+3. **Configure Remove Bleaching**:
+   - Double-click it. Input CSV will auto-fill from Process Video's output.
    - Adjust ALS parameters if needed (defaults are reasonable).
-   - Click **Aceptar**.
-4. **Configure Seleccionar Activas**:
-   - Double-click it. CSV de entrada will auto-fill. Adjust thresholds if needed.
-   - Click **Aceptar**.
-5. **Configure Matriz Pearson**:
-   - Double-click it. CSV de entrada will auto-fill. Set correlation threshold (default 0.5).
-   - Click **Aceptar**.
-6. **Configure Generar Graficos**:
-   - Double-click it. CSV de entrada will auto-fill. Choose format (PNG). Add a title if desired.
-   - Click **Aceptar**.
-7. **Check the checkboxes** next to all 5 scripts; set their **Orden** to 1, 2, 3, 4, 5 respectively.
-8. **Click Ejecutar** — the pipeline runs in sequence. Watch the log for progress and any errors.
+   - Click **Accept**.
+4. **Configure Select Active**:
+   - Double-click it. Input CSV will auto-fill. Adjust thresholds if needed.
+   - Click **Accept**.
+5. **Configure Pearson Matrix**:
+   - Double-click it. Input CSV will auto-fill. Set correlation threshold (default 0.5).
+   - Click **Accept**.
+6. **Configure Generate Charts**:
+   - Double-click it. Input CSV will auto-fill. Choose format (PNG). Add a title if desired.
+   - Click **Accept**.
+7. **Check the checkboxes** next to all 5 scripts; set their **Order** to 1, 2, 3, 4, 5 respectively.
+8. **Click Run** — the pipeline runs in sequence. Watch the log for progress and any errors.
 9. **Review outputs** — when done, open your output folder and preview the CSV files and images in NeuroCrunch's viewer.
 
 ---
@@ -213,11 +213,11 @@ Link a parameter to a previous script's output by adding a `"link"` field:
   "name": "input_csv",
   "type": "file",
   "label": "Input CSV",
-  "link": "procesar_video.output_csv"
+  "link": "process_video.output_csv"
 }
 ```
 
-When a user runs `procesar_video` first, NeuroCrunch auto-fills this parameter with the output path. The field is still editable.
+When a user runs `process_video` first, NeuroCrunch auto-fills this parameter with the output path. The field is still editable.
 
 #### Localized Labels
 
@@ -227,8 +227,8 @@ Multi-language parameter labels:
 {
   "name": "threshold",
   "type": "float",
-  "label": {"es": "Umbral", "en": "Threshold"},
-  "description": {"es": "Valor mínimo", "en": "Minimum value"}
+  "label": {"en": "Threshold", "es": "Umbral"},
+  "description": {"en": "Minimum value", "es": "Valor mínimo"}
 }
 ```
 
@@ -317,12 +317,12 @@ NeuroCrunch/
 │       ├── dark.qss
 │       └── light.qss
 ├── scripts/                        # Official bundled analysis scripts
-│   ├── procesar_video/
-│   ├── quitar_bleaching/
-│   ├── seleccionar_activas/
-│   ├── seleccionar_ROIs/
-│   ├── matriz_pearson/
-│   ├── generar_graficos/
+│   ├── process_video/
+│   ├── remove_bleaching/
+│   ├── select_active/
+│   ├── select_rois/
+│   ├── pearson_matrix/
+│   ├── generate_charts/
 │   └── template/                   # Copy-paste starting point for new scripts
 ├── schemas/
 │   └── plugin_config.schema.json   # JSON Schema for config.json validation
@@ -389,10 +389,10 @@ Signing (Windows code-signing certificate + Apple notarization) can be added lat
 
 ## Future Work
 
-- **Algorithmic ROI detection** — implement `Seleccionar ROIs` as an automatic (not interactive) script for detecting regions of interest in a representative video frame or projection.
-- **Network graph visualization** — add a `generar_grafo` script to build weighted connectivity networks from correlation matrices, plus an interactive graph viewer with hub-metric coloring and click-to-highlight neighbors.
-- **In-app preferences dialog** — add a language selector and other user settings (persistence, UI preferences).
-- **Community translations** — expand language support beyond Spanish and English; accept translations via pull request.
+- **Algorithmic ROI detection** — implement `select_rois` as an automatic (not interactive) script for detecting regions of interest in a representative video frame or projection.
+- **Network graph visualization** — add a `generate_graph` script to build weighted connectivity networks from correlation matrices, plus an interactive graph viewer with hub-metric coloring and click-to-highlight neighbors.
+- **Expand the preferences dialog** — the Preferences dialog currently exposes a language selector; grow it with more user settings (default working folder, UI options, update channel).
+- **Community translations** — expand language support beyond English and Spanish; accept translations via pull request.
 - **Script timeout policy** — define and enforce a maximum runtime per script.
 - **Automated macOS packaging** — implement `.dmg` building in the CI/CD pipeline.
 

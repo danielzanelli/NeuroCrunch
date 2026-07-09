@@ -1,7 +1,7 @@
 {
-  "id": "quitar_bleaching",
-  "name": "Quitar Bleaching",
-  "description": "Elimina los efectos de fotoblanqueo de las señales de fluorescencia.",
+  "id": "remove_bleaching",
+  "name": "Remove Bleaching",
+  "description": "Removes photobleaching effects from fluorescence signals.",
   "version": "1.0.0",
   "author": "Daniel Zanelli",
   "category": "processing",
@@ -9,24 +9,24 @@
     {
       "name": "input_csv",
       "type": "file",
-      "label": "CSV de entrada",
-      "description": "Archivo CSV con las trazas de fluorescencia sin procesar",
+      "label": "Input CSV",
+      "description": "CSV file with the raw fluorescence traces",
       "required": true,
       "extensions": [".csv"],
-      "link": "procesar_video.output_csv"
+      "link": "process_video.output_csv"
     },
     {
       "name": "metrics",
       "type": "string",
-      "label": "Métricas a procesar",
-      "description": "Lista separada por comas (ej: Mean,Max). Vacío = todas",
+      "label": "Metrics to process",
+      "description": "Comma-separated list (e.g. Mean,Max). Empty = all",
       "default": "Mean"
     },
     {
       "name": "baseline_lam",
       "type": "float",
       "label": "ALS baseline: lambda",
-      "description": "Regularización de la primera corrección ALS",
+      "description": "Regularization of the first ALS correction",
       "default": 100000.0,
       "min": 0.0,
       "decimals": 6
@@ -35,7 +35,7 @@
       "name": "baseline_p",
       "type": "float",
       "label": "ALS baseline: p",
-      "description": "Asimetría de pesos de la primera corrección ALS",
+      "description": "Weight asymmetry of the first ALS correction",
       "default": 0.01,
       "min": 0.0,
       "max": 1.0,
@@ -44,8 +44,8 @@
     {
       "name": "baseline_niter",
       "type": "int",
-      "label": "ALS baseline: iteraciones",
-      "description": "Iteraciones para la primera corrección ALS",
+      "label": "ALS baseline: iterations",
+      "description": "Iterations for the first ALS correction",
       "default": 10,
       "min": 1,
       "max": 200
@@ -54,7 +54,7 @@
       "name": "baseline_lam_factor",
       "type": "float",
       "label": "ALS baseline: lambda factor",
-      "description": "Factor de lambda para rampa adaptativa al inicio y fin",
+      "description": "Lambda factor for the adaptive ramp at the start and end",
       "default": 0.001,
       "min": 0.0,
       "decimals": 6
@@ -62,8 +62,8 @@
     {
       "name": "baseline_rampup_fraction",
       "type": "float",
-      "label": "ALS baseline: fracción rampa subida",
-      "description": "Fracción inicial de muestras con rampa de lambda",
+      "label": "ALS baseline: ramp-up fraction",
+      "description": "Initial fraction of samples with a lambda ramp",
       "default": 0.2,
       "min": 0.0,
       "max": 1.0,
@@ -72,8 +72,8 @@
     {
       "name": "baseline_rampdown_fraction",
       "type": "float",
-      "label": "ALS baseline: fracción rampa bajada",
-      "description": "Fracción final de muestras con rampa de lambda",
+      "label": "ALS baseline: ramp-down fraction",
+      "description": "Final fraction of samples with a lambda ramp",
       "default": 0.2,
       "min": 0.0,
       "max": 1.0,
@@ -82,8 +82,8 @@
     {
       "name": "smooth_lam",
       "type": "float",
-      "label": "ALS suavizado final: lambda",
-      "description": "Regularización para el suavizado final sobre la señal corregida",
+      "label": "ALS final smoothing: lambda",
+      "description": "Regularization for the final smoothing over the corrected signal",
       "default": 10.0,
       "min": 0.0,
       "decimals": 6
@@ -91,8 +91,8 @@
     {
       "name": "smooth_p",
       "type": "float",
-      "label": "ALS suavizado final: p",
-      "description": "Asimetría de pesos del suavizado final",
+      "label": "ALS final smoothing: p",
+      "description": "Weight asymmetry of the final smoothing",
       "default": 0.5,
       "min": 0.0,
       "max": 1.0,
@@ -101,8 +101,8 @@
     {
       "name": "smooth_niter",
       "type": "int",
-      "label": "ALS suavizado final: iteraciones",
-      "description": "Iteraciones para el suavizado final",
+      "label": "ALS final smoothing: iterations",
+      "description": "Iterations for the final smoothing",
       "default": 10,
       "min": 1,
       "max": 200
@@ -110,14 +110,14 @@
     {
       "name": "output_dir",
       "type": "directory",
-      "label": "Carpeta de salida",
-      "description": "Carpeta donde se guardará el CSV corregido",
+      "label": "Output folder",
+      "description": "Folder where the corrected CSV will be saved",
       "required": true
     }
   ],
   "outputs": {
-    "baseline_csv": "Ruta al CSV con baseline ALS estimada",
-    "corrected_csv": "Ruta al archivo CSV con las trazas corregidas"
-    ,"smoothed_csv": "Ruta al CSV con la señal suavizada final"
+    "baseline_csv": "Path to the CSV with the estimated ALS baseline",
+    "corrected_csv": "Path to the CSV file with the corrected traces"
+    ,"smoothed_csv": "Path to the CSV with the final smoothed signal"
   }
 }

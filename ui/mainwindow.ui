@@ -66,7 +66,7 @@
           <item>
            <widget class="QLabel" name="lbl_explorer_title">
             <property name="text">
-             <string>Explorador</string>
+             <string>Explorer</string>
             </property>
             <property name="class" stdset="0">
              <string>panelTitle</string>
@@ -89,7 +89,7 @@
           <item>
            <widget class="QPushButton" name="btn_refresh">
             <property name="toolTip">
-             <string>Refrescar carpeta y scripts</string>
+             <string>Refresh folder and scripts</string>
             </property>
             <property name="text">
              <string/>
@@ -117,7 +117,7 @@
           </property>
           <column>
            <property name="text">
-            <string>Carpeta de trabajo</string>
+            <string>Working folder</string>
            </property>
           </column>
          </widget>
@@ -125,10 +125,10 @@
         <item>
          <widget class="QPushButton" name="btn_open_folder">
           <property name="toolTip">
-           <string>Elegir la carpeta de trabajo</string>
+           <string>Choose the working folder</string>
           </property>
           <property name="text">
-           <string>Seleccionar carpeta</string>
+           <string>Select folder</string>
           </property>
          </widget>
         </item>
@@ -250,7 +250,7 @@
            <item>
             <widget class="QLabel" name="lbl_scripts_title">
              <property name="text">
-              <string>Pipeline de scripts</string>
+              <string>Script pipeline</string>
              </property>
              <property name="class" stdset="0">
               <string>panelTitle</string>
@@ -271,9 +271,22 @@
             </spacer>
            </item>
            <item>
+            <widget class="QPushButton" name="btn_preferences">
+             <property name="toolTip">
+              <string>Preferences</string>
+             </property>
+             <property name="text">
+              <string/>
+             </property>
+             <property name="class" stdset="0">
+              <string>iconButton</string>
+             </property>
+            </widget>
+           </item>
+           <item>
             <widget class="QPushButton" name="btn_darkmode">
              <property name="toolTip">
-              <string>Cambiar tema claro/oscuro</string>
+              <string>Toggle light/dark theme</string>
              </property>
              <property name="text">
               <string/>
@@ -330,17 +343,17 @@
            </column>
            <column>
             <property name="text">
-             <string>Configurado</string>
+             <string>Configured</string>
             </property>
            </column>
            <column>
             <property name="text">
-             <string>Seleccion</string>
+             <string>Selection</string>
             </property>
            </column>
            <column>
             <property name="text">
-             <string>Orden</string>
+             <string>Order</string>
             </property>
            </column>
           </widget>
@@ -353,27 +366,27 @@
            <item>
             <widget class="QPushButton" name="btn_load_config">
              <property name="toolTip">
-              <string>Cargar configuración desde archivo</string>
+              <string>Load configuration from file</string>
              </property>
              <property name="text">
-              <string>Cargar</string>
+              <string>Load</string>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QPushButton" name="btn_save_config">
              <property name="toolTip">
-              <string>Guardar configuración actual</string>
+              <string>Save current configuration</string>
              </property>
              <property name="text">
-              <string>Guardar</string>
+              <string>Save</string>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QPushButton" name="btn_open_scripts_dir">
              <property name="toolTip">
-              <string>Abrir carpeta de scripts de usuario</string>
+              <string>Open user scripts folder</string>
              </property>
              <property name="text">
               <string>Scripts</string>
@@ -396,10 +409,10 @@
            <item>
             <widget class="QPushButton" name="btn_execute_scripts">
              <property name="toolTip">
-              <string>Ejecutar los scripts seleccionados en orden</string>
+              <string>Run the selected scripts in order</string>
              </property>
              <property name="text">
-              <string>Ejecutar</string>
+              <string>Run</string>
              </property>
             </widget>
            </item>
@@ -427,7 +440,7 @@
          <item>
           <widget class="QLabel" name="lbl_log_title">
            <property name="text">
-            <string>Registro</string>
+            <string>Log</string>
            </property>
            <property name="class" stdset="0">
             <string>panelTitle</string>

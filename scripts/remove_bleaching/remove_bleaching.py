@@ -9,11 +9,12 @@ import sys
 import time
 from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
 
+
 import numpy as np
 import pandas as pd
 
 
-IGNORED_COLUMNS = {"", "Slice", "frame", "tiempo_s"}
+IGNORED_COLUMNS = {"", "Slice", "frame", "time_s"}
 _DTD_CACHE: Dict[int, np.ndarray] = {}
 _PENALTY_CACHE: Dict[Tuple[int, float, float, float, float], np.ndarray] = {}
 
@@ -38,8 +39,8 @@ def split_metric_and_index(column: str) -> Tuple[str, int]:
 		return metric_name, index
 
 	raise ValueError(
-		f"El nombre de columna '{column}' no coincide con los patrones soportados: "
-		"'(NombreDeMetrica)(indice)' o '(indice)_(nombre_de_metrica)'"
+		f"Column name '{column}' does not match the supported patterns: "
+		"'(MetricName)(index)' or '(index)_(metric_name)'"
 	)
 
 
@@ -84,9 +85,9 @@ def parse_metrics_param(metrics_param: str | None, available_metrics: Sequence[s
 	invalid = [m for m in requested if m.lower() not in available_by_lower]
 	if invalid:
 		raise ValueError(
-			"Métrica(s) no encontrada(s) en el CSV: "
+			"Metric(s) not found in the CSV: "
 			+ ", ".join(invalid)
-			+ ". Métricas disponibles: "
+			+ ". Available metrics: "
 			+ ", ".join(available_metrics)
 		)
 
@@ -105,7 +106,7 @@ def build_target_columns(df: pd.DataFrame, selected_metrics: Iterable[str]) -> L
 			target_cols.append(col)
 
 	if not target_cols:
-		raise ValueError("No se encontraron columnas para las métricas seleccionadas.")
+		raise ValueError("No columns found for the selected metrics.")
 
 	return target_cols
 
@@ -265,29 +266,29 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
 	smooth_niter = int(params.get("smooth_niter", 10))
 
 	if not os.path.isfile(input_csv):
-		raise FileNotFoundError(f"No se encontró input_csv: {input_csv}")
+		raise FileNotFoundError(f"input_csv not found: {input_csv}")
 	os.makedirs(output_dir, exist_ok=True)
 
-	print(f"Cargando CSV: {input_csv}")
+	print(f"Loading CSV: {input_csv}")
 	df = pd.read_csv(input_csv)
-	print(f"CSV cargado: {df.shape[0]} filas x {df.shape[1]} columnas")
+	print(f"CSV loaded: {df.shape[0]} rows x {df.shape[1]} columns")
 	signal_columns, skipped_columns = _iter_signal_columns(df.columns)
 	if skipped_columns:
 		print(
-			"Omitiendo columnas no compatibles (sin patrón de señal): "
+			"Skipping unsupported columns (no signal pattern): "
 			+ ", ".join(skipped_columns)
 		)
 	if not signal_columns:
-		raise ValueError("No se encontraron columnas de señal en el CSV de entrada.")
+		raise ValueError("No signal columns found in the input CSV.")
 
 	available_metrics, _ = get_metrics_and_indices(df)
 	selected_metrics = parse_metrics_param(params.get("metrics"), available_metrics)
 	target_columns = build_target_columns(df, selected_metrics)
 
-	print(f"Métricas disponibles: {', '.join(available_metrics)}")
-	print(f"Métricas seleccionadas: {', '.join(selected_metrics)}")
-	print(f"Columnas a procesar: {len(target_columns)}")
-	print("Iniciando corrección de bleaching...")
+	print(f"Available metrics: {', '.join(available_metrics)}")
+	print(f"Selected metrics: {', '.join(selected_metrics)}")
+	print(f"Columns to process: {len(target_columns)}")
+	print("Starting bleaching correction...")
 
 	baseline_df = pd.DataFrame(index=df.index)
 	process_start = time.time()
@@ -327,9 +328,9 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
 			elapsed_minutes = elapsed / 60.0
 			percent = 100.0 * idx / len(target_columns)
 			print(
-				f"\rProgreso: {percent:.2f}% | "
-				f"Transcurrido: {elapsed_minutes:.1f} min | "
-				f"Restante: {remaining_minutes:.1f} min",
+				f"\rProgress: {percent:.2f}% | "
+				f"Elapsed: {elapsed_minutes:.1f} min | "
+				f"Remaining: {remaining_minutes:.1f} min",
 				end="",
 				flush=True,
 			)
@@ -380,22 +381,22 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
 	baseline_csv = os.path.join(output_dir, f"{stem}_baseline_als.csv")
 	corrected_csv = os.path.join(output_dir, f"{stem}_corrected_als.csv")
 	smoothed_csv = os.path.join(output_dir, f"{stem}_smoothed_als.csv")
-	print("Guardando resultados en CSV...")
+	print("Saving results to CSV...")
 
 	baseline_df.to_csv(baseline_csv, index=False)
 	corrected_df.to_csv(corrected_csv, index=False)
 	smoothed_df.to_csv(smoothed_csv, index=False)
 	total_elapsed = time.time() - process_start
 
-	print(f"CSV de baseline guardado en: {baseline_csv}")
-	print(f"CSV corregido guardado en: {corrected_csv}")
-	print(f"CSV suavizado guardado en: {smoothed_csv}")
+	print(f"Baseline CSV saved to: {baseline_csv}")
+	print(f"Corrected CSV saved to: {corrected_csv}")
+	print(f"Smoothed CSV saved to: {smoothed_csv}")
 	if nan_all_count or nan_partial_count:
 		print(
-			f"Resumen NaN: {nan_all_count} columnas con solo NaN, "
-			f"{nan_partial_count} columnas con NaN interpolados."
+			f"NaN summary: {nan_all_count} columns with only NaN, "
+			f"{nan_partial_count} columns with interpolated NaN."
 		)
-	print(f"Tiempo total de procesamiento: {total_elapsed:.1f}s")
+	print(f"Total processing time: {total_elapsed:.1f}s")
 
 	print(f"OUTPUT:baseline_csv={baseline_csv}")
 	print(f"OUTPUT:corrected_csv={corrected_csv}")
@@ -415,7 +416,7 @@ run = main
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(
-		description="Quita bleaching con ALS y aplica suavizado ALS final."
+		description="Removes bleaching with ALS and applies a final ALS smoothing."
 	)
 	parser.add_argument("--nc_params", type=str)
 	parser.add_argument("--nc_output", type=str)
@@ -444,18 +445,18 @@ if __name__ == "__main__":
 			with open(args.nc_params, "r", encoding="utf-8") as f:
 				params = json.load(f)
 		except (OSError, json.JSONDecodeError) as exc:
-			print(f"ERROR: no se pudo leer --nc_params: {exc}", file=sys.stderr)
+			print(f"ERROR: could not read --nc_params: {exc}", file=sys.stderr)
 			sys.exit(1)
 		params.pop("_context", None)
 	elif args.params_json:
 		try:
 			params = json.loads(args.params_json)
 		except json.JSONDecodeError as exc:
-			print(f"ERROR: JSON invalido en --params_json: {exc}", file=sys.stderr)
+			print(f"ERROR: invalid JSON in --params_json: {exc}", file=sys.stderr)
 			sys.exit(1)
 	else:
 		if not args.input_csv or not args.output_dir:
-			parser.error("Se requieren --input_csv y --output_dir")
+			parser.error("--input_csv and --output_dir are required")
 
 		params = {
 			"input_csv": args.input_csv,
@@ -484,5 +485,5 @@ if __name__ == "__main__":
 			with open(args.nc_output, "w", encoding="utf-8") as f:
 				json.dump(outputs or {}, f, ensure_ascii=False, indent=2)
 		except OSError as exc:
-			print(f"ERROR: no se pudo escribir --nc_output: {exc}", file=sys.stderr)
+			print(f"ERROR: could not write --nc_output: {exc}", file=sys.stderr)
 			sys.exit(1)

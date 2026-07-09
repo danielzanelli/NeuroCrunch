@@ -157,6 +157,11 @@ class Ui_MainWindow(object):
 
         self.scripts_header_layout.addItem(self.scripts_header_spacer)
 
+        self.btn_preferences = QPushButton(self.scripts_panel)
+        self.btn_preferences.setObjectName(u"btn_preferences")
+
+        self.scripts_header_layout.addWidget(self.btn_preferences)
+
         self.btn_darkmode = QPushButton(self.scripts_panel)
         self.btn_darkmode.setObjectName(u"btn_darkmode")
 
@@ -270,52 +275,57 @@ class Ui_MainWindow(object):
 
     def retranslateUi(self, MainWindow):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"NeuroCrunch", None))
-        self.lbl_explorer_title.setText(QCoreApplication.translate("MainWindow", u"Explorador", None))
+        self.lbl_explorer_title.setText(QCoreApplication.translate("MainWindow", u"Explorer", None))
         self.lbl_explorer_title.setProperty(u"class", QCoreApplication.translate("MainWindow", u"panelTitle", None))
 #if QT_CONFIG(tooltip)
-        self.btn_refresh.setToolTip(QCoreApplication.translate("MainWindow", u"Refrescar carpeta y scripts", None))
+        self.btn_refresh.setToolTip(QCoreApplication.translate("MainWindow", u"Refresh folder and scripts", None))
 #endif // QT_CONFIG(tooltip)
         self.btn_refresh.setText("")
         self.btn_refresh.setProperty(u"class", QCoreApplication.translate("MainWindow", u"iconButton", None))
         ___qtreewidgetitem = self.file_viewer.headerItem()
-        ___qtreewidgetitem.setText(0, QCoreApplication.translate("MainWindow", u"Carpeta de trabajo", None));
+        ___qtreewidgetitem.setText(0, QCoreApplication.translate("MainWindow", u"Working folder", None));
 #if QT_CONFIG(tooltip)
-        self.btn_open_folder.setToolTip(QCoreApplication.translate("MainWindow", u"Elegir la carpeta de trabajo", None))
+        self.btn_open_folder.setToolTip(QCoreApplication.translate("MainWindow", u"Choose the working folder", None))
 #endif // QT_CONFIG(tooltip)
-        self.btn_open_folder.setText(QCoreApplication.translate("MainWindow", u"Seleccionar carpeta", None))
+        self.btn_open_folder.setText(QCoreApplication.translate("MainWindow", u"Select folder", None))
         self.image_viewer.setText("")
-        self.lbl_scripts_title.setText(QCoreApplication.translate("MainWindow", u"Pipeline de scripts", None))
+        self.lbl_scripts_title.setText(QCoreApplication.translate("MainWindow", u"Script pipeline", None))
         self.lbl_scripts_title.setProperty(u"class", QCoreApplication.translate("MainWindow", u"panelTitle", None))
 #if QT_CONFIG(tooltip)
-        self.btn_darkmode.setToolTip(QCoreApplication.translate("MainWindow", u"Cambiar tema claro/oscuro", None))
+        self.btn_preferences.setToolTip(QCoreApplication.translate("MainWindow", u"Preferences", None))
+#endif // QT_CONFIG(tooltip)
+        self.btn_preferences.setText("")
+        self.btn_preferences.setProperty(u"class", QCoreApplication.translate("MainWindow", u"iconButton", None))
+#if QT_CONFIG(tooltip)
+        self.btn_darkmode.setToolTip(QCoreApplication.translate("MainWindow", u"Toggle light/dark theme", None))
 #endif // QT_CONFIG(tooltip)
         self.btn_darkmode.setText("")
         self.btn_darkmode.setProperty(u"class", QCoreApplication.translate("MainWindow", u"iconButton", None))
         ___qtablewidgetitem = self.table_data_columns.horizontalHeaderItem(0)
         ___qtablewidgetitem.setText(QCoreApplication.translate("MainWindow", u"Script", None));
         ___qtablewidgetitem1 = self.table_data_columns.horizontalHeaderItem(1)
-        ___qtablewidgetitem1.setText(QCoreApplication.translate("MainWindow", u"Configurado", None));
+        ___qtablewidgetitem1.setText(QCoreApplication.translate("MainWindow", u"Configured", None));
         ___qtablewidgetitem2 = self.table_data_columns.horizontalHeaderItem(2)
-        ___qtablewidgetitem2.setText(QCoreApplication.translate("MainWindow", u"Seleccion", None));
+        ___qtablewidgetitem2.setText(QCoreApplication.translate("MainWindow", u"Selection", None));
         ___qtablewidgetitem3 = self.table_data_columns.horizontalHeaderItem(3)
-        ___qtablewidgetitem3.setText(QCoreApplication.translate("MainWindow", u"Orden", None));
+        ___qtablewidgetitem3.setText(QCoreApplication.translate("MainWindow", u"Order", None));
 #if QT_CONFIG(tooltip)
-        self.btn_load_config.setToolTip(QCoreApplication.translate("MainWindow", u"Cargar configuraci\u00f3n desde archivo", None))
+        self.btn_load_config.setToolTip(QCoreApplication.translate("MainWindow", u"Load configuration from file", None))
 #endif // QT_CONFIG(tooltip)
-        self.btn_load_config.setText(QCoreApplication.translate("MainWindow", u"Cargar", None))
+        self.btn_load_config.setText(QCoreApplication.translate("MainWindow", u"Load", None))
 #if QT_CONFIG(tooltip)
-        self.btn_save_config.setToolTip(QCoreApplication.translate("MainWindow", u"Guardar configuraci\u00f3n actual", None))
+        self.btn_save_config.setToolTip(QCoreApplication.translate("MainWindow", u"Save current configuration", None))
 #endif // QT_CONFIG(tooltip)
-        self.btn_save_config.setText(QCoreApplication.translate("MainWindow", u"Guardar", None))
+        self.btn_save_config.setText(QCoreApplication.translate("MainWindow", u"Save", None))
 #if QT_CONFIG(tooltip)
-        self.btn_open_scripts_dir.setToolTip(QCoreApplication.translate("MainWindow", u"Abrir carpeta de scripts de usuario", None))
+        self.btn_open_scripts_dir.setToolTip(QCoreApplication.translate("MainWindow", u"Open user scripts folder", None))
 #endif // QT_CONFIG(tooltip)
         self.btn_open_scripts_dir.setText(QCoreApplication.translate("MainWindow", u"Scripts", None))
 #if QT_CONFIG(tooltip)
-        self.btn_execute_scripts.setToolTip(QCoreApplication.translate("MainWindow", u"Ejecutar los scripts seleccionados en orden", None))
+        self.btn_execute_scripts.setToolTip(QCoreApplication.translate("MainWindow", u"Run the selected scripts in order", None))
 #endif // QT_CONFIG(tooltip)
-        self.btn_execute_scripts.setText(QCoreApplication.translate("MainWindow", u"Ejecutar", None))
-        self.lbl_log_title.setText(QCoreApplication.translate("MainWindow", u"Registro", None))
+        self.btn_execute_scripts.setText(QCoreApplication.translate("MainWindow", u"Run", None))
+        self.lbl_log_title.setText(QCoreApplication.translate("MainWindow", u"Log", None))
         self.lbl_log_title.setProperty(u"class", QCoreApplication.translate("MainWindow", u"panelTitle", None))
     # retranslateUi
 

@@ -4,7 +4,7 @@ NeuroCrunch uses Qt's translation system for multilingual support. This guide ex
 
 ## Overview
 
-- **Base language**: Spanish (`es`)
+- **Base language**: English (`en`)
 - **Translation files**: Located in `assets/translations/`
 - **Format**: Qt Linguist `.ts` (XML) source files, compiled to `.qm` (binary) or `.json` (fallback)
 - **Build tool**: `build_translations.py` (Python fallback; uses Qt's `lrelease` if available)
@@ -14,16 +14,16 @@ NeuroCrunch uses Qt's translation system for multilingual support. This guide ex
 ### `.ts` Files (Translation Source)
 
 These are human-editable XML files where translators add translations:
-- `neurocruncher_es.ts` — Spanish (base/fallback)
-- `neurocruncher_en.ts` — English
+- `neurocruncher_en.ts` — English (base/fallback)
+- `neurocruncher_es.ts` — Spanish
 
 Each message is marked with its source location for easy tracing:
 
 ```xml
 <message>
     <location filename="src/NeuroCrunch.py" line="192"/>
-    <source>Seleccionar carpeta local</source>
-    <translation>Select Local Folder</translation>
+    <source>Select local folder</source>
+    <translation>Seleccionar carpeta local</translation>
 </message>
 ```
 
@@ -60,13 +60,13 @@ Or use the Python fallback (see below).
 
 ### 3. Add Translations
 
-Edit the `.ts` files (e.g., `neurocruncher_en.ts`) and add `<translation>` elements for new strings:
+Edit the `.ts` files (e.g., `neurocruncher_es.ts`) and add `<translation>` elements for new strings:
 
 ```xml
 <message>
     <location filename="src/NeuroCrunch.py" line="192"/>
     <source>Hello, World!</source>
-    <translation>Hola, Mundo!</translation>
+    <translation>¡Hola, Mundo!</translation>
 </message>
 ```
 
@@ -118,13 +118,34 @@ python build_translations.py
 
 This will generate `neurocruncher_fr.qm.json` (or `.qm` with Qt tools).
 
-### 3. Update the App
+### 3. Register the Language
 
-Modify `NeuroCrunch.py` to set `self.current_language = 'fr'` (or add a language selector dialog).
+Add the language to the `AVAILABLE_LANGUAGES` list in `src/NeuroCrunch.py`:
+
+```python
+AVAILABLE_LANGUAGES = [
+    ('en', 'English'),
+    ('es', 'Español'),
+    ('fr', 'Français'),
+]
+```
+
+It then appears automatically in the **Preferences** dialog (gear icon in the Script pipeline header). The selected language is persisted to `settings.json` in the per-user config directory and restored on the next launch.
 
 ### 4. Test
 
-Run the app and verify strings appear in French.
+Run the app, open **Preferences**, select French, and verify strings appear in French.
+
+## How Translations Load at Runtime
+
+The app installs a translator on startup (and whenever the language changes) so
+that every `QCoreApplication.translate` / `self.tr()` / auto-generated
+`retranslateUi` string is resolved:
+
+- If a compiled binary `neurocruncher_<lang>.qm` exists, Qt's own `QTranslator` loads it.
+- Otherwise the human-editable `neurocruncher_<lang>.json` catalog is loaded through `JsonTranslator` (`src/json_translator.py`), a `QTranslator` subclass — so translations work even without Qt's `lrelease` compiler.
+
+English is the source language, so no translator is installed for it.
 
 ## CI/CD Integration
 
@@ -150,8 +171,8 @@ Example:
 {
   "name": "fps",
   "type": "int",
-  "label": {"es": "Frames por segundo", "en": "Frames per second"},
-  "description": {"es": "Velocidad de muestreo", "en": "Sampling rate"}
+  "label": {"en": "Frames per second", "es": "Frames por segundo"},
+  "description": {"en": "Sampling rate", "es": "Velocidad de muestreo"}
 }
 ```
 

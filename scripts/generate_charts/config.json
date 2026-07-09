@@ -1,0 +1,41 @@
+{
+  "id": "generate_charts",
+  "name": "Generate Charts",
+  "description": "Generates summary charts from processed signals.",
+  "version": "1.0.0",
+  "author": "Daniel Zanelli",
+  "category": "visualization",
+  "parameters": [
+    {
+      "name": "input_csv",
+      "type": "file",
+      "label": "Input CSV",
+      "description": "CSV file with the traces to plot",
+      "required": true,
+      "extensions": [".csv"],
+      "link": "select_active.active_csv"
+    },
+    {
+      "name": "format",
+      "type": "choice",
+      "label": "Image format",
+      "options": ["png", "svg", "pdf"],
+      "default": "png"
+    },
+    {
+      "name": "title",
+      "type": "string",
+      "label": "Chart title",
+      "description": "Title that will appear at the top of each chart"
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": "Output folder",
+      "required": true
+    }
+  ],
+  "outputs": {
+    "figures_dir": "Path to the folder with the generated charts"
+  }
+}

@@ -4,215 +4,288 @@
 <context>
     <name>NeuroCrunch</name>
     <message>
-        <location filename="src/NeuroCrunch.py" line="167"/>
-        <source>Programa inicializado</source>
+        <source>Program initialized</source>
         <translation>Program initialized</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="192"/>
-        <source>Seleccionar carpeta local</source>
-        <translation>Select Local Folder</translation>
+        <source>Select local folder</source>
+        <translation>Select local folder</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="204"/>
-        <source>No se seleccionó ninguna carpeta local.</source>
+        <source>No local folder selected.</source>
         <translation>No local folder selected.</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="207"/>
-        <source>La carpeta local "{0}" no existe.</source>
+        <source>Local folder "{0}" does not exist.</source>
         <translation>Local folder "{0}" does not exist.</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="231"/>
-        <source>No se pudo crear la carpeta de plugins de usuario "{0}": {1}</source>
+        <source>Could not create user plugins folder "{0}": {1}</source>
         <translation>Could not create user plugins folder "{0}": {1}</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="247"/>
-        <source>No se pudo abrir la carpeta de scripts "{0}": {1}</source>
+        <source>Could not open scripts folder "{0}": {1}</source>
         <translation>Could not open scripts folder "{0}": {1}</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="250"/>
-        <source>Carpeta de scripts de usuario: {0}</source>
+        <source>User scripts folder: {0}</source>
         <translation>User scripts folder: {0}</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="289"/>
-        <source>NeuroCrunch {0} disponible</source>
+        <source>NeuroCrunch {0} available</source>
         <translation>NeuroCrunch {0} available</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="293"/>
-        <source>Actualización disponible</source>
-        <translation>Update Available</translation>
+        <source>Update available</source>
+        <translation>Update available</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="294"/>
-        <source>Hay una nueva versión ({0}), pero no hay instalador para esta plataforma.\nDescárgala manualmente desde:\n</source>
+        <source>There is a new version ({0}), but there is no installer for this platform.\nDownload it manually from:\n</source>
         <translation>There is a new version ({0}), but there is no installer for this platform.\nDownload it manually from:\n</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="299"/>
-        <source>Hay una nueva versión disponible ({0}).\n¿Descargarla ahora?</source>
+        <source>A new version is available ({0}).\nDownload it now?</source>
         <translation>A new version is available ({0}).\nDownload it now?</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="307"/>
-        <source>El asset de actualización no tiene URL o nombre válidos.</source>
-        <translation>Update asset does not have valid URL or name.</translation>
+        <source>The update asset does not have a valid URL or name.</source>
+        <translation>The update asset does not have a valid URL or name.</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="309"/>
-        <source>Descargando actualización: {0}...</source>
+        <source>Downloading update: {0}...</source>
         <translation>Downloading update: {0}...</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="312"/>
-        <source>Descargando actualización: {0}%</source>
+        <source>Downloading update: {0}%</source>
         <translation>Downloading update: {0}%</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="318"/>
-        <source>Descarga completa</source>
+        <source>Download complete</source>
         <translation>Download complete</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="320"/>
-        <source>Aplicar actualización</source>
-        <translation>Apply Update</translation>
+        <source>Apply update</source>
+        <translation>Apply update</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="321"/>
-        <source>La actualización se descargó correctamente.\n¿Reiniciar NeuroCrunch para aplicarla?</source>
-        <translation>Update downloaded successfully.\nRestart NeuroCrunch to apply it?</translation>
+        <source>The update was downloaded successfully.\nRestart NeuroCrunch to apply it?</source>
+        <translation>The update was downloaded successfully.\nRestart NeuroCrunch to apply it?</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="404"/>
-        <source>Abrir</source>
+        <source>Open</source>
         <translation>Open</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="410"/>
-        <source>Mostrar en carpeta</source>
+        <source>Show in folder</source>
         <translation>Show in folder</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="418"/>
-        <source>El archivo/carpeta "{0}" no existe.</source>
-        <translation>File/folder "{0}" does not exist.</translation>
+        <source>The file/folder "{0}" does not exist.</source>
+        <translation>The file/folder "{0}" does not exist.</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="432"/>
-        <source>Abriendo en explorador de archivos: {0}</source>
+        <source>Opening in file explorer: {0}</source>
         <translation>Opening in file explorer: {0}</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="712"/>
-        <source>Guardar configuración</source>
-        <translation>Save Configuration</translation>
+        <source>Save configuration</source>
+        <translation>Save configuration</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="713"/>
-        <source>Archivo de configuración</source>
-        <translation>Configuration File</translation>
+        <source>Configuration file</source>
+        <translation>Configuration file</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="713"/>
-        <source>Todos los archivos</source>
-        <translation>All Files</translation>
+        <source>All files</source>
+        <translation>All files</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="731"/>
-        <source>Cargar configuración</source>
-        <translation>Load Configuration</translation>
+        <source>Load configuration</source>
+        <translation>Load configuration</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="799"/>
-        <source>No hay scripts seleccionados para ejecutar.</source>
+        <source>No scripts selected to run.</source>
         <translation>No scripts selected to run.</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="807"/>
-        <source>Los siguientes scripts seleccionados no tienen un orden de ejecución asignado: </source>
+        <source>The following selected scripts do not have an execution order assigned: </source>
         <translation>The following selected scripts do not have an execution order assigned: </translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="831"/>
-        <source>Confirmar detención</source>
-        <translation>Confirm Stop</translation>
+        <source>Confirm stop</source>
+        <translation>Confirm stop</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="832"/>
-        <source>¿Estás seguro de que deseas detener el pipeline?\nEsto interrumpirá el proceso actual.</source>
+        <source>Are you sure you want to stop the pipeline?\nThis will interrupt the current process.</source>
         <translation>Are you sure you want to stop the pipeline?\nThis will interrupt the current process.</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="837"/>
-        <source>Deteniendo pipeline...</source>
+        <source>Stopping pipeline...</source>
         <translation>Stopping pipeline...</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="847"/>
-        <source>Detener</source>
+        <source>Stop</source>
         <translation>Stop</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="885"/>
-        <source>Ejecutar</source>
+        <source>Run</source>
         <translation>Run</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="887"/>
-        <source>Pipeline finalizado exitosamente.</source>
+        <source>Pipeline completed successfully.</source>
         <translation>Pipeline completed successfully.</translation>
     </message>
     <message>
-        <location filename="src/NeuroCrunch.py" line="887"/>
-        <source>Pipeline finalizado con errores.</source>
+        <source>Pipeline completed with errors.</source>
         <translation>Pipeline completed with errors.</translation>
+    </message>
+    <message>
+        <source>Double-click a file to preview it</source>
+        <translation>Double-click a file to preview it</translation>
     </message>
 </context>
 <context>
     <name>CSVReaderWorker</name>
     <message>
-        <location filename="src/NeuroCrunch.py" line="62"/>
-        <source>Abriendo CSV {0}: 0%</source>
+        <source>Opening CSV {0}: 0%</source>
         <translation>Opening CSV {0}: 0%</translation>
     </message>
 </context>
 <context>
     <name>ParamDialog</name>
     <message>
-        <location filename="src/param_dialog.py" line="124"/>
-        <source>Configurar: {0}</source>
+        <source>Configure: {0}</source>
         <translation>Configure: {0}</translation>
     </message>
     <message>
-        <location filename="src/param_dialog.py" line="145"/>
-        <source>Este script no tiene parámetros configurables.</source>
+        <source>This script has no configurable parameters.</source>
         <translation>This script has no configurable parameters.</translation>
     </message>
     <message>
-        <location filename="src/param_dialog.py" line="159"/>
-        <source>Aceptar</source>
+        <source>Accept</source>
         <translation>Accept</translation>
     </message>
     <message>
-        <location filename="src/param_dialog.py" line="160"/>
-        <source>Cancelar</source>
+        <source>Cancel</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="src/param_dialog.py" line="212"/>
-        <source>Fuente: </source>
+        <source>Source: </source>
         <translation>Source: </translation>
     </message>
     <message>
-        <location filename="src/param_dialog.py" line="214"/>
-        <source>Valor pre-rellenado desde la salida de "{0}"</source>
+        <source>Value pre-filled from the output of "{0}"</source>
         <translation>Value pre-filled from the output of "{0}"</translation>
+    </message>
+</context>
+<context>
+    <name>PreferencesDialog</name>
+    <message>
+        <source>Preferences</source>
+        <translation>Preferences</translation>
+    </message>
+    <message>
+        <source>Language:</source>
+        <translation>Language:</translation>
+    </message>
+    <message>
+        <source>Accept</source>
+        <translation>Accept</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+</context>
+<context>
+    <name>MainWindow</name>
+    <message>
+        <source>Preferences</source>
+        <translation>Preferences</translation>
+    </message>
+    <message>
+        <source>Explorer</source>
+        <translation>Explorer</translation>
+    </message>
+    <message>
+        <source>Refresh folder and scripts</source>
+        <translation>Refresh folder and scripts</translation>
+    </message>
+    <message>
+        <source>Working folder</source>
+        <translation>Working folder</translation>
+    </message>
+    <message>
+        <source>Choose the working folder</source>
+        <translation>Choose the working folder</translation>
+    </message>
+    <message>
+        <source>Select folder</source>
+        <translation>Select folder</translation>
+    </message>
+    <message>
+        <source>Script pipeline</source>
+        <translation>Script pipeline</translation>
+    </message>
+    <message>
+        <source>Toggle light/dark theme</source>
+        <translation>Toggle light/dark theme</translation>
+    </message>
+    <message>
+        <source>Script</source>
+        <translation>Script</translation>
+    </message>
+    <message>
+        <source>Configured</source>
+        <translation>Configured</translation>
+    </message>
+    <message>
+        <source>Selection</source>
+        <translation>Selection</translation>
+    </message>
+    <message>
+        <source>Order</source>
+        <translation>Order</translation>
+    </message>
+    <message>
+        <source>Load configuration from file</source>
+        <translation>Load configuration from file</translation>
+    </message>
+    <message>
+        <source>Load</source>
+        <translation>Load</translation>
+    </message>
+    <message>
+        <source>Save current configuration</source>
+        <translation>Save current configuration</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>Open user scripts folder</source>
+        <translation>Open user scripts folder</translation>
+    </message>
+    <message>
+        <source>Scripts</source>
+        <translation>Scripts</translation>
+    </message>
+    <message>
+        <source>Run the selected scripts in order</source>
+        <translation>Run the selected scripts in order</translation>
+    </message>
+    <message>
+        <source>Run</source>
+        <translation>Run</translation>
+    </message>
+    <message>
+        <source>Stop</source>
+        <translation>Stop</translation>
+    </message>
+    <message>
+        <source>Log</source>
+        <translation>Log</translation>
     </message>
 </context>
 </TS>

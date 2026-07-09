@@ -74,11 +74,11 @@ from param_dialog import _resolve_label, _resolve_link, is_script_configured  # 
 
 class TestResolveLabel:
     def test_plain_string(self):
-        assert _resolve_label({'name': 'fps', 'label': 'Frames por segundo'}) == 'Frames por segundo'
+        assert _resolve_label({'name': 'fps', 'label': 'Frames per second'}) == 'Frames per second'
 
-    def test_locale_map_spanish(self):
+    def test_locale_map_prefers_english(self):
         param = {'name': 'fps', 'label': {'es': 'Frames por segundo', 'en': 'Frames per second'}}
-        assert _resolve_label(param) == 'Frames por segundo'
+        assert _resolve_label(param) == 'Frames per second'
 
     def test_locale_map_english_fallback(self):
         param = {'name': 'fps', 'label': {'en': 'Frames per second'}}
@@ -93,8 +93,8 @@ class TestResolveLabel:
         assert _resolve_label(param) == 'fps'
 
     def test_description_key(self):
-        param = {'name': 'fps', 'description': 'Velocidad de muestreo'}
-        assert _resolve_label(param, 'description') == 'Velocidad de muestreo'
+        param = {'name': 'fps', 'description': 'Sampling rate'}
+        assert _resolve_label(param, 'description') == 'Sampling rate'
 
     def test_none_label(self):
         param = {'name': 'x', 'label': None}
@@ -108,27 +108,27 @@ class TestResolveLabel:
 class TestResolveLink:
     def _ctx(self):
         return {
-            'procesar_video': {'output_csv': '/data/signals.csv'},
+            'process_video': {'output_csv': '/data/signals.csv'},
         }
 
     def test_valid_link(self):
-        result = _resolve_link('procesar_video.output_csv', self._ctx())
+        result = _resolve_link('process_video.output_csv', self._ctx())
         assert result == '/data/signals.csv'
 
     def test_missing_script(self):
         assert _resolve_link('nonexistent.output_csv', self._ctx()) is None
 
     def test_missing_output_key(self):
-        assert _resolve_link('procesar_video.nonexistent', self._ctx()) is None
+        assert _resolve_link('process_video.nonexistent', self._ctx()) is None
 
     def test_malformed_no_dot(self):
-        assert _resolve_link('procesar_video_output_csv', self._ctx()) is None
+        assert _resolve_link('process_video_output_csv', self._ctx()) is None
 
     def test_empty_string(self):
         assert _resolve_link('', self._ctx()) is None
 
     def test_empty_context(self):
-        assert _resolve_link('procesar_video.output_csv', {}) is None
+        assert _resolve_link('process_video.output_csv', {}) is None
 
     def test_non_string_link(self):
         assert _resolve_link(None, self._ctx()) is None  # type: ignore[arg-type]
@@ -188,9 +188,9 @@ class TestIsScriptConfigured:
 
     def test_required_bool_false_is_configured(self):
         info = _FakePluginInfo([
-            {'name': 'normalizar', 'type': 'bool', 'required': True}
+            {'name': 'normalize', 'type': 'bool', 'required': True}
         ])
-        assert is_script_configured(info, {'normalizar': False}) is True
+        assert is_script_configured(info, {'normalize': False}) is True
 
     def test_required_int_missing(self):
         info = _FakePluginInfo([
@@ -217,11 +217,11 @@ class TestIsScriptConfigured:
 
 class TestResolveLabel:
     def test_plain_string(self):
-        assert _resolve_label({'name': 'fps', 'label': 'Frames por segundo'}) == 'Frames por segundo'
+        assert _resolve_label({'name': 'fps', 'label': 'Frames per second'}) == 'Frames per second'
 
-    def test_locale_map_spanish(self):
+    def test_locale_map_prefers_english(self):
         param = {'name': 'fps', 'label': {'es': 'Frames por segundo', 'en': 'Frames per second'}}
-        assert _resolve_label(param) == 'Frames por segundo'
+        assert _resolve_label(param) == 'Frames per second'
 
     def test_locale_map_english_fallback(self):
         param = {'name': 'fps', 'label': {'en': 'Frames per second'}}
@@ -236,8 +236,8 @@ class TestResolveLabel:
         assert _resolve_label(param) == 'fps'
 
     def test_description_key(self):
-        param = {'name': 'fps', 'description': 'Velocidad de muestreo'}
-        assert _resolve_label(param, 'description') == 'Velocidad de muestreo'
+        param = {'name': 'fps', 'description': 'Sampling rate'}
+        assert _resolve_label(param, 'description') == 'Sampling rate'
 
     def test_none_label(self):
         param = {'name': 'x', 'label': None}
@@ -251,27 +251,27 @@ class TestResolveLabel:
 class TestResolveLink:
     def _ctx(self):
         return {
-            'procesar_video': {'output_csv': '/data/signals.csv'},
+            'process_video': {'output_csv': '/data/signals.csv'},
         }
 
     def test_valid_link(self):
-        result = _resolve_link('procesar_video.output_csv', self._ctx())
+        result = _resolve_link('process_video.output_csv', self._ctx())
         assert result == '/data/signals.csv'
 
     def test_missing_script(self):
         assert _resolve_link('nonexistent.output_csv', self._ctx()) is None
 
     def test_missing_output_key(self):
-        assert _resolve_link('procesar_video.nonexistent', self._ctx()) is None
+        assert _resolve_link('process_video.nonexistent', self._ctx()) is None
 
     def test_malformed_no_dot(self):
-        assert _resolve_link('procesar_video_output_csv', self._ctx()) is None
+        assert _resolve_link('process_video_output_csv', self._ctx()) is None
 
     def test_empty_string(self):
         assert _resolve_link('', self._ctx()) is None
 
     def test_empty_context(self):
-        assert _resolve_link('procesar_video.output_csv', {}) is None
+        assert _resolve_link('process_video.output_csv', {}) is None
 
     def test_non_string_link(self):
         assert _resolve_link(None, self._ctx()) is None  # type: ignore[arg-type]
@@ -331,9 +331,9 @@ class TestIsScriptConfigured:
 
     def test_required_bool_false_is_configured(self):
         info = _FakePluginInfo([
-            {'name': 'normalizar', 'type': 'bool', 'required': True}
+            {'name': 'normalize', 'type': 'bool', 'required': True}
         ])
-        assert is_script_configured(info, {'normalizar': False}) is True
+        assert is_script_configured(info, {'normalize': False}) is True
 
     def test_required_int_missing(self):
         info = _FakePluginInfo([

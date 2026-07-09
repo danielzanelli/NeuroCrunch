@@ -1,6 +1,6 @@
 {
-  "id": "remove_bleaching",
-  "name": "Remove Bleaching",
+  "id": "signal_processing",
+  "name": "Signal Processing",
   "description": "Removes photobleaching effects from fluorescence signals.",
   "version": "1.0.0",
   "author": "Daniel Zanelli",
@@ -13,7 +13,7 @@
       "description": {"en": "CSV file with the raw fluorescence traces", "es": "Archivo CSV con las trazas de fluorescencia sin procesar"},
       "required": true,
       "extensions": [".csv"],
-      "link": "process_video.output_csv"
+      "link": "generate_signals.output_csv"
     },
     {
       "name": "metrics",

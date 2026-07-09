@@ -1,6 +1,6 @@
 {
-  "id": "select_rois",
-  "name": "Select ROIs",
+  "id": "generate_rois",
+  "name": "Generate ROIs",
   "description": "Selects regions of interest (ROIs) in the imaging data.",
   "version": "1.0.0",
   "author": "Daniel Zanelli",

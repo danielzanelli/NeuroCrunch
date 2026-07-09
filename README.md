@@ -64,14 +64,14 @@ Build analysis workflows by selecting scripts and configuring them, no code requ
 
 Six analysis scripts are bundled. Run them in sequence, or pick and mix:
 
-1. **Select ROIs** (preprocessing) — *not yet implemented* — will let you interactively draw regions of interest (circular, rectangular, or polygonal) over a calcium-imaging video and export them as a `.zip` file (ImageJ/FIJI-compatible format). For now, define ROIs using ImageJ/FIJI and import them.
-2. **Process Video** (preprocessing) — extracts fluorescence signal from each ROI. Measures max, mean, standard deviation, and integral of pixel intensity per ROI per frame; optional Z-score normalization. Output: CSV of raw traces.
-3. **Remove Bleaching** (processing) — removes photobleaching (signal decay over time) using an Asymmetric Least Squares (ALS) algorithm with customizable parameters. Output: corrected and smoothed CSV.
+1. **Generate ROIs** (preprocessing) — *not yet implemented* — will let you interactively draw regions of interest (circular, rectangular, or polygonal) over a calcium-imaging video and export them as a `.zip` file (ImageJ/FIJI-compatible format). For now, define ROIs using ImageJ/FIJI and import them.
+2. **Generate Signals** (preprocessing) — extracts fluorescence signal from each ROI. Measures max, mean, standard deviation, and integral of pixel intensity per ROI per frame; optional Z-score normalization. Output: CSV of raw traces.
+3. **Signal Processing** (processing) — removes photobleaching (signal decay over time) using an Asymmetric Least Squares (ALS) algorithm with customizable parameters. Output: corrected and smoothed CSV.
 4. **Select Active** (processing) — keeps only cells with activity above a noise threshold sustained for a minimum number of frames. Output: CSV of active cells only.
 5. **Pearson Matrix** (analysis) — computes pairwise Pearson correlations between active cells. Output: correlation matrix CSV + heatmap image (PNG).
-6. **Generate Charts** (visualization) — produces summary plots from processed signals (overlay, raster, and mean±σ). Choose output format (PNG, SVG, PDF) and add a custom title.
+6. **Connectivity Graph** (visualization) — produces summary plots from processed signals (overlay, raster, and mean±σ). Choose output format (PNG, SVG, PDF) and add a custom title.
 
-**Typical workflow**: Process Video → Remove Bleaching → Select Active → Pearson Matrix → Generate Charts. (Select ROIs will be inserted at the very start once it's implemented.)
+**Typical workflow**: Generate Signals → Signal Processing → Select Active → Pearson Matrix → Connectivity Graph. (Generate ROIs will be inserted at the very start once it's implemented.)
 
 ### Extensibility & Community Scripts
 
@@ -116,15 +116,15 @@ The codebase is written in **English** (base language), with **Spanish** provide
 Assume you have a video file `imaging.tif` and ROI definitions in `rois.zip` (e.g., from ImageJ).
 
 1. **Select folder** → navigate to the folder containing `imaging.tif` and `rois.zip`.
-2. **Configure Process Video**:
-   - Double-click "Process Video" in the scripts table.
+2. **Configure Generate Signals**:
+   - Double-click "Generate Signals" in the scripts table.
    - Input video: browse to `imaging.tif`.
    - ROI file: browse to `rois.zip`.
    - Frames per second: enter `10` (or your video's frame rate).
    - Output folder: choose an output folder.
    - Click **Accept**.
-3. **Configure Remove Bleaching**:
-   - Double-click it. Input CSV will auto-fill from Process Video's output.
+3. **Configure Signal Processing**:
+   - Double-click it. Input CSV will auto-fill from Generate Signals' output.
    - Adjust ALS parameters if needed (defaults are reasonable).
    - Click **Accept**.
 4. **Configure Select Active**:
@@ -133,7 +133,7 @@ Assume you have a video file `imaging.tif` and ROI definitions in `rois.zip` (e.
 5. **Configure Pearson Matrix**:
    - Double-click it. Input CSV will auto-fill. Set correlation threshold (default 0.5).
    - Click **Accept**.
-6. **Configure Generate Charts**:
+6. **Configure Connectivity Graph**:
    - Double-click it. Input CSV will auto-fill. Choose format (PNG). Add a title if desired.
    - Click **Accept**.
 7. **Check the checkboxes** next to all 5 scripts; set their **Order** to 1, 2, 3, 4, 5 respectively.
@@ -213,11 +213,11 @@ Link a parameter to a previous script's output by adding a `"link"` field:
   "name": "input_csv",
   "type": "file",
   "label": "Input CSV",
-  "link": "process_video.output_csv"
+  "link": "generate_signals.output_csv"
 }
 ```
 
-When a user runs `process_video` first, NeuroCrunch auto-fills this parameter with the output path. The field is still editable.
+When a user runs `generate_signals` first, NeuroCrunch auto-fills this parameter with the output path. The field is still editable.
 
 The manifest `link` is only a default: in the parameter dialog, every file/folder parameter has a link button (🔗) where users can pick any other script's declared output — or switch back to a manually chosen file. Output paths produced by a run are remembered (and stored in saved `.config` files), so a linked parameter also resolves when the source script ran in an earlier session.
 
@@ -319,12 +319,12 @@ NeuroCrunch/
 │       ├── dark.qss
 │       └── light.qss
 ├── scripts/                        # Official bundled analysis scripts
-│   ├── process_video/
-│   ├── remove_bleaching/
+│   ├── generate_signals/
+│   ├── signal_processing/
 │   ├── select_active/
-│   ├── select_rois/
+│   ├── generate_rois/
 │   ├── pearson_matrix/
-│   ├── generate_charts/
+│   ├── connectivity_graph/
 │   └── template/                   # Copy-paste starting point for new scripts
 ├── schemas/
 │   └── plugin_config.schema.json   # JSON Schema for config.json validation
@@ -391,7 +391,7 @@ Signing (Windows code-signing certificate + Apple notarization) can be added lat
 
 ## Future Work
 
-- **Algorithmic ROI detection** — implement `select_rois` as an automatic (not interactive) script for detecting regions of interest in a representative video frame or projection.
+- **Algorithmic ROI detection** — implement `generate_rois` as an automatic (not interactive) script for detecting regions of interest in a representative video frame or projection.
 - **Network graph visualization** — add a `generate_graph` script to build weighted connectivity networks from correlation matrices, plus an interactive graph viewer with hub-metric coloring and click-to-highlight neighbors.
 - **Expand the preferences dialog** — the Preferences dialog currently exposes a language selector; grow it with more user settings (default working folder, UI options, update channel).
 - **Community translations** — expand language support beyond English and Spanish; accept translations via pull request.

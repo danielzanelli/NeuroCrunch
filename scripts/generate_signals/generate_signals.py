@@ -1,21 +1,21 @@
 # This Python file uses the following encoding: utf-8
 # SPDX-License-Identifier: Apache-2.0
-"""process_video — Extracts fluorescence traces from a video with ROIs.
+"""generate_signals — Extracts fluorescence traces from a video with ROIs.
 
 Computes metrics (maximum, mean, standard deviation, integral) within each ROI
 frame by frame and saves the result as a CSV file.
 
 Command-line usage:
-    python process_video.py --input_video video.tif --input_roi rois.zip \\
+    python generate_signals.py --input_video video.tif --input_roi rois.zip \\
                    --output_dir ./results [--fps 10] [--normalize] \\
                    [--no-metric_max] [--no-metric_mean] [--no-metric_std] [--no-metric_int]
 
     # Alternatively, passing all parameters as a JSON string:
-    python process_video.py --params_json '{"input_video": "...", "input_roi": "...", ...}'
+    python generate_signals.py --params_json '{"input_video": "...", "input_roi": "...", ...}'
 
     # Contract used by ScriptRunner: reads parameters from a JSON file and writes
     # the declared outputs to another JSON file:
-    python process_video.py --nc_params params.json --nc_output output.json
+    python generate_signals.py --nc_params params.json --nc_output output.json
 """
 from __future__ import annotations
 

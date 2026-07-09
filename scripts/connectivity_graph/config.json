@@ -1,6 +1,6 @@
 {
-  "id": "generate_charts",
-  "name": "Generate Charts",
+  "id": "connectivity_graph",
+  "name": "Connectivity Graph",
   "description": "Generates summary charts from processed signals.",
   "version": "1.0.0",
   "author": "Daniel Zanelli",

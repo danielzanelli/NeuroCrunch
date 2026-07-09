@@ -1,6 +1,6 @@
 # This Python file uses the following encoding: utf-8
 # SPDX-License-Identifier: Apache-2.0
-"""generate_charts — Generates summary charts from processed traces.
+"""connectivity_graph — Generates summary charts from processed traces.
 
 Reads a CSV of traces (columns = cells, rows = time) and produces, in the output
 folder:

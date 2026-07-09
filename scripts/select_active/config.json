@@ -13,7 +13,7 @@
       "description": {"en": "CSV file with the fluorescence traces", "es": "Archivo CSV con las trazas de fluorescencia"},
       "required": true,
       "extensions": [".csv"],
-      "link": "remove_bleaching.corrected_csv"
+      "link": "signal_processing.corrected_csv"
     },
     {
       "name": "threshold_std",

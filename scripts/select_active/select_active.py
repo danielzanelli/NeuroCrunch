@@ -7,7 +7,7 @@ detects which traces show at least one activity event — a stretch of
 ``min_duration`` consecutive frames above ``mean + threshold_std·deviation`` — and
 writes a CSV with the metadata columns (frame, time_s) plus only the traces
 considered active. Preserves the format for the downstream scripts
-(pearson_matrix, generate_charts).
+(pearson_matrix, connectivity_graph).
 
 Contract: see README.md > "<script_name>.py — execution contract".
 """

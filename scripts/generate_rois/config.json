@@ -1,8 +1,8 @@
 {
   "id": "generate_rois",
   "name": "Generate ROIs",
-  "description": "Selects regions of interest (ROIs) in the imaging data.",
-  "version": "1.0.0",
+  "description": "Automatically detects neuron somas in a calcium-imaging video and exports them as ROIs.",
+  "version": "1.1.0",
   "author": "Daniel Zanelli",
   "category": "preprocessing",
   "parameters": [
@@ -10,7 +10,7 @@
       "name": "input_video",
       "type": "file",
       "label": {"en": "Input video", "es": "Video de entrada"},
-      "description": {"en": "Video file on which the ROIs will be drawn", "es": "Archivo de video sobre el que se dibujarán las ROIs"},
+      "description": {"en": "Calcium-imaging video where the somas will be detected", "es": "Video de imágenes de calcio donde se detectarán los somas"},
       "required": true,
       "extensions": [".tif", ".tiff", ".avi", ".mp4"]
     },
@@ -18,19 +18,83 @@
       "name": "roi_type",
       "type": "choice",
       "label": {"en": "ROI type", "es": "Tipo de ROI"},
-      "description": {"en": "Geometric shape of the regions of interest", "es": "Forma geométrica de las regiones de interés"},
+      "description": {"en": "Geometric shape fitted to each detected soma", "es": "Forma geométrica ajustada a cada soma detectado"},
       "options": ["circular", "rectangular", "polygonal"],
       "default": "circular"
+    },
+    {
+      "name": "projection_method",
+      "type": "choice",
+      "label": {"en": "Projection method", "es": "Método de proyección"},
+      "description": {"en": "How frames are combined into the summary image somas are detected on: 'mean' averages every frame, 'max' keeps the brightest pixel seen, 'std' highlights pixels that fluctuate over time (usually the best choice for active somas)", "es": "Cómo se combinan los cuadros en la imagen resumen sobre la que se detectan los somas: 'mean' promedia todos los cuadros, 'max' conserva el píxel más brillante observado, 'std' resalta los píxeles que fluctúan en el tiempo (normalmente la mejor opción para somas activos)"},
+      "options": ["mean", "max", "std"],
+      "default": "std"
+    },
+    {
+      "name": "gaussian_sigma",
+      "type": "float",
+      "label": {"en": "Gaussian blur (sigma)", "es": "Desenfoque gaussiano (sigma)"},
+      "description": {"en": "Blur applied to the summary image before thresholding, to reduce pixel noise", "es": "Desenfoque aplicado a la imagen resumen antes de umbralizar, para reducir el ruido de píxeles"},
+      "default": 1.5,
+      "min": 0.0,
+      "max": 10.0,
+      "decimals": 2
+    },
+    {
+      "name": "threshold_offset",
+      "type": "float",
+      "label": {"en": "Threshold offset", "es": "Ajuste de umbral"},
+      "description": {"en": "Value added to the automatic (Otsu) threshold; positive is stricter (fewer, brighter somas), negative is more permissive", "es": "Valor sumado al umbral automático (Otsu); positivo es más estricto (menos somas, más brillantes), negativo es más permisivo"},
+      "default": 0.0,
+      "min": -100.0,
+      "max": 100.0,
+      "decimals": 1
+    },
+    {
+      "name": "min_soma_diameter_px",
+      "type": "int",
+      "label": {"en": "Minimum soma diameter (px)", "es": "Diámetro mínimo del soma (px)"},
+      "description": {"en": "Blobs smaller than this diameter are discarded as noise", "es": "Se descartan como ruido las manchas más pequeñas que este diámetro"},
+      "default": 5,
+      "min": 1,
+      "max": 500
+    },
+    {
+      "name": "max_soma_diameter_px",
+      "type": "int",
+      "label": {"en": "Maximum soma diameter (px)", "es": "Diámetro máximo del soma (px)"},
+      "description": {"en": "Blobs larger than this diameter are discarded (likely merged cells or background artifacts)", "es": "Se descartan las manchas más grandes que este diámetro (probablemente células fusionadas o artefactos de fondo)"},
+      "default": 40,
+      "min": 1,
+      "max": 2000
+    },
+    {
+      "name": "min_circularity",
+      "type": "float",
+      "label": {"en": "Minimum circularity", "es": "Circularidad mínima"},
+      "description": {"en": "Minimum circularity (4π·area / perimeter², 1.0 = perfect circle) required to keep a blob as a soma", "es": "Circularidad mínima (4π·área / perímetro², 1.0 = círculo perfecto) requerida para conservar una mancha como soma"},
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "decimals": 2
+    },
+    {
+      "name": "separate_touching",
+      "type": "bool",
+      "label": {"en": "Separate touching somas", "es": "Separar somas adyacentes"},
+      "description": {"en": "Uses a watershed algorithm on the distance transform to split somas that appear merged together", "es": "Usa un algoritmo watershed sobre la transformada de distancia para separar somas que aparecen fusionados"},
+      "default": true
     },
     {
       "name": "output_dir",
       "type": "directory",
       "label": {"en": "Output folder", "es": "Carpeta de salida"},
-      "description": {"en": "Folder where the ROI files will be saved", "es": "Carpeta donde se guardarán los archivos de ROIs"},
+      "description": {"en": "Folder where the ROI ZIP and preview image will be saved", "es": "Carpeta donde se guardarán el ZIP de ROIs y la imagen de previsualización"},
       "required": true
     }
   ],
   "outputs": {
-    "roi_zip": {"en": "Path to the ZIP file with the selected ROIs", "es": "Ruta del archivo ZIP con las ROIs seleccionadas"}
+    "roi_zip": {"en": "Path to the ZIP file with the detected ROIs (ImageJ/FIJI-compatible)", "es": "Ruta del archivo ZIP con las ROIs detectadas (compatible con ImageJ/FIJI)"},
+    "preview_png": {"en": "Path to a PNG preview of the detected somas overlaid on the summary image", "es": "Ruta de una imagen PNG de previsualización con los somas detectados superpuestos sobre la imagen resumen"}
   }
 }

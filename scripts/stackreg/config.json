@@ -1,0 +1,61 @@
+{
+  "id": "stackreg",
+  "name": "StackReg",
+  "description": {"en": "Stabilizes drift in a video by registering every frame, like StackReg in ImageJ/FIJI. Outputs a drift-corrected video.", "es": "Estabiliza el desplazamiento de un video registrando cada cuadro, como StackReg en ImageJ/FIJI. Genera un video corregido."},
+  "version": "1.0.0",
+  "author": "Daniel Zanelli",
+  "category": "preprocessing",
+  "parameters": [
+    {
+      "name": "input_video",
+      "type": "file",
+      "label": {"en": "Input video", "es": "Video de entrada"},
+      "description": {"en": "Video with drift to stabilize (.tif, .tiff, .avi, .mp4)", "es": "Video con desplazamiento a estabilizar (.tif, .tiff, .avi, .mp4)"},
+      "required": true,
+      "extensions": [".tif", ".tiff", ".avi", ".mp4"]
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": {"en": "Output folder", "es": "Carpeta de salida"},
+      "description": {"en": "Folder where the stabilized video will be saved", "es": "Carpeta donde se guardará el video estabilizado"},
+      "required": true
+    },
+    {
+      "name": "transformation",
+      "type": "choice",
+      "label": {"en": "Transformation", "es": "Transformación"},
+      "description": {"en": "Motion model corrected per frame. Translation is fastest and matches StackReg's default; Rigid Body adds rotation; Affine adds scaling/shear.", "es": "Modelo de movimiento corregido por cuadro. Traslación es el más rápido y coincide con el valor por defecto de StackReg; Cuerpo rígido añade rotación; Afín añade escala/cizalla."},
+      "options": ["Translation", "Rigid Body", "Affine"],
+      "default": "Translation"
+    },
+    {
+      "name": "reference",
+      "type": "choice",
+      "label": {"en": "Reference frame", "es": "Cuadro de referencia"},
+      "description": {"en": "Which frame each frame is aligned to. Previous accumulates alignment frame-to-frame (StackReg default); First aligns everything to the first frame; Mean aligns to the average frame.", "es": "A qué cuadro se alinea cada cuadro. Anterior acumula la alineación cuadro a cuadro (valor por defecto de StackReg); Primero alinea todo al primer cuadro; Media alinea al cuadro promedio."},
+      "options": ["Previous", "First", "Mean"],
+      "default": "Previous"
+    },
+    {
+      "name": "output_format",
+      "type": "choice",
+      "label": {"en": "Output format", "es": "Formato de salida"},
+      "description": {"en": "TIFF preserves the original bit depth for further analysis; MP4/AVI are 8-bit playable videos.", "es": "TIFF conserva la profundidad de bits original para análisis posterior; MP4/AVI son videos reproducibles de 8 bits."},
+      "options": ["tif", "mp4", "avi"],
+      "default": "tif"
+    },
+    {
+      "name": "fps",
+      "type": "int",
+      "label": {"en": "Frames per second", "es": "Cuadros por segundo"},
+      "description": {"en": "Frame rate written into the output video (used for MP4/AVI only)", "es": "Velocidad de cuadros escrita en el video de salida (solo para MP4/AVI)"},
+      "default": 10,
+      "min": 1,
+      "max": 1000
+    }
+  ],
+  "outputs": {
+    "output_video": {"en": "Path to the stabilized (drift-corrected) video", "es": "Ruta del video estabilizado (corregido de desplazamiento)"}
+  }
+}

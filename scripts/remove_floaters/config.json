@@ -1,0 +1,90 @@
+{
+  "id": "remove_floaters",
+  "name": {"en": "Remove Floaters", "es": "Eliminar flotantes"},
+  "description": {"en": "Detects small moving particles (floaters, debris, bubbles) in a video and removes them, writing a cleaned video file.", "es": "Detecta partículas móviles pequeñas (flotantes, restos, burbujas) en un vídeo y las elimina, generando un archivo de vídeo limpio."},
+  "version": "1.0.0",
+  "author": "Daniel Zanelli",
+  "category": "preprocessing",
+  "parameters": [
+    {
+      "name": "input_video",
+      "type": "file",
+      "label": {"en": "Input video", "es": "Vídeo de entrada"},
+      "description": {"en": "Video with moving particles to remove", "es": "Vídeo con partículas móviles a eliminar"},
+      "required": true,
+      "extensions": [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv", ".mpeg", ".mpg", ".webm", ".tif", ".tiff"]
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": {"en": "Output folder", "es": "Carpeta de salida"},
+      "description": {"en": "Folder where the cleaned video will be saved", "es": "Carpeta donde se guardará el vídeo limpio"},
+      "required": true
+    },
+    {
+      "name": "sensitivity",
+      "type": "float",
+      "label": {"en": "Sensitivity", "es": "Sensibilidad"},
+      "description": {"en": "Standard deviations above the mean a pixel must deviate from the temporal background to count as a particle. Lower = removes more.", "es": "Desviaciones estándar sobre la media que un píxel debe desviarse del fondo temporal para contar como partícula. Menor = elimina más."},
+      "default": 3.0,
+      "min": 0.1,
+      "max": 20.0,
+      "decimals": 2
+    },
+    {
+      "name": "min_particle_size",
+      "type": "int",
+      "label": {"en": "Min particle size (px)", "es": "Tamaño mínimo de partícula (px)"},
+      "description": {"en": "Blobs smaller than this area (in pixels) are treated as noise and ignored.", "es": "Las manchas menores que esta área (en píxeles) se tratan como ruido y se ignoran."},
+      "default": 2,
+      "min": 1,
+      "max": 100000
+    },
+    {
+      "name": "max_particle_size",
+      "type": "int",
+      "label": {"en": "Max particle size (px)", "es": "Tamaño máximo de partícula (px)"},
+      "description": {"en": "Blobs larger than this area (in pixels) are considered real structure and kept. 0 = no upper limit.", "es": "Las manchas mayores que esta área (en píxeles) se consideran estructura real y se conservan. 0 = sin límite superior."},
+      "default": 200,
+      "min": 0,
+      "max": 10000000
+    },
+    {
+      "name": "temporal_window",
+      "type": "int",
+      "label": {"en": "Temporal window (frames)", "es": "Ventana temporal (fotogramas)"},
+      "description": {"en": "Number of frames used to estimate the moving background. 0 = use the whole clip (best for a stationary field of view).", "es": "Número de fotogramas usados para estimar el fondo móvil. 0 = usar todo el clip (ideal para un campo de visión estático)."},
+      "default": 0,
+      "min": 0,
+      "max": 1001
+    },
+    {
+      "name": "fill_method",
+      "type": "choice",
+      "label": {"en": "Fill method", "es": "Método de relleno"},
+      "description": {"en": "How to fill removed particles: 'inpaint' reconstructs from surrounding pixels; 'background' uses the temporal median.", "es": "Cómo rellenar las partículas eliminadas: 'inpaint' reconstruye a partir de los píxeles vecinos; 'background' usa la mediana temporal."},
+      "options": ["inpaint", "background"],
+      "default": "inpaint"
+    },
+    {
+      "name": "output_format",
+      "type": "choice",
+      "label": {"en": "Output format", "es": "Formato de salida"},
+      "description": {"en": "Container for the cleaned video.", "es": "Contenedor para el vídeo limpio."},
+      "options": ["mp4", "avi"],
+      "default": "mp4"
+    },
+    {
+      "name": "fps",
+      "type": "int",
+      "label": {"en": "Frames per second", "es": "Fotogramas por segundo"},
+      "description": {"en": "Frame rate of the output video. If 0, the input's frame rate is used (defaults to 10 when unknown).", "es": "Velocidad de fotogramas del vídeo de salida. Si es 0, se usa la del vídeo de entrada (10 por defecto si se desconoce)."},
+      "default": 0,
+      "min": 0,
+      "max": 240
+    }
+  ],
+  "outputs": {
+    "output_video": {"en": "Path to the cleaned video file", "es": "Ruta del archivo de vídeo limpio"}
+  }
+}

@@ -129,8 +129,8 @@ class PluginManager:
 
         return PluginInfo(
             id=plugin_id,
-            name=config['name'],
-            description=config['description'],
+            name=self._extract_string(config['name']),
+            description=self._extract_string(config['description']),
             version=config.get('version', ''),
             author=config.get('author', ''),
             category=config['category'],
@@ -167,6 +167,17 @@ class PluginManager:
             self._schema = {}
 
         return self._schema
+
+    def _extract_string(self, value: Any) -> str:
+        """Extract a string from either a plain string or a language dict.
+
+        If value is a dict, prefer 'en' (English) or any available language.
+        """
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return value.get('en') or next(iter(value.values()), 'Unknown')
+        return str(value)
 
     def _warn(self, message: str) -> None:
         logger.warning(message)

@@ -64,14 +64,14 @@ Build analysis workflows by selecting scripts and configuring them, no code requ
 
 Six analysis scripts are bundled. Run them in sequence, or pick and mix:
 
-1. **Generate ROIs** (preprocessing) — *not yet implemented* — will let you interactively draw regions of interest (circular, rectangular, or polygonal) over a calcium-imaging video and export them as a `.zip` file (ImageJ/FIJI-compatible format). For now, define ROIs using ImageJ/FIJI and import them.
+1. **Generate ROIs** (preprocessing) — automatically detects neuron somas in a calcium-imaging video using computer vision (projection image, Gaussian denoise, Otsu thresholding, optional watershed splitting of touching cells, size/circularity filtering) and fits each one to the requested shape (circular, rectangular, or polygonal). Output: ROI `.zip` (ImageJ/FIJI-compatible) + a PNG preview overlay. You can still define ROIs manually in ImageJ/FIJI and import them instead.
 2. **Generate Signals** (preprocessing) — extracts fluorescence signal from each ROI. Measures max, mean, standard deviation, and integral of pixel intensity per ROI per frame; optional Z-score normalization. Output: CSV of raw traces.
 3. **Signal Processing** (processing) — removes photobleaching (signal decay over time) using an Asymmetric Least Squares (ALS) algorithm with customizable parameters. Output: corrected and smoothed CSV.
 4. **Select Active** (processing) — keeps only cells with activity above a noise threshold sustained for a minimum number of frames. Output: CSV of active cells only.
 5. **Pearson Matrix** (analysis) — computes pairwise Pearson correlations between active cells. Output: correlation matrix CSV + heatmap image (PNG).
 6. **Connectivity Graph** (visualization) — produces summary plots from processed signals (overlay, raster, and mean±σ). Choose output format (PNG, SVG, PDF) and add a custom title.
 
-**Typical workflow**: Generate Signals → Signal Processing → Select Active → Pearson Matrix → Connectivity Graph. (Generate ROIs will be inserted at the very start once it's implemented.)
+**Typical workflow**: Generate ROIs → Generate Signals → Signal Processing → Select Active → Pearson Matrix → Connectivity Graph.
 
 ### Extensibility & Community Scripts
 

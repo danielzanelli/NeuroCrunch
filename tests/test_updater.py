@@ -12,6 +12,8 @@ from updater import (  # noqa: E402
     asset_suffix_for_platform,
     select_asset,
     read_current_version,
+    build_windows_update_script,
+    _build_ssl_context,
 )
 
 
@@ -84,3 +86,34 @@ def test_read_current_version_ok(tmp_path):
 
 def test_read_current_version_missing_returns_empty():
     assert read_current_version('/no/such/version.json') == {}
+
+
+# -- SSL context -------------------------------------------------------------
+
+def test_build_ssl_context_has_ca_certs():
+    # Must trust at least one CA (OS store and/or certifi bundle), otherwise
+    # every GitHub request would fail with CERTIFICATE_VERIFY_FAILED.
+    ctx = _build_ssl_context()
+    assert ctx.cert_store_stats()['x509_ca'] > 0
+
+
+# -- Windows update script ---------------------------------------------------
+
+def test_windows_update_script_waits_installs_and_relaunches():
+    script = build_windows_update_script()
+    assert script.startswith('@echo off')
+    # Waits for the app process to be gone before installing over it.
+    assert 'tasklist /FI "PID eq %NC_PID%"' in script
+    # Silent install; no restart prompt.
+    assert '"%NC_INSTALLER%" /SILENT /NORESTART /CLOSEAPPLICATIONS' in script
+    # Relaunches the app (frozen exe, or interpreter + script in dev).
+    assert 'start "" "%NC_APP_EXE%"' in script
+    assert 'start "" "%NC_APP_EXE%" "%NC_APP_ARG%"' in script
+    # Cleans up after itself.
+    assert 'del "%~f0"' in script
+
+
+def test_windows_update_script_is_pure_ascii():
+    # The script is written with encoding='ascii'; paths travel via env vars
+    # because cmd decodes .cmd files with the OEM codepage.
+    build_windows_update_script().encode('ascii')

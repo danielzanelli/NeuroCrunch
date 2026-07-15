@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import ssl
 import subprocess
 import sys
 import urllib.request
@@ -27,9 +28,33 @@ from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QThread, Signal
 
+try:
+    import certifi
+except ImportError:  # optional — the OS trust store alone usually suffices
+    certifi = None
+
 GITHUB_LATEST_RELEASE = 'https://api.github.com/repos/{repo}/releases/latest'
 # GitHub requires a User-Agent header on API requests.
 _USER_AGENT = 'NeuroCrunch-Updater'
+
+
+def _build_ssl_context() -> ssl.SSLContext:
+    """SSL context trusting both the OS store and certifi's Mozilla bundle.
+
+    The default context only sees the OS trust store. On Windows, Python can
+    only enumerate roots *already cached* in that store — Windows normally
+    fetches missing roots on demand through its own crypto stack, which
+    OpenSSL/Python cannot trigger — so machines that never cached the GitHub
+    CA roots fail with CERTIFICATE_VERIFY_FAILED. Loading certifi on top
+    fixes those, while keeping the OS store honors corporate proxy CAs.
+    """
+    context = ssl.create_default_context()
+    if certifi is not None:
+        try:
+            context.load_verify_locations(cafile=certifi.where())
+        except (OSError, ssl.SSLError):
+            pass
+    return context
 
 
 # ---------------------------------------------------------------------------
@@ -79,40 +104,79 @@ def select_asset(assets: List[Dict[str, Any]], system: Optional[str] = None) -> 
     return None
 
 
-def _relaunch_app() -> None:
-    """Relaunch the application after update installation."""
-    try:
-        if sys.platform == 'win32':
-            # In a PyInstaller bundle, sys.executable is the bootstrap .exe
-            if getattr(sys, 'frozen', False):
-                # Frozen by PyInstaller: sys.executable is already the app executable
-                subprocess.Popen(sys.executable)
-            else:
-                # Development: find NeuroCrunch.py and run it
-                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                main_script = os.path.join(base_dir, 'src', 'NeuroCrunch.py')
-                subprocess.Popen([sys.executable, main_script])
-        elif sys.platform == 'darwin':
-            # macOS: relaunch via open command on the app bundle
-            if getattr(sys, 'frozen', False):
-                # App bundle path is typically: /path/to/AppName.app/Contents/MacOS/AppName
-                app_bundle = os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))
-                subprocess.Popen(['open', app_bundle])
-            else:
-                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                main_script = os.path.join(base_dir, 'src', 'NeuroCrunch.py')
-                subprocess.Popen([sys.executable, main_script])
-        else:
-            # Linux: relaunch the executable
-            if getattr(sys, 'frozen', False):
-                subprocess.Popen(sys.executable)
-            else:
-                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                main_script = os.path.join(base_dir, 'src', 'NeuroCrunch.py')
-                subprocess.Popen([sys.executable, main_script])
-    except Exception:
-        # Silently fail — at worst, the user can relaunch manually
-        pass
+def build_windows_update_script() -> str:
+    """Batch script that waits for the app to exit, installs, and relaunches.
+
+    Runs detached from the app (see ``_spawn_windows_updater``): it polls until
+    the NeuroCrunch process is gone (capped at ~2 minutes), runs the installer
+    silently, restarts the app, and deletes itself.
+
+    All paths reach the script through environment variables (NC_PID,
+    NC_INSTALLER, NC_APP_EXE, optional NC_APP_ARG) instead of being inlined:
+    cmd decodes .cmd files with the legacy OEM codepage, which would corrupt
+    non-ASCII characters (e.g. accented Windows user names) in inline paths.
+    ``ping`` is the sleep primitive because ``timeout`` refuses to run without
+    an interactive console.
+    """
+    return '\n'.join([
+        '@echo off',
+        'set /a tries=0',
+        ':wait',
+        'set /a tries+=1',
+        'if %tries% gtr 120 goto install',
+        'tasklist /FI "PID eq %NC_PID%" | findstr /C:"%NC_PID%" >nul',
+        'if not errorlevel 1 (',
+        '    ping -n 2 127.0.0.1 >nul',
+        '    goto wait',
+        ')',
+        ':install',
+        '"%NC_INSTALLER%" /SILENT /NORESTART /CLOSEAPPLICATIONS',
+        'if defined NC_APP_ARG (',
+        '    start "" "%NC_APP_EXE%" "%NC_APP_ARG%"',
+        ') else (',
+        '    start "" "%NC_APP_EXE%"',
+        ')',
+        'del "%~f0"',
+    ]) + '\n'
+
+
+def _spawn_windows_updater(asset_path: str) -> None:
+    """Launch the update script as a detached process, then return.
+
+    The install + relaunch must happen *outside* this process: the installer
+    (CloseApplications=yes) terminates NeuroCrunch to replace its exe, so any
+    in-process code waiting on the installer is killed before it can relaunch
+    the app. The caller must exit the app right after this returns.
+    """
+    script_path = os.path.join(get_updates_dir(), 'apply_update.cmd')
+    with open(script_path, 'w', encoding='ascii', newline='\r\n') as fh:
+        fh.write(build_windows_update_script())
+
+    env = os.environ.copy()
+    env['NC_PID'] = str(os.getpid())
+    env['NC_INSTALLER'] = asset_path
+    if getattr(sys, 'frozen', False):
+        # PyInstaller bundle: sys.executable is the installed app exe, which
+        # the installer replaces in place.
+        env['NC_APP_EXE'] = sys.executable
+        env.pop('NC_APP_ARG', None)
+    else:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env['NC_APP_EXE'] = sys.executable
+        env['NC_APP_ARG'] = os.path.join(base_dir, 'src', 'NeuroCrunch.py')
+
+    # CREATE_NO_WINDOW (not DETACHED_PROCESS) keeps a hidden console that
+    # tasklist/findstr/ping inherit — with no console at all, each of them
+    # would flash open its own window.
+    subprocess.Popen(
+        ['cmd', '/c', script_path],
+        env=env,
+        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+    )
 
 
 def read_current_version(version_json_path: str) -> Dict[str, Any]:
@@ -144,7 +208,7 @@ def _fetch_latest_release(repo: str, timeout: float = 10.0) -> Dict[str, Any]:
         'User-Agent': _USER_AGENT,
         'Accept': 'application/vnd.github+json',
     })
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urllib.request.urlopen(req, timeout=timeout, context=_build_ssl_context()) as resp:
         return json.loads(resp.read().decode('utf-8'))
 
 
@@ -212,7 +276,8 @@ class UpdateDownloader(QThread):
         dest_path = os.path.join(self.dest_dir, self.filename)
         try:
             req = urllib.request.Request(self.url, headers={'User-Agent': _USER_AGENT})
-            with urllib.request.urlopen(req, timeout=30.0) as resp, open(dest_path, 'wb') as out:
+            with urllib.request.urlopen(req, timeout=30.0, context=_build_ssl_context()) as resp, \
+                    open(dest_path, 'wb') as out:
                 total = int(resp.headers.get('Content-Length', 0) or 0)
                 downloaded = 0
                 while True:
@@ -233,21 +298,16 @@ def apply_update(asset_path: str) -> None:
     """Launch the downloaded asset to apply the update, wait for completion, then relaunch.
 
     Per-OS behaviour:
-      * Windows: run the Inno Setup installer silently; wait for it to finish,
-        then relaunch the app. The app must exit right after this call.
+      * Windows: spawn a detached helper script that waits for this process to
+        exit, runs the Inno Setup installer silently, then restarts the app.
+        The app must exit right after this call.
       * Linux AppImage: mark executable and launch the new AppImage; the user
         replaces the old file manually (or a future step swaps it in place).
       * macOS: open the .dmg so the user can drag the new .app over the old one.
     """
     system = sys.platform
     if system == 'win32':
-        # /SILENT runs without wizard pages; /CLOSEAPPLICATIONS lets Inno close us.
-        # /NORESTART prevents Inno from prompting for restart.
-        # We wait for the installer to finish, then relaunch the app ourselves.
-        proc = subprocess.Popen(f'"{asset_path}" /SILENT /CLOSEAPPLICATIONS /NORESTART', shell=True)
-        proc.wait()
-        # Relaunch the application after installation completes
-        _relaunch_app()
+        _spawn_windows_updater(asset_path)
     elif system == 'darwin':
         subprocess.Popen(['open', asset_path])
     else:

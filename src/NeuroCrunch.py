@@ -42,6 +42,7 @@ import icon_loader
 from dark_mode_manager import DarkModeManager
 from plugin_manager import PluginManager
 from param_dialog import ParamDialog
+from graph_viewer import GraphViewer
 from script_runner import PipelineContext, ScriptRunner
 from updater import read_current_version, UpdateChecker, UpdateDownloader, apply_update
 
@@ -170,6 +171,10 @@ class NeuroCrunch(QMainWindow):
         # survive across runs via self.config['__outputs__'].
         self.pipeline_context_store = self._new_pipeline_context()
         self._script_runner = None
+        # Interactive JGF graph viewer, created lazily the first time a .jgf
+        # file is opened and reused afterwards.
+        self._graph_viewer = None
+        self._graph_path = None
 
         # Refresh the file viewer and scripts table with the initial local folder and scripts
         self.refresh_local_folder()
@@ -582,9 +587,15 @@ class NeuroCrunch(QMainWindow):
             #  We try for different file types, last case being trying to open as text file, if it fails we print an error message in the log.
 
             try:
+                # A new preview replaces the graph viewer; the .jgf branch below
+                # shows it again.
+                self._hide_graph_viewer()
                 # Images
                 if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
                     self.show_image(file_path)
+                # JGF connectivity graphs
+                elif file_path.lower().endswith('.jgf'):
+                    self.show_graph(file_path)
                 # Data files
                 elif file_path.lower().endswith(('.csv', '.xls', '.xlsx')):
                     self.show_plot(file_path)
@@ -1457,6 +1468,68 @@ class NeuroCrunch(QMainWindow):
                               Qt.KeepAspectRatio, Qt.FastTransformation)
             )
 
+    def _hide_graph_viewer(self):
+        """Hide the JGF graph viewer if it has been created."""
+        if self._graph_viewer is not None:
+            self._graph_viewer.hide()
+
+    def _graph_is_dark(self):
+        """Whether the app is currently in dark mode (defaults to dark)."""
+        mgr = getattr(self, 'dark_mode_manager', None)
+        return mgr.is_dark_mode if mgr is not None else True
+
+    def _on_theme_toggled(self):
+        """Re-theme the graph viewer after the user flips light/dark mode."""
+        if self._graph_viewer is not None:
+            self._graph_viewer.apply_theme(self._graph_is_dark())
+
+    def show_graph(self, file_path):
+        """Shows an interactive JGF connectivity graph, hiding the other viewers.
+
+        Loading runs on a background thread inside the viewer; progress and
+        completion arrive via its ``progress_changed`` / ``load_done`` signals.
+        """
+        if hasattr(self, 'frame_timer') and self.frame_timer is not None:
+            self.frame_timer.stop()
+        if hasattr(self, 'media_player'):
+            self.media_player.stop()
+            self.media_player.setSource(QUrl())
+
+        self.ui.image_viewer.hide()
+        self.ui.text_viewer.hide()
+        self.ui.plot_frame.hide()
+        self.ui.pdf_viewer.hide()
+        self.ui.video_player.hide()
+
+        if self._graph_viewer is None:
+            self._graph_viewer = GraphViewer(self.ui.viewer_frame)
+            self.ui.viewer_layout.addWidget(self._graph_viewer)
+            # Expose the internal plot so the dark-mode manager themes its
+            # background/axes automatically on future theme toggles.
+            self.ui.graph_data = self._graph_viewer.plot_widget
+            self._graph_viewer.progress_changed.connect(self._on_graph_progress)
+            self._graph_viewer.load_done.connect(self._on_graph_loaded)
+
+        self._graph_path = file_path
+        self._graph_viewer.apply_theme(self._graph_is_dark())
+        self._graph_viewer.show()
+        self._graph_viewer.load(file_path)
+
+    def _on_graph_progress(self, message):
+        """Live progress line from the graph loader (updates the last log line)."""
+        self.print_progress(message)
+
+    def _on_graph_loaded(self, ok, message):
+        if ok:
+            self.print(self.tr('Graph loaded: {0}').format(message))
+        else:
+            self.print(self.tr('Error loading graph:\n{0}').format(message))
+            # Fall back to the raw text view so the file is still inspectable.
+            self._graph_viewer.hide()
+            path = getattr(self, '_graph_path', None)
+            if path:
+                self.show_text_file(path)
+
     def show_pdf(self, file_path):
         """Shows a PDF on the ui.pdf_viewer QWebEngineView, hiding the other display widgets."""
         self.ui.image_viewer.hide()
@@ -1699,9 +1772,13 @@ if __name__ == "__main__":
 
     # Initialize dark mode manager
     dark_mode_manager = DarkModeManager(app, window, asset_path)
+    # Expose it so viewers (e.g. the JGF graph viewer) can query the theme.
+    window.dark_mode_manager = dark_mode_manager
 
-    # Connect dark mode button
+    # Connect dark mode button (toggle first so is_dark_mode is up to date when
+    # the graph viewer re-themes).
     window.ui.btn_darkmode.clicked.connect(dark_mode_manager.toggle_dark_mode)
+    window.ui.btn_darkmode.clicked.connect(window._on_theme_toggled)
 
     # Setup fullscreen toggle with F11
     fullscreen_shortcut = QShortcut(QKeySequence(Qt.Key_F11), window)

@@ -42,6 +42,7 @@ Open a folder and browse its contents in a tree view. Double-click any file to p
 - **Videos** (.mp4, .avi, .mov, .mkv, .wmv, .flv, .mpeg, .mpg, .webm, .tif, .tiff) — play/pause with a seek slider. **ROI overlay**: if you have a `.zip` file of regions of interest (e.g., from ImageJ/FIJI or NeuroCrunch's ROI-selection step), double-click it *while a video is open* to draw green ROI outlines on every frame.
 - **Spreadsheets** (.csv, .xls, .xlsx) — loaded into an interactive plot viewer. Filter columns by substring, select a column range, and click "Plot" to graph up to 100 traces. Click legend entries to toggle visibility of individual traces.
 - **PDFs** (.pdf) — rendered with built-in PDF support (or a web-based fallback).
+- **Connectivity graphs** (.jgf) — JSON Graph Format files open in an interactive network viewer: pan and zoom, drag the **threshold slider** to reveal or hide edges by correlation strength in real time, and click a node to highlight it and its neighbours (their nodes turn green and are labelled). Separate sliders adjust node diameter and edge stroke width; hover a node to see its label. Nodes are placed at their ROI centroids; edges are colour-graded by sign (warm = positive, cool = negative) with opacity proportional to the correlation magnitude. The graph loads on a background thread with a progress readout (like large CSVs), and rendering is capped and batched so even large, dense graphs stay responsive.
 - **Text** (any other file) — displayed as plain UTF-8 text.
 
 Right-click a file for options: **Open** (preview) or **Show in folder** (show in file explorer).
@@ -68,10 +69,10 @@ Six analysis scripts are bundled. Run them in sequence, or pick and mix:
 2. **Generate Signals** (preprocessing) — extracts fluorescence signal from each ROI. Measures max, mean, standard deviation, and integral of pixel intensity per ROI per frame; optional Z-score normalization. Output: CSV of raw traces.
 3. **Signal Processing** (processing) — removes photobleaching (signal decay over time) using an Asymmetric Least Squares (ALS) algorithm with customizable parameters. Output: corrected and smoothed CSV.
 4. **Select Active** (processing) — keeps only cells with activity above a noise threshold sustained for a minimum number of frames. Output: CSV of active cells only.
-5. **Pearson Matrix** (analysis) — computes pairwise Pearson correlations between active cells. Output: correlation matrix CSV + heatmap image (PNG).
-6. **Connectivity Graph** (visualization) — produces summary plots from processed signals (overlay, raster, and mean±σ). Choose output format (PNG, SVG, PDF) and add a custom title.
+5. **Pearson Matrix** (analysis) — computes pairwise Pearson correlations between neurons for a chosen metric (Mean, Max, Std, …). Column names carrying a metric and a neuron number in either order — `Mean7` (ImageJ Multi-Measure) or `7_mean` (Generate Signals) — are recognised, and the output matrix is labelled by neuron number so the connectivity graph can map each cell back to its ROI. The correlation is computed in a chunked streaming pass, so files larger than RAM are handled without loading every frame at once. Output: correlation matrix CSV + heatmap image (PNG).
+6. **Connectivity Graph** (visualization) — builds a connectivity network from a correlation matrix (e.g. the Pearson matrix) and an ROI list, where ROI *i* corresponds to row/column *i* of the matrix. Each node is placed at its ROI centroid and each edge carries the matrix value as a scalar weight. **Every pairwise weight is stored** — no threshold is applied here — so the full weighted graph is saved and you filter it interactively when viewing. Output: a **JSON Graph Format** (`.jgf`) file, openable in NeuroCrunch's interactive graph viewer.
 
-**Typical workflow**: Generate ROIs → Generate Signals → Signal Processing → Select Active → Pearson Matrix → Connectivity Graph.
+**Typical workflow**: Generate ROIs → Generate Signals → Signal Processing → Select Active → Pearson Matrix → Connectivity Graph. The last step pairs the Pearson matrix with the ROI list from Generate ROIs (both links are pre-filled) and produces the `.jgf` graph.
 
 ### Extensibility & Community Scripts
 
@@ -131,14 +132,14 @@ Assume you have a video file `imaging.tif` and ROI definitions in `rois.zip` (e.
    - Double-click it. Input CSV will auto-fill. Adjust thresholds if needed.
    - Click **Accept**.
 5. **Configure Pearson Matrix**:
-   - Double-click it. Input CSV will auto-fill. Set correlation threshold (default 0.5).
+   - Double-click it. Input CSV will auto-fill. Choose the metric to correlate (default Mean).
    - Click **Accept**.
 6. **Configure Connectivity Graph**:
-   - Double-click it. Input CSV will auto-fill. Choose format (PNG). Add a title if desired.
+   - Double-click it. Correlation matrix will auto-fill from Pearson Matrix's output. For the ROI list, browse to `rois.zip` (or leave the pre-filled link if you ran Generate ROIs). The connection threshold is set later, interactively, in the graph viewer.
    - Click **Accept**.
 7. **Check the checkboxes** next to all 5 scripts; set their **Order** to 1, 2, 3, 4, 5 respectively.
 8. **Click Run** — the pipeline runs in sequence. Watch the log for progress and any errors.
-9. **Review outputs** — when done, open your output folder and preview the CSV files and images in NeuroCrunch's viewer.
+9. **Review outputs** — when done, open your output folder and preview the CSV files and images in NeuroCrunch's viewer. Double-click the generated `.jgf` file to explore the connectivity network interactively.
 
 ---
 
@@ -392,7 +393,7 @@ Signing (Windows code-signing certificate + Apple notarization) can be added lat
 ## Future Work
 
 - **Algorithmic ROI detection** — implement `generate_rois` as an automatic (not interactive) script for detecting regions of interest in a representative video frame or projection.
-- **Network graph visualization** — add a `generate_graph` script to build weighted connectivity networks from correlation matrices, plus an interactive graph viewer with hub-metric coloring and click-to-highlight neighbors.
+- **Network graph metrics** — the Connectivity Graph script and interactive JGF viewer (click-to-highlight neighbours, live edge-weight threshold) are now built in; extend them with hub-metric colouring (betweenness, clustering coefficient) and community detection.
 - **Expand the preferences dialog** — the Preferences dialog currently exposes a language selector; grow it with more user settings (default working folder, UI options, update channel).
 - **Community translations** — expand language support beyond English and Spanish; accept translations via pull request.
 - **Script timeout policy** — define and enforce a maximum runtime per script.

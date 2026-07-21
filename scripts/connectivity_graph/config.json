@@ -1,32 +1,28 @@
 {
   "id": "connectivity_graph",
   "name": "Connectivity Graph",
-  "description": "Generates summary charts from processed signals.",
-  "version": "1.0.0",
+  "description": "Builds a JSON Graph Format (JGF) connectivity network from a correlation matrix and an ROI list. Stores every pairwise weight; thresholding is done interactively in the viewer.",
+  "version": "2.2.0",
   "author": "Daniel Zanelli",
   "category": "visualization",
   "parameters": [
     {
-      "name": "input_csv",
+      "name": "matrix_csv",
       "type": "file",
-      "label": {"en": "Input CSV", "es": "CSV de entrada"},
-      "description": {"en": "CSV file with the traces to plot", "es": "Archivo CSV con las trazas a graficar"},
+      "label": {"en": "Correlation matrix", "es": "Matriz de correlación"},
+      "description": {"en": "CSV with a square correlation matrix (e.g. the Pearson matrix)", "es": "CSV con una matriz de correlación cuadrada (p. ej. la matriz de Pearson)"},
       "required": true,
       "extensions": [".csv"],
-      "link": "select_active.active_csv"
+      "link": "pearson_matrix.matrix_csv"
     },
     {
-      "name": "format",
-      "type": "choice",
-      "label": {"en": "Image format", "es": "Formato de imagen"},
-      "options": ["png", "svg", "pdf"],
-      "default": "png"
-    },
-    {
-      "name": "title",
-      "type": "string",
-      "label": {"en": "Chart title", "es": "Título del gráfico"},
-      "description": {"en": "Title that will appear at the top of each chart", "es": "Título que aparecerá en la parte superior de cada gráfico"}
+      "name": "roi_zip",
+      "type": "file",
+      "label": {"en": "ROI list", "es": "Lista de ROIs"},
+      "description": {"en": "ImageJ/FIJI ROI ZIP. ROI i corresponds to row/column i of the matrix", "es": "ZIP de ROIs de ImageJ/FIJI. El ROI i corresponde a la fila/columna i de la matriz"},
+      "required": true,
+      "extensions": [".zip"],
+      "link": "generate_rois.roi_zip"
     },
     {
       "name": "output_dir",
@@ -36,6 +32,6 @@
     }
   ],
   "outputs": {
-    "figures_dir": {"en": "Path to the folder with the generated charts", "es": "Ruta de la carpeta con los gráficos generados"}
+    "graph_jgf": {"en": "Path to the JSON Graph Format (.jgf) connectivity graph", "es": "Ruta del grafo de conectividad en JSON Graph Format (.jgf)"}
   }
 }

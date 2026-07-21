@@ -1,8 +1,8 @@
 {
   "id": "pearson_matrix",
   "name": "Pearson Matrix",
-  "description": "Computes a Pearson correlation matrix between the selected traces.",
-  "version": "1.0.0",
+  "description": "Computes a Pearson correlation matrix between neurons for a chosen metric.",
+  "version": "2.0.0",
   "author": "Daniel Zanelli",
   "category": "analysis",
   "parameters": [
@@ -16,14 +16,12 @@
       "link": "select_active.active_csv"
     },
     {
-      "name": "correlation_threshold",
-      "type": "float",
-      "label": {"en": "Correlation threshold", "es": "Umbral de correlación"},
-      "description": {"en": "Minimum Pearson correlation value to consider two cells as correlated", "es": "Valor mínimo de correlación de Pearson para considerar dos células como correlacionadas"},
-      "default": 0.5,
-      "min": 0.0,
-      "max": 1.0,
-      "decimals": 2
+      "name": "metric",
+      "type": "choice",
+      "label": {"en": "Metric", "es": "Métrica"},
+      "description": {"en": "Which per-neuron metric to correlate. Matches column names like 'Mean7' or '7_mean' (case-insensitive; 'Std' also matches 'StdDev', 'Int' matches 'IntDen').", "es": "Qué métrica por neurona correlacionar. Coincide con nombres de columna como 'Mean7' o '7_mean' (sin distinguir mayúsculas; 'Std' también coincide con 'StdDev', 'Int' con 'IntDen')."},
+      "options": ["Mean", "Max", "Std", "Int"],
+      "default": "Mean"
     },
     {
       "name": "notes",

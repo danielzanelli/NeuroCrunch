@@ -45,6 +45,7 @@ FILE_TYPE_COLORS = {
     'file-archive': '#c99a66',
     'braces': '#d19a66',
     'chart-line': '#4cb782',
+    'waypoints': '#33b1a3',
     'file': '#8a919e',
 }
 
@@ -57,6 +58,7 @@ _EXT_ICONS = {
     ('.py', '.m', '.r', '.jl'): 'file-code',
     ('.zip', '.gz', '.tar', '.7z', '.rar'): 'file-archive',
     ('.json', '.config', '.yaml', '.yml', '.toml'): 'braces',
+    ('.jgf',): 'waypoints',
 }
 
 

@@ -1784,8 +1784,11 @@ if __name__ == "__main__":
     fullscreen_shortcut = QShortcut(QKeySequence(Qt.Key_F11), window)
     fullscreen_shortcut.activated.connect(lambda: toggle_fullscreen(window))
 
-    # Set the window size to full screen
-    # window.showMaximized()
+    
+    # Set the window to  maximized state on startup
+    window.showMaximized()
+
+
     window.show()
 
     # Start with dark mode enabled

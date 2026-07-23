@@ -3,6 +3,7 @@
 """NeuroCrunch - Main Application"""
 import datetime
 import os
+import re
 import sys
 import subprocess
 import json
@@ -19,8 +20,8 @@ warnings.filterwarnings('ignore')
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QTreeWidgetItem, QTableWidgetItem, QMenu, QVBoxLayout, QLineEdit,
-    QHBoxLayout, QPushButton, QSlider, QLabel, QWidget, QDialog, QSpinBox, QMessageBox,
-    QComboBox, QCheckBox
+    QHBoxLayout, QGridLayout, QPushButton, QSlider, QLabel, QWidget, QDialog, QSpinBox, QMessageBox,
+    QComboBox, QCheckBox, QTabWidget, QSizePolicy
 )
 from PySide6.QtCore import QCoreApplication, QUrl, Qt, QTimer, QThread, Signal, QRect, QPoint
 from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut, QTextCursor, QPainter, QPen, QColor, QPolygon, QBrush, QDesktopServices
@@ -300,6 +301,10 @@ class NeuroCrunch(QMainWindow):
             self.ui.btn_execute_scripts.setText(self.tr('Stop'))
         else:
             self.ui.btn_execute_scripts.setText(self.tr('Run'))
+
+        # The plot column selector is built from code, so rebuild it to pick up
+        # the new language (no-op when no CSV is loaded).
+        self._rebuild_plot_menu()
 
 
 
@@ -1158,74 +1163,193 @@ class NeuroCrunch(QMainWindow):
 
         # Create two spinboxes and a button at the bottom of the self.ui.plot_frame
 
-        total_columns = len(self.data.columns)
-        max_selectable = min(MAX_PLOT_COLUMNS, total_columns)
+        self._rebuild_plot_menu()
+        self.plot_data()
 
+    def _rebuild_plot_menu(self):
+        """(Re)build the tabbed column selector below the plot for self.data.
 
+        Called on CSV load and on a language change (its labels are built from
+        code, so they don't retranslate on their own). The active tab is kept.
+        """
+        if getattr(self, 'data', None) is None:
+            return
 
-        # Clear previous widgets
-        for child in self.ui.plot_frame.findChildren(QSpinBox):
-            child.deleteLater()
-        for child in self.ui.plot_frame.findChildren(QPushButton):
-            child.deleteLater()
-        for child in self.ui.plot_frame.findChildren(QLabel):
-            child.deleteLater()
-        for child in self.ui.plot_frame.findChildren(QLineEdit):
-            child.deleteLater()
+        active_tab = 0
+        if getattr(self, '_plot_menu_widget', None) is not None:
+            active_tab = self._plot_menu_widget.currentIndex()
+            self._plot_menu_widget.setParent(None)
+            self._plot_menu_widget.deleteLater()
+            self._plot_menu_widget = None
 
-        # Create main layout
         layout = self.ui.plot_frame.layout()
         if layout is None:
             layout = QVBoxLayout()
             self.ui.plot_frame.setLayout(layout)
 
-        columns_widget = QWidget(self.ui.plot_frame)
-        columns_layout = QHBoxLayout()
+        self._plot_menu_widget = self._build_plot_menu()
+        self._plot_menu_widget.setCurrentIndex(active_tab)
+        layout.addWidget(self._plot_menu_widget)
 
-        # Add description
-        desc_label = QLabel(self.tr('Total columns: {0}\nMaximum allowed: {1}\n').format(total_columns, max_selectable))
-        columns_layout.addWidget(desc_label)
+    def _build_plot_menu(self):
+        """Build the tabbed column selector shown below the plot.
+
+        Two tabs, both vertically stacked so they stay usable on small screens:
+        a *Regex* tab (column range + substring filter) and a *Neuron Selection*
+        tab that picks columns by neuron id and metric.
+        """
+        tabs = QTabWidget(self.ui.plot_frame)
+        tabs.addTab(self._build_regex_tab(), self.tr('Regex'))
+        tabs.addTab(self._build_neuron_tab(), self.tr('Neuron Selection'))
+        # Hug the content vertically so the plot keeps the rest of the frame.
+        tabs.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        return tabs
+
+    def _tab_layout(self, tab):
+        """A tight vertical layout so the selector stays as small as possible."""
+        tab.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        v = QVBoxLayout(tab)
+        v.setContentsMargins(4, 3, 4, 3)
+        v.setSpacing(3)
+        return v
+
+    def _columns_desc_label(self):
+        """Compact one-line 'total / maximum allowed' caption shared by both tabs."""
+        total_columns = len(self.data.columns)
+        max_selectable = min(MAX_PLOT_COLUMNS, total_columns)
+        return QLabel(self.tr('Total columns: {0} · Maximum allowed: {1}').format(
+            total_columns, max_selectable))
+
+    def _build_regex_tab(self):
+        """Range + substring column selector (the original plotting controls)."""
+        total_columns = len(self.data.columns)
+
+        tab = QWidget()
+        v = self._tab_layout(tab)
+        v.addWidget(self._columns_desc_label())
+
+        # A grid keeps the row labels and inputs aligned in columns.
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(2)
+        grid.setColumnStretch(1, 1)  # inputs expand to fill the width
 
         # Regex finder for column names
-        regex_label = QLabel(self.tr('Columns that include:'))
         self.regex_input = QLineEdit()
-        columns_layout.addWidget(regex_label)
-        columns_layout.addWidget(self.regex_input)
+        grid.addWidget(QLabel(self.tr('Columns that include:')), 0, 0)
+        grid.addWidget(self.regex_input, 0, 1)
 
-        # Start column spinbox
-        start_label = QLabel(self.tr('Start column:'))
+        # Start column spinbox (default 1: the first column is usually the index)
+        default_start = min(1, total_columns - 1)
         self.start_spin = QSpinBox()
         self.start_spin.setMinimum(0)
         self.start_spin.setMaximum(total_columns - 1)
-        self.start_spin.setValue(0)
-        columns_layout.addWidget(start_label)
-        columns_layout.addWidget(self.start_spin)
+        self.start_spin.setValue(default_start)
+        grid.addWidget(QLabel(self.tr('Start column:')), 1, 0)
+        grid.addWidget(self.start_spin, 1, 1)
 
         # End column spinbox
-        end_label = QLabel(self.tr('End column:'))
         self.end_spin = QSpinBox()
         self.end_spin.setMinimum(0)
         self.end_spin.setMaximum(total_columns - 1)
-        self.end_spin.setValue(1)
-        columns_layout.addWidget(end_label)
-        columns_layout.addWidget(self.end_spin)
+        self.end_spin.setValue(min(default_start + 1, total_columns - 1))
+        grid.addWidget(QLabel(self.tr('End column:')), 2, 0)
+        grid.addWidget(self.end_spin, 2, 1)
 
-        # Button
-        ok_button = QPushButton(self.tr('Plot'))
-        ok_button.clicked.connect(self.plot_data)
-        columns_layout.addWidget(ok_button)
-        columns_widget.setLayout(columns_layout)
+        v.addLayout(grid)
 
-        # Add the columns selection widget below the plot
-        layout.addWidget(columns_widget)
+        plot_btn = QPushButton(self.tr('Plot'))
+        plot_btn.clicked.connect(self.plot_data)
+        v.addWidget(plot_btn)
+        return tab
 
-        self.plot_data()
+    def _build_neuron_tab(self):
+        """Pick columns by neuron id and metric, parsed from the column names."""
+        metrics, neurons = self._parse_signal_columns()
+
+        tab = QWidget()
+        v = self._tab_layout(tab)
+
+        self.metric_checks = {}
+        if not self._signal_col_by_key:
+            v.addWidget(QLabel(self.tr(
+                'No neuron/metric columns were recognised in this file.')))
+            return tab
+
+        v.addWidget(self._columns_desc_label())
+        v.addWidget(QLabel(self.tr('Found {0} metrics and {1} neurons.').format(
+            len(metrics), len(neurons))))
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(2)
+        grid.setColumnStretch(1, 1)
+
+        # Metrics: one checkbox each, in a compact 3-column grid so many metrics
+        # don't overflow the width on small screens.
+        grid.addWidget(QLabel(self.tr('Metrics:')), 0, 0, Qt.AlignTop)
+        metrics_box = QWidget()
+        metrics_grid = QGridLayout(metrics_box)
+        metrics_grid.setContentsMargins(0, 0, 0, 0)
+        metrics_grid.setHorizontalSpacing(8)
+        metrics_grid.setVerticalSpacing(1)
+        for i, m in enumerate(metrics):
+            cb = QCheckBox(m)
+            cb.setChecked(True)
+            self.metric_checks[m] = cb
+            metrics_grid.addWidget(cb, i // 3, i % 3)
+        grid.addWidget(metrics_box, 0, 1)
+
+        # Neurons: a free-text list of ids and/or ranges (blank = every neuron).
+        self.neuron_input = QLineEdit()
+        self.neuron_input.setPlaceholderText(self.tr('e.g. 22, 223, 627 or 1-10 (blank = all)'))
+        grid.addWidget(QLabel(self.tr('Neurons:')), 1, 0)
+        grid.addWidget(self.neuron_input, 1, 1)
+
+        v.addLayout(grid)
+
+        plot_btn = QPushButton(self.tr('Plot'))
+        plot_btn.clicked.connect(self.plot_selected_neurons)
+        v.addWidget(plot_btn)
+        return tab
+
+    def _parse_signal_columns(self):
+        """Map column names to (metric, neuron-id) pairs.
+
+        Recognises the two conventions the pipeline emits: 'Metric<idx>' (e.g.
+        ``Mean123``) and '<idx>_metric' (e.g. ``667_Max``). Fills
+        ``self._signal_col_by_key`` with {(metric, idx): column_name} and returns
+        (sorted metric names, sorted neuron ids). Columns matching neither
+        pattern (``frame``, ``time_s``, ...) are ignored.
+        """
+        metric_first = re.compile(r'^([a-zA-Z_]+?)(\d+)$')
+        index_first = re.compile(r'^(\d+)_([a-zA-Z_]+)$')
+        col_by_key = {}
+        metrics = set()
+        neurons = set()
+        for col in self.data.columns:
+            name = str(col).strip()
+            m = metric_first.match(name)
+            if m:
+                metric, idx = m.group(1), int(m.group(2))
+            else:
+                m = index_first.match(name)
+                if not m:
+                    continue
+                idx, metric = int(m.group(1)), m.group(2)
+            col_by_key[(metric, idx)] = col
+            metrics.add(metric)
+            neurons.add(idx)
+        self._signal_col_by_key = col_by_key
+        return sorted(metrics), sorted(neurons)
 
 
 
     def plot_data(self):
+        """Plot columns chosen in the Regex tab (range + substring filter)."""
         try:
-
             # Get column range from spinboxes
             start_col = self.start_spin.value()
             end_col = self.end_spin.value()
@@ -1237,7 +1361,83 @@ class NeuroCrunch(QMainWindow):
             if regex_filter:
                 columns_to_plot = [col for col in columns_to_plot if regex_filter in str(col)]
 
+            self._plot_columns(columns_to_plot)
+        except Exception as e:
+            self.print(self.tr('Error loading data for chart:\n{0}').format(str(e)))
+            self.ui.plot_widget.clear()
+
+    def plot_selected_neurons(self):
+        """Plot columns chosen in the Neuron Selection tab (neuron ids x metrics)."""
+        try:
+            selected_metrics = [m for m, cb in self.metric_checks.items() if cb.isChecked()]
+            if not selected_metrics:
+                self.print(self.tr('Select at least one metric to plot.'))
+                return
+
+            text = self.neuron_input.text().strip()
+            if text:
+                neuron_ids = self._parse_neuron_ids(text)
+            else:
+                neuron_ids = sorted({idx for _, idx in self._signal_col_by_key})
+
+            # Group by neuron so each neuron's metrics stay together in the legend.
+            columns_to_plot = []
+            missing = []
+            for n in neuron_ids:
+                cols = [self._signal_col_by_key[(m, n)]
+                        for m in selected_metrics if (m, n) in self._signal_col_by_key]
+                if cols:
+                    columns_to_plot.extend(cols)
+                else:
+                    missing.append(n)
+
+            if missing:
+                self.print(self.tr('No data for neuron(s): {0}').format(
+                    ', '.join(str(n) for n in missing)))
+
+            if not columns_to_plot:
+                self.print(self.tr('No matching neuron/metric columns to plot.'))
+                self.ui.plot_widget.clear()
+                return
+
+            self._plot_columns(columns_to_plot)
+        except Exception as e:
+            self.print(self.tr('Error loading data for chart:\n{0}').format(str(e)))
+            self.ui.plot_widget.clear()
+
+    def _parse_neuron_ids(self, text):
+        """Parse '1, 2, 5-8' into an ordered, de-duplicated list of neuron ids.
+
+        Accepts single ids and inclusive ranges ('a-b', either order); unknown
+        tokens are skipped with a note.
+        """
+        ids = []
+        seen = set()
+        for tok in re.split(r'[\s,;]+', text.strip()):
+            if not tok:
+                continue
+            rng = re.match(r'^(\d+)\s*-\s*(\d+)$', tok)
+            if rng:
+                lo, hi = int(rng.group(1)), int(rng.group(2))
+                seq = range(min(lo, hi), max(lo, hi) + 1)
+            elif tok.isdigit():
+                seq = (int(tok),)
+            else:
+                self.print(self.tr("Ignoring invalid neuron id: '{0}'").format(tok))
+                continue
+            for n in seq:
+                if n not in seen:
+                    seen.add(n)
+                    ids.append(n)
+        return ids
+
+    def _plot_columns(self, columns_to_plot):
+        """Render *columns_to_plot* as lines with a clickable, toggleable legend."""
+        try:
+            capped = len(columns_to_plot) > MAX_PLOT_COLUMNS
             columns_to_plot = columns_to_plot[:MAX_PLOT_COLUMNS]
+            if capped:
+                self.print(self.tr('Plotting the first {0} columns only.').format(MAX_PLOT_COLUMNS))
 
             # Clear previous plot and legend
             self.ui.plot_widget.clear()

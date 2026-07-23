@@ -303,6 +303,66 @@
         <source>Error loading text file:\n{0}</source>
         <translation>Error al cargar el archivo de texto:\n{0}</translation>
     </message>
+    <message>
+        <source>Regex</source>
+        <translation>Regex</translation>
+    </message>
+    <message>
+        <source>Neuron Selection</source>
+        <translation>Selección de neuronas</translation>
+    </message>
+    <message>
+        <source>No neuron/metric columns were recognised in this file.</source>
+        <translation>No se reconocieron columnas de neurona/métrica en este archivo.</translation>
+    </message>
+    <message>
+        <source>Found {0} metrics and {1} neurons.</source>
+        <translation>Se encontraron {0} métricas y {1} neuronas.</translation>
+    </message>
+    <message>
+        <source>Metrics:</source>
+        <translation>Métricas:</translation>
+    </message>
+    <message>
+        <source>Neurons:</source>
+        <translation>Neuronas:</translation>
+    </message>
+    <message>
+        <source>e.g. 22, 223, 627 (blank = all)</source>
+        <translation>p. ej. 22, 223, 627 (vacío = todas)</translation>
+    </message>
+    <message>
+        <source>e.g. 22, 223, 627 or 1-10 (blank = all)</source>
+        <translation>p. ej. 22, 223, 627 o 1-10 (vacío = todas)</translation>
+    </message>
+    <message>
+        <source>Total columns: {0} · Maximum allowed: {1}</source>
+        <translation>Columnas totales: {0} · Máximo permitido: {1}</translation>
+    </message>
+    <message>
+        <source>Plot neurons</source>
+        <translation>Graficar neuronas</translation>
+    </message>
+    <message>
+        <source>Select at least one metric to plot.</source>
+        <translation>Seleccione al menos una métrica para graficar.</translation>
+    </message>
+    <message>
+        <source>Ignoring invalid neuron id: '{0}'</source>
+        <translation>Ignorando id de neurona no válido: '{0}'</translation>
+    </message>
+    <message>
+        <source>No data for neuron(s): {0}</source>
+        <translation>Sin datos para la(s) neurona(s): {0}</translation>
+    </message>
+    <message>
+        <source>No matching neuron/metric columns to plot.</source>
+        <translation>No hay columnas de neurona/métrica coincidentes para graficar.</translation>
+    </message>
+    <message>
+        <source>Plotting the first {0} columns only.</source>
+        <translation>Graficando solo las primeras {0} columnas.</translation>
+    </message>
 </context>
 <context>
     <name>CSVReaderWorker</name>

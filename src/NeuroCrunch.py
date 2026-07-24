@@ -14,7 +14,7 @@ warnings.filterwarnings('ignore')
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QTreeWidgetItem, QTableWidgetItem, QMenu,
-    QHBoxLayout, QWidget, QDialog, QMessageBox, QComboBox, QCheckBox
+    QHBoxLayout, QWidget, QDialog, QMessageBox, QComboBox, QCheckBox, QLabel
 )
 from PySide6.QtCore import QCoreApplication, QUrl, Qt, QTimer
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut, QTextCursor, QDesktopServices
@@ -136,6 +136,13 @@ class NeuroCrunch(QMainWindow):
 
 
         self.print(self.tr('Program initialized') + ' - ' + datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
+
+        # Permanent version label in the status-bar corner (same version.json the
+        # updater reads). Sits alongside the transient update/progress messages.
+        version = read_current_version(
+            os.path.join(get_resource_base(), 'version.json')).get('version', '')
+        if version:
+            self.statusBar().addPermanentWidget(QLabel(f'v{version}'))
 
         # Silently check GitHub Releases for a newer version once the UI is up.
         self._update_checker = None

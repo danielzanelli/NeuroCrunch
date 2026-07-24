@@ -7,8 +7,9 @@ script. The file stores every pairwise weight, so the viewer is where the graph
 becomes readable: a **threshold slider** filters edges live by ``|weight|`` and
 the network redraws dynamically. Node diameter and edge stroke width have their
 own sliders, edges are colour-graded by sign and strength with opacity
-proportional to ``|weight|``, and clicking a node highlights it and its
-neighbours (with their labels).
+proportional to ``|weight|``, nodes are shaded by how many edges they still
+have at the current threshold so hubs stand out, and clicking a node highlights
+it and its neighbours (with their labels).
 
 The viewer is built to stay responsive on large graphs:
 
@@ -28,17 +29,20 @@ Public surface used by the main window: :meth:`GraphViewer.load` (async),
 from __future__ import annotations
 
 import json
+import math
 import os
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QCoreApplication, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QRectF, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -56,24 +60,34 @@ _NBINS = 16                 # weight buckets per sign (colour/opacity gradient)
 _ALPHA_FLOOR = 0.16         # faintest edges stay just visible
 _MAX_RENDERED_EDGES = 40000  # hard cap on drawn edges (strongest kept)
 _MAX_NEIGHBOR_LABELS = 40   # labels shown around a selected node
+_ISOLATED_ALPHA = 90        # nodes left with no visible edge fade back
+_WEIGHT_LABEL_OFFSET = 0.6  # edge-weight label shift off the line, in label boxes
 _TARGET_INITIAL_EDGES = 2000  # initial threshold aims to show ~this many edges
 
 _EMPTY_IDX = np.empty(0, dtype=np.int64)
+
+_HIST_BINS = 64             # bars in the threshold histogram
 
 _THEMES = {
     True: {   # dark
         "bg": "#1a1e23",
         "axis": "#9aa3ad",
         "text": "#e6e6e6",
-        "node_fill": (111, 125, 140),   # #6f7d8c
-        "node_pen": (207, 214, 221),    # #cfd6dd
+        "node_fill": (74, 84, 96),      # least-connected node (low end of the ramp)
+        "node_pen": (138, 149, 162),    # dim, so the fill carries the hub signal
+        "hub_high": (236, 242, 250),    # most-connected node at this threshold
+        "hist_off": (74, 82, 92),       # bins below the threshold (hidden edges)
+        "hist_on": (94, 160, 226),      # bins kept by the threshold
     },
     False: {  # light
         "bg": "#ffffff",
         "axis": "#66707c",
         "text": "#202020",
-        "node_fill": (150, 162, 175),   # #96a2af
+        "node_fill": (188, 196, 205),   # least-connected node (low end of the ramp)
         "node_pen": (58, 65, 73),       # #3a4149
+        "hub_high": (26, 34, 44),       # most-connected node at this threshold
+        "hist_off": (198, 204, 212),
+        "hist_on": (44, 110, 180),
     },
 }
 
@@ -249,6 +263,67 @@ class _GraphLoadWorker(QThread):
         return QCoreApplication.translate("GraphViewer", text)
 
 
+class _WeightHistogram(QWidget):
+    """Tiny bar chart of the |weight| distribution, tracking the threshold.
+
+    Each bar counts the edges whose ``|weight|`` falls inside that bin — i.e.
+    how many connections are gained (or lost) by sweeping the threshold across
+    it — so the shape is a plain density, not a cumulative curve. Bars below
+    the current threshold are drawn muted: they are the edges being filtered
+    out. Bar heights are log scaled, since weight distributions pile up near
+    zero and a linear scale leaves the whole useful tail flat on the baseline.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._heights = np.zeros(0, dtype=np.float32)  # normalised to 0..1
+        self._frac = 0.0                               # threshold as 0..1
+        self._theme = _THEMES[True]
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumWidth(80)
+
+    def sizeHint(self) -> QSize:
+        return QSize(220, 26)
+
+    def set_data(self, abs_weight: np.ndarray, max_abs: float) -> None:
+        if abs_weight.size == 0 or max_abs <= 0:
+            self._heights = np.zeros(0, dtype=np.float32)
+        else:
+            counts, _ = np.histogram(abs_weight, bins=_HIST_BINS, range=(0.0, max_abs))
+            scaled = np.log1p(counts.astype(np.float32))
+            peak = float(scaled.max())
+            self._heights = scaled / peak if peak > 0 else scaled
+        self.update()
+
+    def set_threshold(self, frac: float) -> None:
+        frac = min(1.0, max(0.0, float(frac)))
+        if frac != self._frac:
+            self._frac = frac
+            self.update()
+
+    def apply_theme(self, theme: Dict[str, Any]) -> None:
+        self._theme = theme
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        n = self._heights.size
+        if n == 0:
+            return
+        w = self.width()
+        h = self.height()
+        bar_w = w / n
+        cut = self._frac * n  # bins fully left of this are below the threshold
+        off = QColor(*self._theme["hist_off"])
+        on = QColor(*self._theme["hist_on"])
+
+        painter = QPainter(self)
+        for i in range(n):
+            bar_h = max(1.0, float(self._heights[i]) * (h - 1))
+            rect = QRectF(i * bar_w, h - bar_h, max(1.0, bar_w - 1.0), bar_h)
+            painter.fillRect(rect, off if i + 1 <= cut else on)
+        painter.end()
+
+
 class GraphViewer(QWidget):
     """A self-contained interactive viewer for a single JGF graph."""
 
@@ -260,6 +335,7 @@ class GraphViewer(QWidget):
 
         self._data: Optional[_GraphData] = None
         self._selected: Optional[int] = None
+        self._degree = np.zeros(0, dtype=np.int64)  # per node, at the threshold
         self._node_diameter = 8.0
         self._edge_width = 1.0
 
@@ -336,7 +412,12 @@ class GraphViewer(QWidget):
         self.btn_reset = QPushButton(self.tr("Reset view"))
         self.btn_reset.clicked.connect(self.reset_view)
         top_row.addWidget(self.btn_reset)
-        top_row.addStretch(1)
+        top_row.addSpacing(6)
+        self.hist = _WeightHistogram()
+        self.hist.setToolTip(
+            self.tr("Edge count per |weight| bin; muted bars are below the threshold")
+        )
+        top_row.addWidget(self.hist, 1)
         cbox.addLayout(top_row)
 
         # A grid keeps the row labels and slider tracks aligned in columns.
@@ -439,6 +520,8 @@ class GraphViewer(QWidget):
         self.slider.setValue(min(1000, max(0, slider_val)))
         self.slider.blockSignals(False)
         self.lbl_threshold.setText(f"{self._threshold():.2f}")
+        self.hist.set_data(data.abs_weight, data.max_abs)
+        self.hist.set_threshold(self.slider.value() / 1000.0)
 
         self._build_nodes()
         self._render_edges()
@@ -458,7 +541,7 @@ class GraphViewer(QWidget):
         return self.slider.value() / 1000.0 * self._data.max_abs
 
     def _build_nodes(self) -> None:
-        """Draw the base node scatter (uniform style, hover tooltip)."""
+        """Draw the base node scatter (hover tooltip); shading comes per render."""
         data = self._data
         if data is None:
             return
@@ -473,6 +556,38 @@ class GraphViewer(QWidget):
             hoverPen=pg.mkPen(theme["text"], width=2),
             tip=self._node_tip,
         )
+
+    def _shade_nodes(self, above: np.ndarray) -> None:
+        """Shade each node by how many of its edges survive the threshold.
+
+        Hubs read straight off the plot: the busiest node at the current
+        threshold takes the brightest fill (darkest, in the light theme), and
+        nodes left with no edge at all fade back. The ramp is renormalised on
+        every render, so it always spans the degrees actually on screen rather
+        than washing out as the threshold climbs.
+        """
+        data = self._data
+        n = len(data.ids)
+        if above.size:
+            deg = np.bincount(
+                np.concatenate((data.src[above], data.dst[above])), minlength=n)
+        else:
+            deg = np.zeros(n, dtype=np.int64)
+        self._degree = deg
+
+        low = np.array(self._theme["node_fill"], dtype=np.float32)
+        high = np.array(self._theme["hub_high"], dtype=np.float32)
+        peak = int(deg.max()) if n else 0
+        if peak > 0:
+            # sqrt lifts the middle: degree is skewed, and a linear ramp leaves
+            # everything but the single biggest hub sitting at the low colour.
+            rgb = low + (high - low) * np.sqrt(deg / peak)[:, None]
+        else:
+            rgb = np.tile(low, (n, 1))
+        self._node_item.setBrush([
+            pg.mkBrush(int(r), int(g), int(b), 255 if d else _ISOLATED_ALPHA)
+            for (r, g, b), d in zip(rgb, deg)
+        ])
 
     def _bin_pen(self, positive: bool, b: int, dim: float):
         """Pen for weight bucket *b*: colour graded by strength, alpha ~ |weight|."""
@@ -490,6 +605,7 @@ class GraphViewer(QWidget):
         thr = self._threshold()
         above = np.flatnonzero(data.abs_weight >= thr)
         total_above = int(above.size)
+        self._shade_nodes(above)  # before the render cap trims *above*
 
         capped = above.size > _MAX_RENDERED_EDGES
         if capped:  # keep only the strongest _MAX_RENDERED_EDGES
@@ -573,7 +689,7 @@ class GraphViewer(QWidget):
         self._draw_active_labels(s, eidx)
 
     def _draw_active_labels(self, s: int, eidx: np.ndarray) -> None:
-        """Label the selected node and its (strongest) connected neighbours."""
+        """Label the selected node, its (strongest) neighbours and edge weights."""
         data = self._data
         color = self._theme["text"]
         self._add_label(s, color)
@@ -587,13 +703,42 @@ class GraphViewer(QWidget):
                 continue
             seen.add(other)
             self._add_label(other, color)
+            self._add_weight_label(int(e), s, other)
             if len(seen) >= _MAX_NEIGHBOR_LABELS:
                 break
 
     def _add_label(self, k: int, color) -> None:
         data = self._data
-        ti = pg.TextItem(text=data.labels[k], color=color, anchor=(0.5, 1.3))
-        ti.setPos(float(data.pos[k, 0]), float(data.pos[k, 1]))
+        self._add_text(data.labels[k], float(data.pos[k, 0]), float(data.pos[k, 1]),
+                       color, (0.5, 1.3))
+
+    def _add_weight_label(self, e: int, s: int, other: int) -> None:
+        """Show an edge's weight beside its midpoint, clear of the line itself.
+
+        The offset is expressed through the text anchor, so it is a fixed
+        fraction of the label box (screen space) and survives zooming. The
+        direction is the screen-space normal of the outgoing edge, which puts
+        every label on the same side of its line.
+        """
+        data = self._data
+        dx = float(data.pos[other, 0] - data.pos[s, 0])
+        dy = float(data.pos[other, 1] - data.pos[s, 1])   # view y grows downward
+        norm = math.hypot(dx, dy)
+        if norm:
+            nx, ny = -dy / norm, dx / norm
+            anchor = (0.5 - _WEIGHT_LABEL_OFFSET * nx, 0.5 - _WEIGHT_LABEL_OFFSET * ny)
+        else:
+            anchor = (0.5, 1.3)
+        self._add_text(
+            f"{float(data.weight[e]):+.2f}",
+            float(data.pos[s, 0] + data.pos[other, 0]) / 2.0,
+            float(data.pos[s, 1] + data.pos[other, 1]) / 2.0,
+            _SELECT_COLOR, anchor,
+        )
+
+    def _add_text(self, text: str, x: float, y: float, color, anchor) -> None:
+        ti = pg.TextItem(text=text, color=color, anchor=anchor)
+        ti.setPos(x, y)
         self.plot_widget.addItem(ti)
         self._active_labels.append(ti)
 
@@ -609,6 +754,8 @@ class GraphViewer(QWidget):
         if roi and str(roi) != self._data.labels[k]:
             parts.append(self.tr("ROI: {0}").format(roi))
         parts.append(self.tr("strength {0:.2f}").format(float(self._data.strength[k])))
+        if k < self._degree.size:
+            parts.append(self.tr("{0} connections shown").format(int(self._degree[k])))
         return "\n".join(parts)
 
     # ------------------------------------------------------------------
@@ -647,6 +794,7 @@ class GraphViewer(QWidget):
 
     def _on_threshold_changed(self, value: int) -> None:
         self.lbl_threshold.setText(f"{self._threshold():.2f}")
+        self.hist.set_threshold(value / 1000.0)  # cheap repaint, tracks the drag
         self._render_timer.start()  # debounced -> _render_edges
 
     def _on_node_size_changed(self, value: int) -> None:
@@ -710,6 +858,7 @@ class GraphViewer(QWidget):
         """Match the widget to the active light/dark theme."""
         self._is_dark = bool(is_dark)
         self._theme = _THEMES[self._is_dark]
+        self.hist.apply_theme(self._theme)
         self.plot_widget.setBackground(self._theme["bg"])
         plot_item = self.plot_widget.getPlotItem()
         for side in ("bottom", "left"):

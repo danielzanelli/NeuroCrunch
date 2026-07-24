@@ -319,10 +319,44 @@ PlotWidget {
 }
 
 /* empty-state hint shown before any file is previewed */
-QLabel#image_viewer {
+QLabel#viewer_placeholder {
     color: #a4adb8;
     font-size: 10pt;
     background: transparent;
+}
+
+/* ---- Open-file tabs ----------------------------------------------- */
+/* Scoped with '>' so the selector tabs nested inside the plot viewer keep
+   their plain default look and stay visually subordinate. */
+
+QTabWidget#viewer_tabs::pane {
+    border: none;
+    border-top: 1px solid #d5dae1;
+}
+
+QTabWidget#viewer_tabs > QTabBar::tab {
+    background-color: #eef1f5;
+    color: #66707c;
+    padding: 5px 8px;
+    margin-right: 2px;
+    border: 1px solid #d5dae1;
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}
+
+QTabWidget#viewer_tabs > QTabBar::tab:hover {
+    background-color: #e4e9ef;
+}
+
+QTabWidget#viewer_tabs > QTabBar::tab:selected {
+    background-color: #fafbfc;
+    color: #21262c;
+}
+
+QTabWidget#viewer_tabs > QTabBar::close-button {
+    image: url("@ICONS@/x-light.svg");
+    subcontrol-position: right;
 }
 
 /* ---- Scrollbars --------------------------------------------------- */

@@ -2,13 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Dark Mode Manager for NeuroCrunch"""
 import os
-import pyqtgraph as pg
 
 import icon_loader
-
-# pyqtgraph backgrounds matched to the viewer_frame color in each QSS theme
-_PLOT_BG = {'dark': '#1a1e23', 'light': '#ffffff'}
-_PLOT_AXIS = {'dark': '#9aa3ad', 'light': '#66707c'}
 
 
 class DarkModeManager:
@@ -61,7 +56,7 @@ class DarkModeManager:
         self.app.setStyleSheet(self.dark_stylesheet)
         icon_loader.set_theme(dark=True)
         self._apply_icons()
-        self._configure_plot('dark')
+        self._theme_viewers()
 
     def apply_light_mode(self):
         """Apply light mode stylesheet"""
@@ -69,7 +64,7 @@ class DarkModeManager:
         self.app.setStyleSheet(self.light_stylesheet)
         icon_loader.set_theme(dark=False)
         self._apply_icons()
-        self._configure_plot('light')
+        self._theme_viewers()
 
     def _apply_icons(self):
         """Re-tint all main-window button icons for the active theme."""
@@ -93,30 +88,10 @@ class DarkModeManager:
         ui.btn_execute_scripts.setIcon(
             icon_loader.get_icon('square' if running else 'play', '#ffffff', 16))
 
-        # Video play/pause button exists only while a video is loaded
-        play_btn = getattr(self.window, 'play_button', None)
-        if play_btn is not None:
+    def _theme_viewers(self):
+        """Re-theme every open file tab (plot backgrounds, icons — not QSS)."""
+        for viewer in self.window.open_viewers():
             try:
-                player = getattr(self.window, 'media_player', None)
-                playing = player is not None and player.isPlaying()
-                play_btn.setIcon(
-                    icon_loader.get_icon('pause' if playing else 'play', glyph, 14))
+                viewer.apply_theme(self.is_dark_mode)
             except RuntimeError:
                 pass  # widget already deleted
-
-    def _configure_plot(self, theme):
-        """Match the pyqtgraph plot to the active theme."""
-        bg = _PLOT_BG[theme]
-        axis = _PLOT_AXIS[theme]
-        for attr in ('graph_data', 'plot_widget'):
-            plot = getattr(self.widget, attr, None)
-            if plot is None:
-                continue
-            try:
-                plot.setBackground(bg)
-                plot_item = plot.getPlotItem()
-                for side in ('bottom', 'left'):
-                    plot_item.getAxis(side).setPen(pg.mkPen(color=axis, width=1))
-                    plot_item.getAxis(side).setTextPen(pg.mkPen(color=axis))
-            except (AttributeError, RuntimeError):
-                pass

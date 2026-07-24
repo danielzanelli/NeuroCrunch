@@ -36,10 +36,10 @@ Get the latest release for your operating system:
 
 ### File Browser & Multi-Format Viewer
 
-Open a folder and browse its contents in a tree view. Double-click any file to preview it:
+Open a folder and browse its contents in a tree view. Double-click any file to preview it — each file opens in its own **tab** in the centre pane, so you can keep several open at once and switch between them. Close a tab with its **×** button or `Ctrl+W`; double-clicking a file that is already open just switches to its tab.
 
 - **Images** (.png, .jpg, .jpeg, .bmp, .gif) — displayed at native resolution; auto-scales to fit the window.
-- **Videos** (.mp4, .avi, .mov, .mkv, .wmv, .flv, .mpeg, .mpg, .webm, .tif, .tiff) — play/pause with a seek slider. **ROI overlay**: if you have a `.zip` file of regions of interest (e.g., from ImageJ/FIJI or NeuroCrunch's ROI-selection step), double-click it *while a video is open* to draw green ROI outlines on every frame.
+- **Videos** (.mp4, .avi, .mov, .mkv, .wmv, .flv, .mpeg, .mpg, .webm, .tif, .tiff) — play/pause with a seek slider. **ROI overlay**: if you have a `.zip` file of regions of interest (e.g., from ImageJ/FIJI or NeuroCrunch's ROI-selection step), double-click it *while a video tab is active* to draw green ROI outlines on every frame. Leaving a video's tab pauses its playback; returning to the tab resumes where you left off.
 - **Spreadsheets** (.csv, .xls, .xlsx) — loaded into an interactive plot viewer. Filter columns by substring, select a column range, and click "Plot" to graph up to 100 traces. Click legend entries to toggle visibility of individual traces.
 - **PDFs** (.pdf) — rendered with built-in PDF support (or a web-based fallback).
 - **Connectivity graphs** (.jgf) — JSON Graph Format files open in an interactive network viewer: pan and zoom, drag the **threshold slider** to reveal or hide edges by correlation strength in real time, and click a node to highlight it and its neighbours (their nodes turn green and are labelled). Separate sliders adjust node diameter and edge stroke width; hover a node to see its label. Nodes are placed at their ROI centroids; edges are colour-graded by sign (warm = positive, cool = negative) with opacity proportional to the correlation magnitude. The graph loads on a background thread with a progress readout (like large CSVs), and rendering is capped and batched so even large, dense graphs stay responsive.

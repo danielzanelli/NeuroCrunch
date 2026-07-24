@@ -3,40 +3,23 @@
 """NeuroCrunch - Main Application"""
 import datetime
 import os
-import re
 import sys
 import subprocess
 import json
 import warnings
-import io
-
-import pandas as pd
-import numpy as np
-import read_roi
 
 # Keep startup simple: do not attempt to silence FFmpeg/Libav messages here.
 # Warnings from underlying libraries will appear on the terminal.
 warnings.filterwarnings('ignore')
 
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QTreeWidgetItem, QTableWidgetItem, QMenu, QVBoxLayout, QLineEdit,
-    QHBoxLayout, QGridLayout, QPushButton, QSlider, QLabel, QWidget, QDialog, QSpinBox, QMessageBox,
-    QComboBox, QCheckBox, QTabWidget, QSizePolicy
+    QApplication, QMainWindow, QTreeWidgetItem, QTableWidgetItem, QMenu,
+    QHBoxLayout, QWidget, QDialog, QMessageBox, QComboBox, QCheckBox
 )
-from PySide6.QtCore import QCoreApplication, QUrl, Qt, QTimer, QThread, Signal, QRect, QPoint
-from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut, QTextCursor, QPainter, QPen, QColor, QPolygon, QBrush, QDesktopServices
-from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
-try:
-    # Optional: QtWebEngine is a ~290 MB dependency used only as a PDF-viewer
-    # fallback. The primary PDF path is QPdfView (QtPdf). If WebEngine is not
-    # bundled, the app still runs; the fallback is simply unavailable.
-    from PySide6.QtWebEngineWidgets import QWebEngineView
-except ImportError:
-    QWebEngineView = None
+from PySide6.QtCore import QCoreApplication, QUrl, Qt, QTimer
+from PySide6.QtGui import QIcon, QKeySequence, QShortcut, QTextCursor, QDesktopServices
 
 from tkinter.filedialog import askopenfilename, askdirectory, asksaveasfilename
-
-import pyqtgraph as pg
 
 from mainwindow import Ui_MainWindow
 import icon_loader
@@ -44,11 +27,10 @@ from dark_mode_manager import DarkModeManager
 from plugin_manager import PluginManager
 from param_dialog import ParamDialog
 from graph_viewer import GraphViewer
+from viewers import viewer_for, VideoViewer, TextViewer
 from script_runner import PipelineContext, ScriptRunner
 from updater import read_current_version, UpdateChecker, UpdateDownloader, apply_update
 
-
-MAX_PLOT_COLUMNS = 100  # Maximum number of columns allowed to plot at once
 
 # Source language of the codebase; selected when no translator is needed.
 DEFAULT_LANGUAGE = 'en'
@@ -59,57 +41,6 @@ AVAILABLE_LANGUAGES = [
     ('es', 'Español'),
 ]
 SETTINGS_FILENAME = 'settings.json'
-
-
-class CSVReaderWorker(QThread):
-    """Worker thread to read CSV files with progress reporting."""
-    progress_updated = Signal(str)  # Signal to update progress
-    data_loaded = Signal(object)  # Signal when data is loaded
-    error_occurred = Signal(str)  # Signal when error occurs
-
-    def __init__(self, file_path):
-        super().__init__()
-        self.file_path = file_path
-
-    def run(self):
-        """Run in background thread."""
-        try:
-            filename = os.path.basename(self.file_path)
-            self.progress_updated.emit(
-                QCoreApplication.translate('CSVReaderWorker', 'Opening CSV {0}: 0%').format(filename)
-            )
-
-            if self.file_path.lower().endswith('.csv'):
-                # Count total lines upfront so progress can be calculated correctly
-                with open(self.file_path, 'rb') as f:
-                    total_lines = sum(1 for _ in f) - 1  # subtract header row
-
-                chunk_size = max(total_lines // 100, 200)
-                chunk_size = min(chunk_size, 10000)
-
-                chunks = []
-                loaded_rows = 0
-                for chunk in pd.read_csv(self.file_path, chunksize=chunk_size):
-                    chunks.append(chunk)
-                    loaded_rows += len(chunk)
-                    progress = min(int((loaded_rows / max(total_lines, 1)) * 100), 100)
-                    self.progress_updated.emit(f'Opening CSV {filename}: {progress}%')
-
-                if chunks:
-                    data = pd.concat(chunks, ignore_index=True)
-                else:
-                    data = pd.read_csv(self.file_path)
-
-            elif self.file_path.lower().endswith(('.xls', '.xlsx')):
-                self.progress_updated.emit(f'Opening file {filename}: 0%')
-                data = pd.read_excel(self.file_path)
-                self.progress_updated.emit(f'Opening file {filename}: 100%')
-            else:
-                raise ValueError('File format not supported for charts.')
-
-            self.data_loaded.emit(data)
-        except Exception as e:
-            self.error_occurred.emit(str(e))
 
 
 class NeuroCrunch(QMainWindow):
@@ -140,15 +71,16 @@ class NeuroCrunch(QMainWindow):
             self.ui.retranslateUi(self)
 
 
-        # Set all viewers to hidden initially; the image label doubles as the
-        # empty-state hint until a file is previewed for the first time.
-        self.ui.text_viewer.hide()
-        self.ui.plot_frame.hide()
-        self.ui.pdf_viewer.hide()
-        self.ui.video_player.hide()
-        self.ui.image_viewer.setText(self.tr('Double-click a file to preview it'))
-        self.ui.image_viewer.setAlignment(Qt.AlignCenter)
-        self.ui.image_viewer.show()
+        # Central pane: one tab per open file. The stack shows the empty-state
+        # hint instead whenever no file is open.
+        self._viewers = {}  # normalised path -> viewer widget
+        self.ui.viewer_placeholder.setText(self.tr('Double-click a file to preview it'))
+        self.ui.viewer_tabs.tabCloseRequested.connect(self.close_tab)
+        self.ui.viewer_tabs.currentChanged.connect(self._on_tab_changed)
+        self._active_viewer = None
+        close_tab_shortcut = QShortcut(QKeySequence.Close, self)  # Ctrl+W
+        close_tab_shortcut.activated.connect(
+            lambda: self.close_tab(self.ui.viewer_tabs.currentIndex()))
 
         # Default to the application directory as the local folder
         self.local_folder = os.path.dirname(os.path.abspath(__file__))
@@ -172,10 +104,6 @@ class NeuroCrunch(QMainWindow):
         # survive across runs via self.config['__outputs__'].
         self.pipeline_context_store = self._new_pipeline_context()
         self._script_runner = None
-        # Interactive JGF graph viewer, created lazily the first time a .jgf
-        # file is opened and reused afterwards.
-        self._graph_viewer = None
-        self._graph_path = None
 
         # Refresh the file viewer and scripts table with the initial local folder and scripts
         self.refresh_local_folder()
@@ -184,17 +112,6 @@ class NeuroCrunch(QMainWindow):
         # Surface any manifest/plugin issues found during discovery in the log
         for warning in self.plugin_manager.warnings:
             self.print(warning)
-
-        # Categorical palette validated for >=3:1 contrast on both the dark
-        # (#1a1e23) and light (#ffffff) plot surfaces; fixed slot order.
-        self.plot_color_palette = [
-            '#3987e5', '#199e70', '#c98500', '#008300',
-            '#9085e9', '#e66767', '#d55181', '#d95926',
-        ]
-
-
-        # ...
-
 
         # Button connections
         self.ui.btn_open_folder.clicked.connect(self.select_local_folder)
@@ -290,9 +207,9 @@ class NeuroCrunch(QMainWindow):
         self.ui.retranslateUi(self)
 
         # Strings set from code are not covered by retranslateUi:
-        if getattr(self, '_current_image_pixmap', None) is None:
-            self.ui.image_viewer.setText(self.tr('Double-click a file to preview it'))
-            self.ui.image_viewer.setAlignment(Qt.AlignCenter)
+        self.ui.viewer_placeholder.setText(self.tr('Double-click a file to preview it'))
+        for viewer in self.open_viewers():
+            viewer.retranslate()
 
         # Keep the Run/Stop toggle label consistent with the runner state
         # (retranslateUi always resets it to the "Run" caption).
@@ -301,12 +218,6 @@ class NeuroCrunch(QMainWindow):
             self.ui.btn_execute_scripts.setText(self.tr('Stop'))
         else:
             self.ui.btn_execute_scripts.setText(self.tr('Run'))
-
-        # The plot column selector is built from code, so rebuild it to pick up
-        # the new language (no-op when no CSV is loaded).
-        self._rebuild_plot_menu()
-
-
 
     def print(self, text):
         self.ui.log.append( datetime.datetime.now().strftime('%H:%M:%S - ') + str(text))
@@ -587,106 +498,105 @@ class NeuroCrunch(QMainWindow):
 
 
     def on_file_viewer_double_clicked(self, item, column):
-        """Handle double-click on file viewer items"""
+        """Open the double-clicked file in a tab (folders expand via the arrow)."""
         file_path = item.data(0, Qt.UserRole)
-        # Only open files on double-click. Directory expansion is handled by the tree arrow.
-        if not file_path:
+        if file_path and os.path.isfile(file_path):
+            self.open_file(file_path)
+
+    def open_file(self, file_path):
+        """Show *file_path* in the central tab area, focusing it if already open.
+
+        ROI zips are not files with a viewer of their own: they are an overlay
+        for the video in the current tab.
+        """
+        try:
+            current = self.current_viewer()
+            if file_path.lower().endswith('.zip') and isinstance(current, VideoViewer):
+                current.load_roi(file_path)
+                return
+
+            existing = self._viewers.get(_viewer_key(file_path))
+            if existing is not None:
+                self.ui.viewer_tabs.setCurrentWidget(existing)
+                return
+
+            self._add_tab(file_path, viewer_for(file_path))
+        except Exception as e:
+            self.print(self.tr('Error opening the file:\n{0}').format(str(e)))
+
+    def _add_tab(self, file_path, viewer, index=None):
+        """Add *viewer* as a tab for *file_path*, make it current and load it."""
+        viewer.progress_changed.connect(self._on_viewer_progress)
+        viewer.log_message.connect(self.print)
+        viewer.load_done.connect(
+            lambda ok, message, v=viewer: self._on_viewer_load_done(v, ok, message))
+
+        name = os.path.basename(file_path)
+        icon = icon_loader.icon_for_file(name)
+        if index is None:
+            index = self.ui.viewer_tabs.addTab(viewer, icon, name)
+        else:
+            self.ui.viewer_tabs.insertTab(index, viewer, icon, name)
+        self.ui.viewer_tabs.setTabToolTip(index, file_path)
+        self._viewers[_viewer_key(file_path)] = viewer
+
+        self.ui.viewer_stack.setCurrentWidget(self.ui.viewer_tabs)
+        self.ui.viewer_tabs.setCurrentWidget(viewer)
+        viewer.apply_theme(self._is_dark_mode())
+        viewer.load(file_path)
+
+    def close_tab(self, index):
+        """Close the tab at *index*, releasing the resources it holds."""
+        viewer = self.ui.viewer_tabs.widget(index)
+        if viewer is None:
             return
+        viewer.release()
+        for key, open_viewer in list(self._viewers.items()):
+            if open_viewer is viewer:
+                del self._viewers[key]
+        if viewer is self._active_viewer:
+            self._active_viewer = None
+        self.ui.viewer_tabs.removeTab(index)
+        viewer.deleteLater()
+        if self.ui.viewer_tabs.count() == 0:
+            self.ui.viewer_stack.setCurrentWidget(self.ui.placeholder_page)
 
-        if os.path.isdir(file_path):
-            # Ignore double-clicks on folder names (arrow will expand)
+    def current_viewer(self):
+        """The viewer of the current tab, or None when no file is open."""
+        return self.ui.viewer_tabs.currentWidget()
+
+    def open_viewers(self):
+        """Every open viewer, in tab order."""
+        return [self.ui.viewer_tabs.widget(i) for i in range(self.ui.viewer_tabs.count())]
+
+    def _on_tab_changed(self, index):
+        """Let the viewers know which one is on screen (videos pause when left)."""
+        previous, self._active_viewer = self._active_viewer, self.ui.viewer_tabs.widget(index)
+        if previous is not None and previous is not self._active_viewer:
+            previous.on_deactivated()
+        if self._active_viewer is not None:
+            self._active_viewer.on_activated()
+
+    def _on_viewer_progress(self, message):
+        """Live progress line from a viewer (replaces the last log line)."""
+        self.print_progress(message)
+        self.ui.log.repaint()
+
+    def _on_viewer_load_done(self, viewer, ok, message):
+        if message:
+            self.print(message)
+        if not ok and isinstance(viewer, GraphViewer):
+            # The graph could not be parsed — fall back to the raw text in the
+            # same tab so the file is still inspectable.
+            self._replace_with_text_viewer(viewer)
+
+    def _replace_with_text_viewer(self, viewer):
+        index = self.ui.viewer_tabs.indexOf(viewer)
+        if index < 0:
             return
-
-        if os.path.isfile(file_path):
-            # We can open images, text files, videos, CSVs (pyqtgraph) and PDFs directly in the app by showing them in the right panel and hiding the other display widgets.
-            #  We try for different file types, last case being trying to open as text file, if it fails we print an error message in the log.
-
-            try:
-                # A new preview replaces the graph viewer; the .jgf branch below
-                # shows it again.
-                self._hide_graph_viewer()
-                # Images
-                if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
-                    self.show_image(file_path)
-                # JGF connectivity graphs
-                elif file_path.lower().endswith('.jgf'):
-                    self.show_graph(file_path)
-                # Data files
-                elif file_path.lower().endswith(('.csv', '.xls', '.xlsx')):
-                    self.show_plot(file_path)
-                # PDFs
-                elif file_path.lower().endswith('.pdf'):
-                    self.show_pdf(file_path)
-                # Videos
-                elif file_path.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.mpeg', '.mpg', '.webm', '.tif', '.tiff')):
-                    self.show_video(file_path)
-                # ROI zip files (only if a video is currently showing)
-                elif file_path.lower().endswith('.zip') and self.ui.video_player.isVisible():
-                    self.load_and_display_roi(file_path)
-                # Text files
-                else:
-                    self.show_text_file(file_path)
-            except Exception as e:
-                self.print(self.tr('Error opening the file:\n{0}').format(str(e)))
-
-    def show_column_range_dialog(self, total_columns):
-        """Show a dialog to let user select column range. Returns (start_col, end_col) or None if cancelled."""
-        max_selectable = min(MAX_PLOT_COLUMNS, total_columns)
-        dialog = QDialog(self)
-        dialog.setWindowTitle(self.tr('Select column range'))
-        dialog.setModal(True)
-
-        layout = QVBoxLayout()
-
-        # Add description
-        desc_label = QLabel(self.tr('Total columns: {0}\nMaximum allowed: {1}\n').format(total_columns, max_selectable))
-        layout.addWidget(desc_label)
-
-        # Start column spinbox
-        start_label = QLabel(self.tr('Start column (0-indexed):'))
-        self.start_spin = QSpinBox()
-        self.start_spin.setMinimum(0)
-        self.start_spin.setMaximum(total_columns - 1)
-        self.start_spin.setValue(0)
-        layout.addWidget(start_label)
-        layout.addWidget(self.start_spin)
-
-        # End column spinbox
-        end_label = QLabel(self.tr('End column (0-indexed, max +{0} from start):').format(max_selectable))
-        self.end_spin = QSpinBox()
-        self.end_spin.setMinimum(0)
-        self.end_spin.setMaximum(total_columns - 1)
-        self.end_spin.setValue(min(max_selectable - 1, total_columns - 1))
-        layout.addWidget(end_label)
-        layout.addWidget(self.end_spin)
-
-        # Buttons
-        button_layout = QHBoxLayout()
-        ok_button = QPushButton(self.tr('OK'))
-        cancel_button = QPushButton(self.tr('Cancel'))
-        ok_button.clicked.connect(dialog.accept)
-        cancel_button.clicked.connect(dialog.reject)
-        button_layout.addWidget(ok_button)
-        button_layout.addWidget(cancel_button)
-        layout.addLayout(button_layout)
-
-        dialog.setLayout(layout)
-
-        if dialog.exec() == QDialog.Accepted:
-            start = self.start_spin.value()
-            end = self.end_spin.value()
-
-            # Validate range
-            if end < start:
-                QMessageBox.warning(self, self.tr('Error'), self.tr('The end column must be >= start column'))
-                return None
-
-            if (end - start + 1) > MAX_PLOT_COLUMNS:
-                QMessageBox.warning(self, self.tr('Error'), self.tr('Cannot plot more than {0} columns').format(MAX_PLOT_COLUMNS))
-                return None
-
-            return (start, end)
-        return None
+        file_path = self.ui.viewer_tabs.tabToolTip(index)
+        self.close_tab(index)
+        self._add_tab(file_path, TextViewer(), index=index)
 
     def refresh_scripts_table(self):
         """
@@ -1095,807 +1005,18 @@ class NeuroCrunch(QMainWindow):
         context.seed(self.config.get('__outputs__'))
         return context
 
-    def show_image(self, file_path):
-        """Shows an image on the ui.image_viewer QLabel, hiding the other display widgets."""
-        if hasattr(self, 'frame_timer') and self.frame_timer is not None:
-            self.frame_timer.stop()
-        if hasattr(self, 'media_player'):
-            self.media_player.stop()
-            self.media_player.setSource(QUrl())
-
-        # Keep the original pixmap so we can rescale it on every resize (and on
-        # first show, once the label has been laid out to its real size).
-        self._current_image_pixmap = QPixmap(file_path)
-        self.ui.image_viewer.setAlignment(Qt.AlignCenter)
-        self.ui.image_viewer.show()
-        self.ui.text_viewer.hide()
-        self.ui.plot_frame.hide()
-        self.ui.pdf_viewer.hide()
-        self.ui.video_player.hide()
-
-        self._rescale_current_image()
-        # The label may not have its final size until the layout settles after
-        # show(); rescale again on the next event-loop tick so the first image
-        # fills the viewer instead of appearing tiny.
-        QTimer.singleShot(0, self._rescale_current_image)
-
-    def _rescale_current_image(self):
-        """Rescale the stored image pixmap to the current viewer size."""
-        if not hasattr(self, 'ui'):
-            return
-        pixmap = getattr(self, '_current_image_pixmap', None)
-        if pixmap is None or pixmap.isNull() or not self.ui.image_viewer.isVisible():
-            return
-        self.ui.image_viewer.setPixmap(pixmap.scaled(
-            self.ui.image_viewer.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-
-    def resizeEvent(self, event):
-        """Keep the displayed image scaled to the viewer as the window resizes."""
-        super().resizeEvent(event)
-        self._rescale_current_image()
-
-
-    def show_plot(self, file_path):
-        """Shows a plot on the ui.plot_viewer pyqtgraph widget, hiding the other display widgets."""
-        if hasattr(self, 'frame_timer') and self.frame_timer is not None:
-            self.frame_timer.stop()
-        if hasattr(self, 'media_player'):
-            self.media_player.stop()
-            self.media_player.setSource(QUrl())
-
-        self.ui.image_viewer.hide()
-        self.ui.text_viewer.hide()
-        self.ui.plot_frame.show()
-        self.ui.pdf_viewer.hide()
-        self.ui.video_player.hide()
-
-        # Load data in background thread with progress reporting
-        self.csv_reader = CSVReaderWorker(file_path)
-        self.csv_reader.progress_updated.connect(self._on_csv_progress, Qt.BlockingQueuedConnection)
-        self.csv_reader.data_loaded.connect(self._on_csv_loaded)
-        self.csv_reader.error_occurred.connect(self._on_csv_error)
-        self.csv_reader.start()
-
-    def _on_csv_progress(self, message):
-        """Update progress in log."""
-        self.print_progress(message)
-        self.ui.log.repaint()
-
-    def _on_csv_error(self, error_msg):
-        """Handle CSV loading error."""
-        self.print(self.tr('Error loading data for chart:\n{0}').format(error_msg))
-
-    def _on_csv_loaded(self, data):
-        """Handle CSV loaded from background thread."""
-
-        self.print(self.tr('Loaded: {0} rows, {1} columns').format(len(data), len(data.columns)))
-        self.data = data
-
-        # Create two spinboxes and a button at the bottom of the self.ui.plot_frame
-
-        self._rebuild_plot_menu()
-        self.plot_data()
-
-    def _rebuild_plot_menu(self):
-        """(Re)build the tabbed column selector below the plot for self.data.
-
-        Called on CSV load and on a language change (its labels are built from
-        code, so they don't retranslate on their own). The active tab is kept.
-        """
-        if getattr(self, 'data', None) is None:
-            return
-
-        active_tab = 0
-        if getattr(self, '_plot_menu_widget', None) is not None:
-            active_tab = self._plot_menu_widget.currentIndex()
-            self._plot_menu_widget.setParent(None)
-            self._plot_menu_widget.deleteLater()
-            self._plot_menu_widget = None
-
-        layout = self.ui.plot_frame.layout()
-        if layout is None:
-            layout = QVBoxLayout()
-            self.ui.plot_frame.setLayout(layout)
-
-        self._plot_menu_widget = self._build_plot_menu()
-        self._plot_menu_widget.setCurrentIndex(active_tab)
-        layout.addWidget(self._plot_menu_widget)
-
-    def _build_plot_menu(self):
-        """Build the tabbed column selector shown below the plot.
-
-        Two tabs, both vertically stacked so they stay usable on small screens:
-        a *Regex* tab (column range + substring filter) and a *Neuron Selection*
-        tab that picks columns by neuron id and metric.
-        """
-        tabs = QTabWidget(self.ui.plot_frame)
-        tabs.addTab(self._build_regex_tab(), self.tr('Regex'))
-        tabs.addTab(self._build_neuron_tab(), self.tr('Neuron Selection'))
-        # Hug the content vertically so the plot keeps the rest of the frame.
-        tabs.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-        return tabs
-
-    def _tab_layout(self, tab):
-        """A tight vertical layout so the selector stays as small as possible."""
-        tab.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-        v = QVBoxLayout(tab)
-        v.setContentsMargins(4, 3, 4, 3)
-        v.setSpacing(3)
-        return v
-
-    def _columns_desc_label(self):
-        """Compact one-line 'total / maximum allowed' caption shared by both tabs."""
-        total_columns = len(self.data.columns)
-        max_selectable = min(MAX_PLOT_COLUMNS, total_columns)
-        return QLabel(self.tr('Total columns: {0} · Maximum allowed: {1}').format(
-            total_columns, max_selectable))
-
-    def _build_regex_tab(self):
-        """Range + substring column selector (the original plotting controls)."""
-        total_columns = len(self.data.columns)
-
-        tab = QWidget()
-        v = self._tab_layout(tab)
-        v.addWidget(self._columns_desc_label())
-
-        # A grid keeps the row labels and inputs aligned in columns.
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(2)
-        grid.setColumnStretch(1, 1)  # inputs expand to fill the width
-
-        # Regex finder for column names
-        self.regex_input = QLineEdit()
-        self.regex_input.returnPressed.connect(self.plot_data)
-        grid.addWidget(QLabel(self.tr('Columns that include:')), 0, 0)
-        grid.addWidget(self.regex_input, 0, 1)
-
-        # Start column spinbox (default 1: the first column is usually the index)
-        default_start = min(1, total_columns - 1)
-        self.start_spin = QSpinBox()
-        self.start_spin.setMinimum(0)
-        self.start_spin.setMaximum(total_columns - 1)
-        self.start_spin.setValue(default_start)
-        self.start_spin.lineEdit().returnPressed.connect(self.plot_data)
-        grid.addWidget(QLabel(self.tr('Start column:')), 1, 0)
-        grid.addWidget(self.start_spin, 1, 1)
-
-        # End column spinbox
-        self.end_spin = QSpinBox()
-        self.end_spin.setMinimum(0)
-        self.end_spin.setMaximum(total_columns - 1)
-        self.end_spin.setValue(min(default_start + 1, total_columns - 1))
-        self.end_spin.lineEdit().returnPressed.connect(self.plot_data)
-        grid.addWidget(QLabel(self.tr('End column:')), 2, 0)
-        grid.addWidget(self.end_spin, 2, 1)
-
-        v.addLayout(grid)
-
-        plot_btn = QPushButton(self.tr('Plot'))
-        plot_btn.clicked.connect(self.plot_data)
-        v.addWidget(plot_btn)
-        return tab
-
-    def _build_neuron_tab(self):
-        """Pick columns by neuron id and metric, parsed from the column names."""
-        metrics, neurons = self._parse_signal_columns()
-
-        tab = QWidget()
-        v = self._tab_layout(tab)
-
-        self.metric_checks = {}
-        if not self._signal_col_by_key:
-            v.addWidget(QLabel(self.tr(
-                'No neuron/metric columns were recognised in this file.')))
-            return tab
-
-        v.addWidget(self._columns_desc_label())
-        v.addWidget(QLabel(self.tr('Found {0} metrics and {1} neurons.').format(
-            len(metrics), len(neurons))))
-
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(2)
-        grid.setColumnStretch(1, 1)
-
-        # Metrics: one checkbox each, in a compact 3-column grid so many metrics
-        # don't overflow the width on small screens.
-        grid.addWidget(QLabel(self.tr('Metrics:')), 0, 0, Qt.AlignTop)
-        metrics_box = QWidget()
-        metrics_grid = QGridLayout(metrics_box)
-        metrics_grid.setContentsMargins(0, 0, 0, 0)
-        metrics_grid.setHorizontalSpacing(8)
-        metrics_grid.setVerticalSpacing(1)
-        for i, m in enumerate(metrics):
-            cb = QCheckBox(m)
-            cb.setChecked(True)
-            self.metric_checks[m] = cb
-            metrics_grid.addWidget(cb, i // 3, i % 3)
-        grid.addWidget(metrics_box, 0, 1)
-
-        # Neurons: a free-text list of ids and/or ranges (blank = every neuron).
-        self.neuron_input = QLineEdit()
-        self.neuron_input.setPlaceholderText(self.tr('e.g. 22, 223, 627 or 1-10 (blank = all)'))
-        self.neuron_input.returnPressed.connect(self.plot_selected_neurons)
-        grid.addWidget(QLabel(self.tr('Neurons:')), 1, 0)
-        grid.addWidget(self.neuron_input, 1, 1)
-
-        v.addLayout(grid)
-
-        plot_btn = QPushButton(self.tr('Plot'))
-        plot_btn.clicked.connect(self.plot_selected_neurons)
-        v.addWidget(plot_btn)
-        return tab
-
-    def _parse_signal_columns(self):
-        """Map column names to (metric, neuron-id) pairs.
-
-        Recognises the two conventions the pipeline emits: 'Metric<idx>' (e.g.
-        ``Mean123``) and '<idx>_metric' (e.g. ``667_Max``). Fills
-        ``self._signal_col_by_key`` with {(metric, idx): column_name} and returns
-        (sorted metric names, sorted neuron ids). Columns matching neither
-        pattern (``frame``, ``time_s``, ...) are ignored.
-        """
-        metric_first = re.compile(r'^([a-zA-Z_]+?)(\d+)$')
-        index_first = re.compile(r'^(\d+)_([a-zA-Z_]+)$')
-        col_by_key = {}
-        metrics = set()
-        neurons = set()
-        for col in self.data.columns:
-            name = str(col).strip()
-            m = metric_first.match(name)
-            if m:
-                metric, idx = m.group(1), int(m.group(2))
-            else:
-                m = index_first.match(name)
-                if not m:
-                    continue
-                idx, metric = int(m.group(1)), m.group(2)
-            col_by_key[(metric, idx)] = col
-            metrics.add(metric)
-            neurons.add(idx)
-        self._signal_col_by_key = col_by_key
-        return sorted(metrics), sorted(neurons)
-
-
-
-    def plot_data(self):
-        """Plot columns chosen in the Regex tab (range + substring filter)."""
-        try:
-            # Get column range from spinboxes
-            start_col = self.start_spin.value()
-            end_col = self.end_spin.value()
-
-            columns_to_plot = list(self.data.columns[start_col:end_col+1])
-
-            # Filter columns by "regex" input (simple substring match)
-            regex_filter = self.regex_input.text().strip()
-            if regex_filter:
-                columns_to_plot = [col for col in columns_to_plot if regex_filter in str(col)]
-
-            self._plot_columns(columns_to_plot)
-        except Exception as e:
-            self.print(self.tr('Error loading data for chart:\n{0}').format(str(e)))
-            self.ui.plot_widget.clear()
-
-    def plot_selected_neurons(self):
-        """Plot columns chosen in the Neuron Selection tab (neuron ids x metrics)."""
-        try:
-            selected_metrics = [m for m, cb in self.metric_checks.items() if cb.isChecked()]
-            if not selected_metrics:
-                self.print(self.tr('Select at least one metric to plot.'))
-                return
-
-            text = self.neuron_input.text().strip()
-            if text:
-                neuron_ids = self._parse_neuron_ids(text)
-            else:
-                neuron_ids = sorted({idx for _, idx in self._signal_col_by_key})
-
-            # Group by neuron so each neuron's metrics stay together in the legend.
-            columns_to_plot = []
-            missing = []
-            for n in neuron_ids:
-                cols = [self._signal_col_by_key[(m, n)]
-                        for m in selected_metrics if (m, n) in self._signal_col_by_key]
-                if cols:
-                    columns_to_plot.extend(cols)
-                else:
-                    missing.append(n)
-
-            if missing:
-                self.print(self.tr('No data for neuron(s): {0}').format(
-                    ', '.join(str(n) for n in missing)))
-
-            if not columns_to_plot:
-                self.print(self.tr('No matching neuron/metric columns to plot.'))
-                self.ui.plot_widget.clear()
-                return
-
-            self._plot_columns(columns_to_plot)
-        except Exception as e:
-            self.print(self.tr('Error loading data for chart:\n{0}').format(str(e)))
-            self.ui.plot_widget.clear()
-
-    def _parse_neuron_ids(self, text):
-        """Parse '1, 2, 5-8' into an ordered, de-duplicated list of neuron ids.
-
-        Accepts single ids and inclusive ranges ('a-b', either order); unknown
-        tokens are skipped with a note.
-        """
-        ids = []
-        seen = set()
-        for tok in re.split(r'[\s,;]+', text.strip()):
-            if not tok:
-                continue
-            rng = re.match(r'^(\d+)\s*-\s*(\d+)$', tok)
-            if rng:
-                lo, hi = int(rng.group(1)), int(rng.group(2))
-                seq = range(min(lo, hi), max(lo, hi) + 1)
-            elif tok.isdigit():
-                seq = (int(tok),)
-            else:
-                self.print(self.tr("Ignoring invalid neuron id: '{0}'").format(tok))
-                continue
-            for n in seq:
-                if n not in seen:
-                    seen.add(n)
-                    ids.append(n)
-        return ids
-
-    def _plot_columns(self, columns_to_plot):
-        """Render *columns_to_plot* as lines with a clickable, toggleable legend."""
-        try:
-            capped = len(columns_to_plot) > MAX_PLOT_COLUMNS
-            columns_to_plot = columns_to_plot[:MAX_PLOT_COLUMNS]
-            if capped:
-                self.print(self.tr('Plotting the first {0} columns only.').format(MAX_PLOT_COLUMNS))
-
-            # Clear previous plot and legend
-            self.ui.plot_widget.clear()
-            self._plot_items = {}
-
-            # Create a legend (ensure a single legend is used for this plot)
-            try:
-                legend = self.ui.plot_widget.addLegend()
-            except Exception as e:
-                self.print(self.tr('Warning: Could not create the interactive legend:\n{0}').format(str(e)))
-                legend = None
-
-            # Plot selected columns and save references
-            for i, column in enumerate(columns_to_plot):
-                pen = pg.mkPen(self.plot_color_palette[i % len(self.plot_color_palette)], width=2)
-                plot_item = self.ui.plot_widget.plot(self.data[column], pen=pen, name=str(column))
-                # store by column name for toggling
-                self._plot_items[str(column)] = plot_item
-
-            # Make legend entries clickable to toggle visibility
-            if legend is not None:
-                try:
-                    # legend.items is a list of (sample, label) pairs
-                    for sample, label in list(legend.items):
-                        # label may be a QGraphicsTextItem or similar; get the text
-                        try:
-                            label_text = str(label.text)
-                        except Exception:
-                            try:
-                                label_text = str(label.toPlainText())
-                            except Exception:
-                                # fallback: read from the label's bounding rect or skip
-                                label_text = None
-
-                        # If label_text not available, try reading from the associated plot item name
-                        if not label_text:
-                            continue
-
-                        # Define toggle function bound to this label_text
-                        def make_toggle(name, lab, samp):
-                            def _toggle(event):
-                                item = self._plot_items.get(name)
-                                if item is None:
-                                    return
-                                visible = not item.isVisible()
-                                item.setVisible(visible)
-                                # visually dim the legend entry when hidden
-                                try:
-                                    lab.setOpacity(1.0 if visible else 0.4)
-                                except Exception:
-                                    pass
-                                try:
-                                    samp.setOpacity(1.0 if visible else 0.25)
-                                except Exception:
-                                    pass
-                            return _toggle
-
-                        # Attach click handler to both sample and label if possible
-                        try:
-                            handler = make_toggle(label_text, label, sample)
-                            sample.mousePressEvent = handler
-                            label.mousePressEvent = handler
-                        except Exception:
-                            # best-effort; ignore if API differs
-                            pass
-                except Exception:
-                    # Non-fatal: continue without clickable legend
-                    pass
-        except Exception as e:
-            self.print(self.tr('Error loading data for chart:\n{0}').format(str(e)))
-            self.ui.plot_widget.clear()
-
-    def load_and_display_roi(self, roi_zip_path):
-        """Load ROI zip and store data; ROIs are painted onto each subsequent video frame."""
-        try:
-            rois = read_roi.read_roi_zip(roi_zip_path)
-            if not rois:
-                self.print(self.tr('No ROIs found in {0}').format(os.path.basename(roi_zip_path)))
-                return
-            self.roi_data = rois
-            self.print(self.tr('ROIs loaded: {0} regions from {1}').format(len(rois), os.path.basename(roi_zip_path)))
-        except Exception as e:
-            self.print(self.tr('Error loading ROI:\n{0}').format(str(e)))
-
-    def show_video(self, file_path):
-        """Shows a video using QVideoSink so ROIs can be painted onto each decoded frame."""
-        self.ui.image_viewer.hide()
-        self.ui.text_viewer.hide()
-        self.ui.plot_frame.hide()
-        self.ui.pdf_viewer.hide()
-        self.ui.video_player.show()
-
-        try:
-            if hasattr(self, 'media_player'):
-                self.media_player.stop()
-                self.media_player.setSource(QUrl())
-
-            # Clear previous layout contents
-            layout = self.ui.video_player.layout()
-            if layout is None:
-                layout = QVBoxLayout()
-                self.ui.video_player.setLayout(layout)
-            else:
-                while layout.count():
-                    item = layout.takeAt(0)
-                    w = item.widget()
-                    if w:
-                        w.deleteLater()
-
-            # QLabel displays decoded frames; black background for letterboxing
-            self.video_display_label = QLabel()
-            self.video_display_label.setAlignment(Qt.AlignCenter)
-            self.video_display_label.setStyleSheet("background: black;")
-
-            # QVideoSink receives raw frames — lets us draw ROIs before display
-            self.media_player = QMediaPlayer(self)
-            self.video_sink = QVideoSink(self)
-            self.media_player.setVideoSink(self.video_sink)
-            self.video_sink.videoFrameChanged.connect(self._on_video_frame_received)
-            self._pending_frame = None
-
-            # Render timer: pull the latest stored frame at a fixed ~30 fps so the
-            # main thread is not flooded by every decoded frame from the video sink.
-            if hasattr(self, 'frame_timer') and self.frame_timer is not None:
-                self.frame_timer.stop()
-            self.frame_timer = QTimer(self)
-            self.frame_timer.setInterval(33)  # ~30 fps
-            self.frame_timer.timeout.connect(self._render_pending_frame)
-            self.frame_timer.start()
-
-            # Reset ROI data for the new video
-            self.roi_data = {}
-
-            # Control bar
-            control_widget = QWidget()
-            control_layout = QHBoxLayout(control_widget)
-            control_layout.setContentsMargins(0, 2, 0, 2)
-            control_layout.setSpacing(3)
-
-            self.play_button = QPushButton()
-            self.play_button.setIcon(icon_loader.get_icon('play', icon_loader.glyph_color(), 14))
-            self.play_button.setFixedSize(30, 24)
-            self.play_button.clicked.connect(self.toggle_play_pause)
-            control_layout.addWidget(self.play_button)
-
-            self.progress_slider = QSlider(Qt.Horizontal)
-            self.progress_slider.setMinimum(0)
-            self.progress_slider.sliderMoved.connect(self.set_position)
-            self.media_player.durationChanged.connect(self.update_duration)
-            self.media_player.positionChanged.connect(self.update_position)
-            control_layout.addWidget(self.progress_slider, 1)
-
-            self.time_label = QLabel("00:00 / 00:00")
-            self.time_label.setMinimumWidth(85)
-            self.time_label.setMaximumHeight(22)
-            self.time_label.setStyleSheet("font-size: 10px;")
-            control_layout.addWidget(self.time_label)
-
-            layout.addWidget(self.video_display_label, 1)
-            layout.addWidget(control_widget, 0)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(0)
-
-            # Load and play, suppressing FFmpeg stderr noise
-            try:
-                old_stderr_fd = os.dup(2)
-                null_fd = os.open(os.devnull, os.O_WRONLY)
-                os.dup2(null_fd, 2)
-                try:
-                    self.media_player.setSource(QUrl.fromLocalFile(file_path))
-                    self.media_player.play()
-                finally:
-                    os.dup2(old_stderr_fd, 2)
-                    os.close(old_stderr_fd)
-                    os.close(null_fd)
-            except Exception:
-                self.media_player.setSource(QUrl.fromLocalFile(file_path))
-                self.media_player.play()
-
-            self.play_button.setIcon(icon_loader.get_icon('pause', icon_loader.glyph_color(), 14))
-            self.print(self.tr('Playing video: {0}').format(os.path.basename(file_path)))
-
-        except Exception as e:
-            self.print(self.tr('Error loading video:\n{0}').format(str(e)))
-            self.ui.video_player.hide()
-
-    def _on_video_frame_received(self, frame):
-        """Store the latest decoded frame; rendering is done by the timer at ~30 fps."""
-        self._pending_frame = frame
-
-    def _render_pending_frame(self):
-        """Render the latest stored video frame (called by QTimer at ~30 fps)."""
-        frame = getattr(self, '_pending_frame', None)
-        if frame is None or not frame.isValid():
-            return
-        self._pending_frame = None
-
-        image = frame.toImage()
-        if image.isNull():
-            return
-
-        roi_data = getattr(self, 'roi_data', {})
-        if roi_data:
-            painter = QPainter(image)
-            painter.setRenderHint(QPainter.Antialiasing, True)
-            painter.setPen(QPen(QColor(0, 255, 0, 230), 2))
-            painter.setBrush(QBrush(QColor(0, 255, 0, 50)))
-            for roi_d in roi_data.values():
-                try:
-                    if isinstance(roi_d, dict):
-                        if 'x' in roi_d and 'y' in roi_d:
-                            points = [QPoint(int(x), int(y)) for x, y in zip(roi_d['x'], roi_d['y'])]
-                            if len(points) > 2:
-                                painter.drawPolygon(QPolygon(points))
-                        elif all(k in roi_d for k in ['left', 'top', 'width', 'height']):
-                            painter.drawRect(
-                                int(roi_d['left']), int(roi_d['top']),
-                                int(roi_d['width']), int(roi_d['height'])
-                            )
-                except Exception:
-                    pass
-            painter.end()
-
-        pixmap = QPixmap.fromImage(image)
-        if not pixmap.isNull() and self.video_display_label.width() > 0:
-            self.video_display_label.setPixmap(
-                pixmap.scaled(self.video_display_label.size(),
-                              Qt.KeepAspectRatio, Qt.FastTransformation)
-            )
-
-    def _hide_graph_viewer(self):
-        """Hide the JGF graph viewer if it has been created."""
-        if self._graph_viewer is not None:
-            self._graph_viewer.hide()
-
-    def _graph_is_dark(self):
+    def _is_dark_mode(self):
         """Whether the app is currently in dark mode (defaults to dark)."""
         mgr = getattr(self, 'dark_mode_manager', None)
         return mgr.is_dark_mode if mgr is not None else True
 
-    def _on_theme_toggled(self):
-        """Re-theme the graph viewer after the user flips light/dark mode."""
-        if self._graph_viewer is not None:
-            self._graph_viewer.apply_theme(self._graph_is_dark())
-
-    def show_graph(self, file_path):
-        """Shows an interactive JGF connectivity graph, hiding the other viewers.
-
-        Loading runs on a background thread inside the viewer; progress and
-        completion arrive via its ``progress_changed`` / ``load_done`` signals.
-        """
-        if hasattr(self, 'frame_timer') and self.frame_timer is not None:
-            self.frame_timer.stop()
-        if hasattr(self, 'media_player'):
-            self.media_player.stop()
-            self.media_player.setSource(QUrl())
-
-        self.ui.image_viewer.hide()
-        self.ui.text_viewer.hide()
-        self.ui.plot_frame.hide()
-        self.ui.pdf_viewer.hide()
-        self.ui.video_player.hide()
-
-        if self._graph_viewer is None:
-            self._graph_viewer = GraphViewer(self.ui.viewer_frame)
-            self.ui.viewer_layout.addWidget(self._graph_viewer)
-            # Expose the internal plot so the dark-mode manager themes its
-            # background/axes automatically on future theme toggles.
-            self.ui.graph_data = self._graph_viewer.plot_widget
-            self._graph_viewer.progress_changed.connect(self._on_graph_progress)
-            self._graph_viewer.load_done.connect(self._on_graph_loaded)
-
-        self._graph_path = file_path
-        self._graph_viewer.apply_theme(self._graph_is_dark())
-        self._graph_viewer.show()
-        self._graph_viewer.load(file_path)
-
-    def _on_graph_progress(self, message):
-        """Live progress line from the graph loader (updates the last log line)."""
-        self.print_progress(message)
-
-    def _on_graph_loaded(self, ok, message):
-        if ok:
-            self.print(self.tr('Graph loaded: {0}').format(message))
-        else:
-            self.print(self.tr('Error loading graph:\n{0}').format(message))
-            # Fall back to the raw text view so the file is still inspectable.
-            self._graph_viewer.hide()
-            path = getattr(self, '_graph_path', None)
-            if path:
-                self.show_text_file(path)
-
-    def show_pdf(self, file_path):
-        """Shows a PDF on the ui.pdf_viewer QWebEngineView, hiding the other display widgets."""
-        self.ui.image_viewer.hide()
-        self.ui.text_viewer.hide()
-        self.ui.plot_frame.hide()
-        self.ui.pdf_viewer.show()
-        self.ui.video_player.hide()
-
-        # Stop any existing video playback
-        if hasattr(self, 'media_player'):
-            try:
-                self.media_player.stop()
-                self.media_player.setSource(QUrl())
-            except Exception:
-                pass
-
-        # Clear previous children from the container
-        layout = self.ui.pdf_viewer.layout()
-        if layout is None:
-            layout = QVBoxLayout()
-            self.ui.pdf_viewer.setLayout(layout)
-        else:
-            while layout.count():
-                item = layout.takeAt(0)
-                widget = item.widget()
-                if widget is not None:
-                    widget.deleteLater()
-
-        # Prefer QtPdf (QPdfView) when available for smooth scrolling and stable behavior
-        try:
-            from PySide6.QtPdf import QPdfDocument
-            from PySide6.QtPdfWidgets import QPdfView
-
-            self._pdf_document = QPdfDocument(self)
-            load_status = self._pdf_document.load(file_path)
-            # load() returns an enum or int; if it fails an Exception will typically be raised later
-            self._pdf_view = QPdfView(self.ui.pdf_viewer)
-            self._pdf_view.setDocument(self._pdf_document)
-            # Prefer multi-page / continuous scrolling if available; fall back silently if not.
-            try:
-                # Try common page mode enums — use MultiPage if present, otherwise try Continuous.
-                try:
-                    self._pdf_view.setPageMode(QPdfView.PageMode.MultiPage)
-                except Exception:
-                    try:
-                        self._pdf_view.setPageMode(QPdfView.PageMode.Continuous)
-                    except Exception:
-                        pass
-
-                # Keep FitInView zoom when available
-                try:
-                    self._pdf_view.setZoomMode(self._pdf_view.ZoomMode.FitInView)
-                except Exception:
-                    pass
-            except Exception:
-                # Any unexpected API differences are ignored; default view will be used.
-                pass
-            layout.addWidget(self._pdf_view)
-            layout.setContentsMargins(0, 0, 0, 0)
-            self._pdf_view.show()
-            self.print(self.tr('Loading PDF (QPdfView): {0}').format(os.path.basename(file_path)))
-            return
-        except Exception:
-            # QtPdf not available or failed — fall back to QWebEngineView below
-            pass
-
-        # Fallback: use QWebEngineView but ensure a safe widget name and focus
-        if QWebEngineView is None:
-            self.print(
-                self.tr('Could not display the PDF with QtPdf and QtWebEngine is not available: {0}').format(
-                    os.path.basename(file_path)
-                )
-            )
-            self.ui.pdf_viewer.hide()
-            return
-        try:
-            web_view = QWebEngineView(self.ui.pdf_viewer)
-            # Enable plugins if available to help with embedded PDF viewers
-            try:
-                from PySide6.QtWebEngineCore import QWebEngineSettings
-                web_view.settings().setAttribute(QWebEngineSettings.PluginsEnabled, True)
-            except Exception:
-                pass
-
-            web_view.setUrl(QUrl.fromLocalFile(file_path))
-            layout.addWidget(web_view)
-            layout.setContentsMargins(0, 0, 0, 0)
-            web_view.show()
-            web_view.setFocus()
-            self._web_pdf_view = web_view
-            self.print(self.tr('Loading PDF (QWebEngineView): {0}').format(os.path.basename(file_path)))
-        except Exception as e:
-            self.print(self.tr('Error loading PDF:\n{0}').format(str(e)))
-            self.ui.pdf_viewer.hide()
-
-    def show_text_file(self, file_path):
-        """Shows a text file on the ui.text_viewer QTextBrowser, hiding the other display widgets."""
-        self.ui.image_viewer.hide()
-        self.ui.text_viewer.show()
-        self.ui.plot_frame.hide()
-        self.ui.pdf_viewer.hide()
-        self.ui.video_player.hide()
-
-        try:
-            if hasattr(self, 'frame_timer') and self.frame_timer is not None:
-                self.frame_timer.stop()
-            if hasattr(self, 'media_player'):
-                self.media_player.stop()
-                self.media_player.setSource(QUrl())
-
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                self.ui.text_viewer.setPlainText(content)
-        except Exception as e:
-            self.print(self.tr('Error loading text file:\n{0}').format(str(e)))
-            self.ui.text_viewer.hide()
-
-    def toggle_play_pause(self):
-        """Toggle between play and pause"""
-        if self.media_player.isPlaying():
-            self.media_player.pause()
-            self.play_button.setIcon(icon_loader.get_icon('play', icon_loader.glyph_color(), 14))
-        else:
-            self.media_player.play()
-            self.play_button.setIcon(icon_loader.get_icon('pause', icon_loader.glyph_color(), 14))
-
-    def set_position(self, position):
-        """Set media player position when slider is moved"""
-        self.media_player.setPosition(position)
-
-    def update_duration(self, duration):
-        """Update slider max when duration changes"""
-        self.progress_slider.setMaximum(duration)
-
-    def update_position(self, position):
-        """Update slider and time label"""
-        if not self.progress_slider.isSliderDown():
-            self.progress_slider.setValue(position)
-
-        # Update time label
-        current = position // 1000
-        duration = self.media_player.duration() // 1000
-        current_time = f"{current // 60:02d}:{current % 60:02d}"
-        total_time = f"{duration // 60:02d}:{duration % 60:02d}"
-        self.time_label.setText(f"{current_time} / {total_time}")
-
-
-
-
-
 
 ############################################################################################################
+
+def _viewer_key(file_path):
+    """Identity of an open file: same file, same tab, however it was spelled."""
+    return os.path.normcase(os.path.abspath(file_path))
+
 
 def get_resource_base():
     """Root under which bundled resources (assets/, scripts/, schemas/) live.
@@ -1986,13 +1107,11 @@ if __name__ == "__main__":
 
     # Initialize dark mode manager
     dark_mode_manager = DarkModeManager(app, window, asset_path)
-    # Expose it so viewers (e.g. the JGF graph viewer) can query the theme.
+    # Expose it so newly opened viewers can query the current theme.
     window.dark_mode_manager = dark_mode_manager
 
-    # Connect dark mode button (toggle first so is_dark_mode is up to date when
-    # the graph viewer re-themes).
+    # Connect dark mode button
     window.ui.btn_darkmode.clicked.connect(dark_mode_manager.toggle_dark_mode)
-    window.ui.btn_darkmode.clicked.connect(window._on_theme_toggled)
 
     # Setup fullscreen toggle with F11
     fullscreen_shortcut = QShortcut(QKeySequence(Qt.Key_F11), window)

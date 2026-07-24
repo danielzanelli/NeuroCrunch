@@ -4,6 +4,8 @@ import json
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from updater import (  # noqa: E402
@@ -14,6 +16,7 @@ from updater import (  # noqa: E402
     read_current_version,
     build_windows_update_script,
     _build_ssl_context,
+    _spawn_windows_updater,
 )
 
 
@@ -122,3 +125,23 @@ def test_windows_update_script_is_pure_ascii():
     # The script is written with encoding='ascii'; paths travel via env vars
     # because cmd decodes .cmd files with the OEM codepage.
     build_windows_update_script().encode('ascii')
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='uses Windows-only creationflags')
+def test_spawn_strips_pyinstaller_bootloader_vars(tmp_path, monkeypatch):
+    # Inherited, these make the relaunched app's bootloader skip extraction and
+    # load python3xx.dll from this run's already-deleted _MEIxxxxx temp dir.
+    monkeypatch.setenv('_PYI_PARENT_PROCESS_LEVEL', '1')
+    monkeypatch.setenv('_PYI_APPLICATION_HOME_DIR', r'C:\Temp\_MEI85082')
+    monkeypatch.setenv('_PYI_ARCHIVE_FILE', r'C:\App\NeuroCrunch.exe')
+
+    captured = {}
+    monkeypatch.setattr('updater.get_updates_dir', lambda: str(tmp_path))
+    monkeypatch.setattr('updater.subprocess.Popen',
+                        lambda *a, **kw: captured.update(kw) or None)
+
+    _spawn_windows_updater(str(tmp_path / 'setup.exe'))
+
+    env = captured['env']
+    assert not [k for k in env if k.startswith('_PYI_')]
+    assert env['NC_INSTALLER'] == str(tmp_path / 'setup.exe')

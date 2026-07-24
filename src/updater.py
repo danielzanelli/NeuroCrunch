@@ -169,6 +169,15 @@ def _spawn_windows_updater(asset_path: str) -> None:
         fh.write(build_windows_update_script())
 
     env = os.environ.copy()
+    # The onefile bootloader sets these in the child process it spawns (us).
+    # They would be inherited all the way down to the relaunched app, whose own
+    # bootloader would then believe it is a child process, skip extraction, and
+    # try to load python3xx.dll from this run's _MEIxxxxx temp dir — already
+    # deleted by then: "Failed to load Python DLL ... The specified module could
+    # not be found." Drop them so the new process extracts its own bundle.
+    for _var in ('_PYI_PARENT_PROCESS_LEVEL', '_PYI_APPLICATION_HOME_DIR',
+                 '_PYI_ARCHIVE_FILE', '_PYI_SPLASH_IPC', '_MEIPASS2'):
+        env.pop(_var, None)
     env['NC_PID'] = str(os.getpid())
     env['NC_INSTALLER'] = asset_path
     if getattr(sys, 'frozen', False):

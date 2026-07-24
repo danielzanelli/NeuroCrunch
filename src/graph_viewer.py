@@ -48,6 +48,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from base_viewer import BaseViewer
+
 # Edge colour gradients (weak -> strong) for each sign; opacity tracks |weight|.
 _POS_WEAK = (232, 150, 160)
 _POS_STRONG = (198, 36, 58)     # #c6243a
@@ -324,11 +326,8 @@ class _WeightHistogram(QWidget):
         painter.end()
 
 
-class GraphViewer(QWidget):
+class GraphViewer(BaseViewer):
     """A self-contained interactive viewer for a single JGF graph."""
-
-    progress_changed = Signal(str)   # human-readable progress line for the log
-    load_done = Signal(bool, str)    # (success, summary-or-error)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -500,7 +499,7 @@ class GraphViewer(QWidget):
         if token != self._token:
             return
         self.info.setText(self.tr("Failed to load graph: {0}").format(message))
-        self.load_done.emit(False, message)
+        self.load_done.emit(False, self.tr("Error loading graph:\n{0}").format(message))
 
     def _on_worker_loaded(self, token: int, data: _GraphData) -> None:
         if token != self._token:
@@ -529,7 +528,14 @@ class GraphViewer(QWidget):
         self._set_controls_enabled(True)
 
         n = len(data.ids)
-        self.load_done.emit(True, self.tr("{0} nodes, {1} edges").format(n, m))
+        self.load_done.emit(True, self.tr("Graph loaded: {0} nodes, {1} edges").format(n, m))
+
+    def release(self) -> None:
+        """Ignore any in-flight load and wait for the worker before teardown."""
+        self._token += 1
+        worker = self._worker
+        if worker is not None and worker.isRunning():
+            worker.wait(2000)
 
     # ------------------------------------------------------------------
     # Rendering

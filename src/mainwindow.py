@@ -18,10 +18,9 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QFrame, QHBoxLayout,
     QHeaderView, QLabel, QMainWindow, QMenuBar,
     QPushButton, QSizePolicy, QSpacerItem, QSplitter,
-    QStatusBar, QTableWidget, QTableWidgetItem, QTextBrowser,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
-
-from pyqtgraph import PlotWidget
+    QStackedWidget, QStatusBar, QTabWidget, QTableWidget,
+    QTableWidgetItem, QTextBrowser, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget)
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
@@ -95,43 +94,28 @@ class Ui_MainWindow(object):
         self.viewer_layout = QVBoxLayout(self.viewer_frame)
         self.viewer_layout.setObjectName(u"viewer_layout")
         self.viewer_layout.setContentsMargins(6, 6, 6, 6)
-        self.video_player = QWidget(self.viewer_frame)
-        self.video_player.setObjectName(u"video_player")
+        self.viewer_stack = QStackedWidget(self.viewer_frame)
+        self.viewer_stack.setObjectName(u"viewer_stack")
+        self.placeholder_page = QWidget()
+        self.placeholder_page.setObjectName(u"placeholder_page")
+        self.placeholder_layout = QVBoxLayout(self.placeholder_page)
+        self.placeholder_layout.setObjectName(u"placeholder_layout")
+        self.placeholder_layout.setContentsMargins(0, 0, 0, 0)
+        self.viewer_placeholder = QLabel(self.placeholder_page)
+        self.viewer_placeholder.setObjectName(u"viewer_placeholder")
+        self.viewer_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.viewer_layout.addWidget(self.video_player)
+        self.placeholder_layout.addWidget(self.viewer_placeholder)
 
-        self.pdf_viewer = QWidget(self.viewer_frame)
-        self.pdf_viewer.setObjectName(u"pdf_viewer")
+        self.viewer_stack.addWidget(self.placeholder_page)
+        self.viewer_tabs = QTabWidget()
+        self.viewer_tabs.setObjectName(u"viewer_tabs")
+        self.viewer_tabs.setTabsClosable(True)
+        self.viewer_tabs.setMovable(True)
+        self.viewer_tabs.setDocumentMode(True)
+        self.viewer_stack.addWidget(self.viewer_tabs)
 
-        self.viewer_layout.addWidget(self.pdf_viewer)
-
-        self.text_viewer = QTextBrowser(self.viewer_frame)
-        self.text_viewer.setObjectName(u"text_viewer")
-
-        self.viewer_layout.addWidget(self.text_viewer)
-
-        self.plot_frame = QWidget(self.viewer_frame)
-        self.plot_frame.setObjectName(u"plot_frame")
-        self.verticalLayout = QVBoxLayout(self.plot_frame)
-        self.verticalLayout.setObjectName(u"verticalLayout")
-        self.verticalLayout.setContentsMargins(0, 0, 0, 0)
-        self.plot_widget = PlotWidget(self.plot_frame)
-        self.plot_widget.setObjectName(u"plot_widget")
-        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        sizePolicy2.setHorizontalStretch(0)
-        sizePolicy2.setVerticalStretch(0)
-        sizePolicy2.setHeightForWidth(self.plot_widget.sizePolicy().hasHeightForWidth())
-        self.plot_widget.setSizePolicy(sizePolicy2)
-
-        self.verticalLayout.addWidget(self.plot_widget)
-
-
-        self.viewer_layout.addWidget(self.plot_frame)
-
-        self.image_viewer = QLabel(self.viewer_frame)
-        self.image_viewer.setObjectName(u"image_viewer")
-
-        self.viewer_layout.addWidget(self.image_viewer)
+        self.viewer_layout.addWidget(self.viewer_stack)
 
         self.main_splitter.addWidget(self.viewer_frame)
         self.right_splitter = QSplitter(self.main_splitter)
@@ -182,11 +166,11 @@ class Ui_MainWindow(object):
         __qtablewidgetitem3 = QTableWidgetItem()
         self.table_data_columns.setHorizontalHeaderItem(3, __qtablewidgetitem3)
         self.table_data_columns.setObjectName(u"table_data_columns")
-        sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
-        sizePolicy3.setHorizontalStretch(0)
-        sizePolicy3.setVerticalStretch(1)
-        sizePolicy3.setHeightForWidth(self.table_data_columns.sizePolicy().hasHeightForWidth())
-        self.table_data_columns.setSizePolicy(sizePolicy3)
+        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+        sizePolicy2.setHorizontalStretch(0)
+        sizePolicy2.setVerticalStretch(1)
+        sizePolicy2.setHeightForWidth(self.table_data_columns.sizePolicy().hasHeightForWidth())
+        self.table_data_columns.setSizePolicy(sizePolicy2)
         self.table_data_columns.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table_data_columns.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table_data_columns.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -270,6 +254,9 @@ class Ui_MainWindow(object):
 
         self.retranslateUi(MainWindow)
 
+        self.viewer_stack.setCurrentIndex(0)
+
+
         QMetaObject.connectSlotsByName(MainWindow)
     # setupUi
 
@@ -288,7 +275,7 @@ class Ui_MainWindow(object):
         self.btn_open_folder.setToolTip(QCoreApplication.translate("MainWindow", u"Choose the working folder", None))
 #endif // QT_CONFIG(tooltip)
         self.btn_open_folder.setText(QCoreApplication.translate("MainWindow", u"Select folder", None))
-        self.image_viewer.setText("")
+        self.viewer_placeholder.setText("")
         self.lbl_scripts_title.setText(QCoreApplication.translate("MainWindow", u"Script pipeline", None))
         self.lbl_scripts_title.setProperty(u"class", QCoreApplication.translate("MainWindow", u"panelTitle", None))
 #if QT_CONFIG(tooltip)

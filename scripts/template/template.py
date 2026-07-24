@@ -5,13 +5,24 @@
 #
 # HOW TO USE THIS TEMPLATE
 # -------------------------
-# 1. Copy this entire _template/ folder and rename it to your script name.
-#    Example:  scripts/my_analysis/
+# 1. Copy this entire template/ folder and rename it to your script name.
+#    Example:  scripts/my_analysis/   (or into your user scripts folder)
 # 2. Rename this file to match the folder name exactly.
 #    Example:  my_analysis.py
 # 3. Edit config.json to describe your parameters and outputs.
 # 4. Fill in the run(params) function below with your analysis code.
-# 5. Restart NeuroCrunch — your script appears in the scripts table.
+# 5. Press Refresh (or restart NeuroCrunch) — your script appears in the
+#    scripts table.
+#
+# NOTES ON config.json
+# --------------------------------------------------------------------
+# - 'id' and 'entry_point' are OPTIONAL. When omitted they are derived from
+#   the folder name (id = folder name, entry_point = <folder name>.py), which
+#   is why renaming the folder and this file together is all you need.
+# - 'version' and 'author' are optional metadata shown in the script's tooltip.
+# - 'category' is a free-text label you choose to group your scripts.
+# - Every parameter type and option is demonstrated in the accompanying
+#   config.json. Double-click the template row in the app to see them rendered.
 #
 # AVAILABLE LIBRARIES (bundled — no installation required)
 # ---------------------------------------------------------
@@ -28,7 +39,6 @@
 
 import os
 import numpy as np
-import pandas as pd
 
 
 def run(params):
@@ -38,7 +48,7 @@ def run(params):
     Parameters
     ----------
     params : dict
-        Every key corresponds to a parameter name declared in config.json.
+        Every key corresponds to a parameter 'name' declared in config.json.
         Values are already the correct Python type (int, float, bool, str).
 
     Returns
@@ -51,35 +61,45 @@ def run(params):
     # ----------------------------------------------------------------
     # READING PARAMETERS
     # Each type comes in as a native Python value — no conversion needed.
+    # Use params.get(name, fallback) for anything that is optional.
     # ----------------------------------------------------------------
 
-    # type: "file"  →  absolute path string chosen by the user
-    input_file = params["input_file"]
-
-    # type: "directory"  →  absolute path string to a folder
-    output_dir = params["output_dir"]
-
     # type: "string"  →  plain str  (single-line text field)
-    label_text = params.get("label_text", "")
+    text_input = params.get("text_input", "")
 
     # type: "text"  →  plain str  (multi-line text area)
-    notes = params.get("notes", "")
+    long_text_input = params.get("long_text_input", "")
 
-    # type: "int"  →  Python int
-    frame_count = int(params.get("frame_count", 100))
+    # type: "int"  →  Python int  (with min/max limits in config.json)
+    whole_number = int(params.get("whole_number", 10))
 
-    # type: "float"  →  Python float
-    threshold = float(params.get("threshold", 0.5))
+    # type: "int"  →  Python int  (no min/max declared — any integer)
+    whole_number_unbounded = int(params.get("whole_number_unbounded", 0))
+
+    # type: "float"  →  Python float  (min/max/decimals in config.json)
+    decimal_number = float(params.get("decimal_number", 0.25))
 
     # type: "bool"  →  Python True or False
-    normalize = bool(params.get("normalize", False))
+    checkbox_option = bool(params.get("checkbox_option", True))
 
     # type: "choice"  →  one of the strings listed in "options"
-    method = params.get("method", "mean")   # e.g. "mean", "median", "max"
+    dropdown_option = params.get("dropdown_option", "first option")
 
-    # type: "file" with "link"  →  auto-filled from a previous script's output
+    # type: "file"  →  absolute path string chosen by the user (required)
+    file_input = params["file_input"]
+
+    # type: "file" without extensions  →  absolute path string (optional)
+    file_input_any_type = params.get("file_input_any_type", "")
+
+    # type: "directory"  →  absolute path string to a folder (required)
+    folder_input = params["folder_input"]
+
+    # type: "string" with a localized label/description  →  plain str
+    localized_example = params.get("localized_example", "")
+
+    # type: "file" with "link"  →  auto-filled from a previous script's output.
     # The value is an absolute path string, same as any other "file" parameter.
-    linked_csv = params.get("linked_csv", "")
+    linked_file_input = params.get("linked_file_input", "")
 
 
     # ----------------------------------------------------------------
@@ -87,12 +107,17 @@ def run(params):
     # Every print() call appears as a new timestamped line in the app log.
     # ----------------------------------------------------------------
 
-    print(f"Starting '{label_text}'")
-    print(f"  Input : {input_file}")
-    print(f"  Output: {output_dir}")
-    print(f"  Method: {method}  |  threshold={threshold}  |  frames={frame_count}")
-    if notes:
-        print(f"  Notes : {notes}")
+    print(f"Text input        : {text_input}")
+    print(f"Whole number      : {whole_number}  (unbounded: {whole_number_unbounded})")
+    print(f"Decimal number    : {decimal_number}")
+    print(f"Checkbox          : {checkbox_option}")
+    print(f"Dropdown          : {dropdown_option}")
+    print(f"File input        : {file_input}")
+    print(f"Folder input      : {folder_input}")
+    if long_text_input:
+        print(f"Notes             : {long_text_input}")
+    if linked_file_input:
+        print(f"Linked file       : {linked_file_input}")
 
 
     # ----------------------------------------------------------------
@@ -101,10 +126,10 @@ def run(params):
     # and stops the pipeline cleanly without crashing.
     # ----------------------------------------------------------------
 
-    if not os.path.isfile(input_file):
-        raise FileNotFoundError(f"Input file not found: {input_file}")
+    if not os.path.isfile(file_input):
+        raise FileNotFoundError(f"File input not found: {file_input}")
 
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(folder_input, exist_ok=True)
 
 
     # ----------------------------------------------------------------
@@ -113,26 +138,12 @@ def run(params):
     # Regular print() calls continue to appear in the log as normal.
     # ----------------------------------------------------------------
 
-    df = pd.read_csv(input_file)
-    total = len(df)
-
-    results = []
-    for i, row in df.iterrows():
-        # --- your per-row processing here ---
-        value = row.iloc[0]   # placeholder
-        if method == "mean":
-            result = float(np.mean(df.iloc[:, 0]))
-        elif method == "median":
-            result = float(np.median(df.iloc[:, 0]))
-        else:   # "max"
-            result = float(np.max(df.iloc[:, 0]))
-        results.append(result)
-
-        # Emit progress every 10 % of rows processed
-        if total > 0 and (i + 1) % max(1, total // 10) == 0:
-            pct = (i + 1) / total * 100
-            print(f"PROGRESS:{pct:.0f}")          # updates the progress bar
-            print(f"  Processed {i + 1}/{total} rows...")  # appears in log
+    steps = max(1, whole_number)
+    for i in range(steps):
+        # --- replace this with your real per-step processing ---
+        pct = (i + 1) / steps * 100
+        print(f"PROGRESS:{pct:.0f}")               # updates the progress bar
+        print(f"  Step {i + 1}/{steps} done...")   # appears in the log
 
     print("PROGRESS:100")
 
@@ -145,7 +156,7 @@ def run(params):
     # ----------------------------------------------------------------
     #
     # def run(params, ctx):          ← change the signature
-    #     for i, row in df.iterrows():
+    #     for i in range(steps):
     #         if ctx.is_cancelled():
     #             print("Cancelled by user.")
     #             return {}          ← return empty dict to stop cleanly
@@ -166,12 +177,12 @@ def run(params):
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots()
-    ax.plot(results)
-    ax.set_title(label_text)
-    ax.set_xlabel('Row')
+    ax.plot(np.arange(steps))
+    ax.set_title(text_input or "Script template")
+    ax.set_xlabel('Step')
     ax.set_ylabel('Value')
 
-    figures_dir = os.path.join(output_dir, 'figures')
+    figures_dir = os.path.join(folder_input, 'figures')
     os.makedirs(figures_dir, exist_ok=True)
     fig_path = os.path.join(figures_dir, 'result.png')
     fig.savefig(fig_path, dpi=150, bbox_inches='tight')
@@ -181,18 +192,20 @@ def run(params):
 
     # ----------------------------------------------------------------
     # SAVE RESULTS
+    # Write your real outputs here. This example just records the chosen
+    # parameters so the run produces something inspectable.
     # ----------------------------------------------------------------
 
-    out_df = pd.DataFrame({'result': results})
-    if normalize:
-        std = out_df['result'].std()
-        if std > 0:
-            out_df['result'] = (out_df['result'] - out_df['result'].mean()) / std
-        print("  Z-score normalization applied.")
-
-    result_path = os.path.join(output_dir, 'result.csv')
-    out_df.to_csv(result_path, index=False)
-    print(f"CSV saved: {result_path}")
+    summary_path = os.path.join(folder_input, 'summary.txt')
+    with open(summary_path, 'w', encoding='utf-8') as fh:
+        fh.write(f"text_input       = {text_input}\n")
+        fh.write(f"whole_number     = {whole_number}\n")
+        fh.write(f"decimal_number   = {decimal_number}\n")
+        fh.write(f"checkbox_option  = {checkbox_option}\n")
+        fh.write(f"dropdown_option  = {dropdown_option}\n")
+        if checkbox_option:
+            fh.write("normalize        = applied\n")
+    print(f"Summary saved: {summary_path}")
 
 
     # ----------------------------------------------------------------
@@ -203,29 +216,32 @@ def run(params):
     # ----------------------------------------------------------------
 
     return {
-        "result_csv":  result_path,
-        "figures_dir": figures_dir,
+        "output_file":   summary_path,
+        "output_folder": figures_dir,
     }
 
 
 # ============================================================
 # CLI BLOCK
 # This block only runs when you call the script from a terminal:
-#   python my_analysis.py --input_file data.csv --output_dir ./out
+#   python my_analysis.py --file_input data.csv --folder_input ./out
 # The app never enters this block (__name__ is not '__main__').
 # ============================================================
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_file",  required=True)
-    parser.add_argument("--output_dir",  required=True)
-    parser.add_argument("--label_text",  default="CLI run")
-    parser.add_argument("--notes",       default="")
-    parser.add_argument("--frame_count", type=int,   default=100)
-    parser.add_argument("--threshold",   type=float, default=0.5)
-    parser.add_argument("--normalize",   action="store_true")
-    parser.add_argument("--method",      default="mean",
-                        choices=["mean", "median", "max"])
-    parser.add_argument("--linked_csv",  default="")
+    parser.add_argument("--text_input",            default="CLI run")
+    parser.add_argument("--long_text_input",       default="")
+    parser.add_argument("--whole_number",          type=int,   default=10)
+    parser.add_argument("--whole_number_unbounded", type=int,  default=0)
+    parser.add_argument("--decimal_number",        type=float, default=0.25)
+    parser.add_argument("--checkbox_option",       action="store_true")
+    parser.add_argument("--dropdown_option",       default="first option",
+                        choices=["first option", "second option", "third option"])
+    parser.add_argument("--file_input",            required=True)
+    parser.add_argument("--file_input_any_type",   default="")
+    parser.add_argument("--folder_input",          required=True)
+    parser.add_argument("--localized_example",     default="")
+    parser.add_argument("--linked_file_input",     default="")
     args = parser.parse_args()
     run(vars(args))

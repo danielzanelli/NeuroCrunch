@@ -485,9 +485,17 @@ class GraphViewer(BaseViewer):
         worker.progress.connect(self._on_worker_progress)
         worker.loaded.connect(self._on_worker_loaded)
         worker.failed.connect(self._on_worker_failed)
-        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(self._on_worker_finished)
         self._worker = worker
         worker.start()
+
+    def _on_worker_finished(self) -> None:
+        """Drop our reference before the worker's C++ object is deleted."""
+        worker = self.sender()
+        if worker is self._worker:
+            self._worker = None
+        if worker is not None:
+            worker.deleteLater()
 
     def _on_worker_progress(self, token: int, pct: int, message: str) -> None:
         if token != self._token:
@@ -534,8 +542,13 @@ class GraphViewer(BaseViewer):
         """Ignore any in-flight load and wait for the worker before teardown."""
         self._token += 1
         worker = self._worker
-        if worker is not None and worker.isRunning():
-            worker.wait(2000)
+        if worker is not None:
+            try:
+                if worker.isRunning():
+                    worker.wait(2000)
+            except RuntimeError:
+                # The worker finished and its C++ object was already deleted.
+                pass
 
     # ------------------------------------------------------------------
     # Rendering

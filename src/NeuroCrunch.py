@@ -6,6 +6,7 @@ import os
 import sys
 import subprocess
 import json
+import shutil
 import warnings
 
 # Keep startup simple: do not attempt to silence FFmpeg/Libav messages here.
@@ -91,11 +92,17 @@ class NeuroCrunch(QMainWindow):
         self.scripts_folder = os.path.join(get_resource_base(), 'scripts')
         # Writable, per-user directory where community/user-installed scripts are dropped
         self.user_plugins_folder = self.get_user_plugins_dir()
+        # Drop a copy of the bundled template into the user folder (once) so
+        # "Open scripts folder" reveals a ready-to-copy starting point.
+        self._seed_user_template()
         # Discover and validate script plugins (bundled + user); user plugins
         # with the same id override the bundled ones with the same id.
         self.plugin_manager = PluginManager()
         self.plugins = self.plugin_manager.discover_scripts(self.scripts_folder, self.user_plugins_folder)
         self.scripts = sorted(self.plugins.keys())
+        # The bundled template, shown as a read-only preview row so users can see
+        # every input type rendered as a real widget. Never runs in a pipeline.
+        self.template_plugin = self.plugin_manager.load_template(self.scripts_folder)
         self.config = {}
         self._refreshing_table = False
         # Pipeline context shared between the parameter dialog (Phase 3, for
@@ -293,6 +300,26 @@ class NeuroCrunch(QMainWindow):
 
         return path
 
+    def _seed_user_template(self):
+        """Copy the bundled ``template`` folder into the user scripts folder once.
+
+        Gives users a ready-to-copy starting point the moment they open the user
+        scripts folder: they duplicate ``template/``, rename it, and edit. Only
+        seeded when the destination is absent, so deleting it is respected and
+        the copy is never forced back on top of user edits. The folder is named
+        ``template`` and is therefore skipped by discovery (it does not run until
+        copied under a new name).
+        """
+        src = os.path.join(self.scripts_folder, 'template')
+        dst = os.path.join(self.user_plugins_folder, 'template')
+        if not os.path.isdir(src) or os.path.exists(dst):
+            return
+        try:
+            shutil.copytree(src, dst, ignore=shutil.ignore_patterns('__pycache__'))
+        except OSError as e:
+            # Non-fatal: the app still works, users just won't see the example.
+            self.print(self.tr('Could not copy the script template to "{0}": {1}').format(dst, str(e)))
+
     def open_scripts_folder(self):
         """Open the writable user scripts directory in the OS file manager.
 
@@ -318,6 +345,7 @@ class NeuroCrunch(QMainWindow):
         """
         self.plugins = self.plugin_manager.discover_scripts(self.scripts_folder, self.user_plugins_folder)
         self.scripts = sorted(self.plugins.keys())
+        self.template_plugin = self.plugin_manager.load_template(self.scripts_folder)
         # Keep '__'-prefixed entries (e.g. '__outputs__') — they are app
         # state, not per-script config.
         self.config = {
@@ -718,7 +746,35 @@ class NeuroCrunch(QMainWindow):
             table.setCellWidget(row_position, 3, order_widget)
 
 
+        # Read-only example row: the bundled template. Double-clicking it opens
+        # the parameter dialog showing every input type rendered as a real
+        # widget — a visual reference for writing your own scripts. It has no
+        # checkbox or order and never runs in a pipeline.
+        self._template_row = -1
+        if self.template_plugin is not None:
+            self._template_row = table.rowCount()
+            table.insertRow(self._template_row)
 
+            name_item = QTableWidgetItem(
+                self.tr('{0}  (example — double-click to preview)').format(self.template_plugin.name)
+            )
+            font = name_item.font()
+            font.setItalic(True)
+            name_item.setFont(font)
+            name_item.setToolTip(self.tr(
+                'Example template showing every available input type.\n'
+                'Double-click to preview the widgets, then copy the "template" '
+                'folder from your scripts folder to start your own script.'
+            ))
+            name_item.setForeground(Qt.gray)
+            table.setItem(self._template_row, 0, name_item)
+
+            hint_item = QTableWidgetItem(self.tr('example'))
+            hint_item.setTextAlignment(Qt.AlignCenter)
+            hint_item.setForeground(Qt.gray)
+            table.setItem(self._template_row, 1, hint_item)
+            # Columns 2 (checkbox) and 3 (order) are intentionally left empty:
+            # the template is a preview, not an executable step.
 
         table.blockSignals(False)
         self._refreshing_table = False
@@ -842,6 +898,12 @@ class NeuroCrunch(QMainWindow):
         accepted values back into ``self.config`` and refreshes the table so
         the "Configured" column updates immediately.
         """
+        # The template preview row (last row, no checkbox) opens a read-only
+        # widget preview regardless of which column was clicked.
+        if self.template_plugin is not None and row == getattr(self, '_template_row', -1):
+            self._open_template_preview()
+            return
+
         if column == 2:  # checkbox column — ignore double-clicks
             return
         if row < 0 or row >= len(self.scripts):
@@ -866,6 +928,24 @@ class NeuroCrunch(QMainWindow):
             self.config[script_id]['last_modified'] = datetime.datetime.now().strftime('%Y/%m/%d - %H:%M')
             self.print(self.tr('Parameters saved for "{0}"').format(plugin_info.name))
             self.refresh_scripts_table()
+
+    def _open_template_preview(self) -> None:
+        """Show the template's parameter dialog as a read-only visual reference.
+
+        Renders one of every supported input type so users can see what each
+        ``type`` in config.json looks like as a widget before writing their own
+        script. Nothing is saved — the dialog is purely illustrative.
+        """
+        if self.template_plugin is None:
+            return
+        dialog = ParamDialog(
+            self.template_plugin, {}, self.pipeline_context_store.as_dict(), self,
+            all_plugins=self.plugins, current_links={}, language=self.current_language,
+        )
+        dialog.setWindowTitle(
+            self.tr('Input types preview: {0}').format(self.template_plugin.name)
+        )
+        dialog.exec()  # result ignored — this is a preview, not a configuration
 
     def _build_pipeline(self):
         """Build the ordered ``(script_id, plugin_info, params)`` list of

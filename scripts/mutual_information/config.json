@@ -32,12 +32,6 @@
       "default": "auto"
     },
     {
-      "name": "notes",
-      "type": "text",
-      "label": {"en": "Notes / remarks", "es": "Notas / observaciones"},
-      "description": {"en": "Free text to record observations about this analysis", "es": "Texto libre para registrar observaciones sobre este análisis"}
-    },
-    {
       "name": "output_dir",
       "type": "directory",
       "label": {"en": "Output folder", "es": "Carpeta de salida"},

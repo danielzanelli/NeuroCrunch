@@ -1,86 +1,114 @@
 {
-  "name": "My Script",
-  "description": "A short description of what this script does.",
-  "category": "analysis",
+  "name": "Script template",
+  "description": "A neutral example that shows every input type and every option you can declare. Copy this folder, rename it, and edit config.json + the .py file.",
+  "category": "example",
+  "version": "1.0.0",
+  "author": "Your name here",
 
   "parameters": [
 
     {
-      "name": "input_file",
-      "type": "file",
-      "label": "Input file",
-      "description": "Pick a single file. Use 'extensions' to filter the browser dialog.",
-      "required": true,
-      "extensions": [".csv", ".xlsx", ".tif", ".tiff", ".avi", ".mp4"]
-    },
-
-    {
-      "name": "output_dir",
-      "type": "directory",
-      "label": "Output folder",
-      "description": "Pick a folder. The script should create it with os.makedirs if it doesn't exist.",
-      "required": true
-    },
-
-    {
-      "name": "label_text",
+      "name": "text_input",
       "type": "string",
-      "label": "Label / title",
-      "description": "A short free-text field (single line). Shown as a QLineEdit.",
-      "default": "My analysis"
+      "label": "Text input (single line)",
+      "description": "type \"string\" -> a single-line text box (QLineEdit). Optional keys: 'default', 'required'.",
+      "default": "example text"
     },
 
     {
-      "name": "notes",
+      "name": "long_text_input",
       "type": "text",
-      "label": "Notes",
-      "description": "A multi-line free-text area (QTextEdit). Good for comments or long descriptions.",
+      "label": "Text input (multi-line)",
+      "description": "type \"text\" -> a resizable multi-line box (QTextEdit), for longer notes. Optional keys: 'default', 'required'.",
       "default": ""
     },
 
     {
-      "name": "frame_count",
+      "name": "whole_number",
       "type": "int",
-      "label": "Number of frames",
-      "description": "Integer spinner (QSpinBox). Use 'min' and 'max' to set limits.",
-      "default": 100,
-      "min": 1,
-      "max": 100000
+      "label": "Whole number input",
+      "description": "type \"int\" -> an integer stepper (QSpinBox). Optional keys: 'min', 'max', 'default', 'required'. Arrives in the script as a Python int.",
+      "default": 10,
+      "min": 0,
+      "max": 1000
     },
 
     {
-      "name": "threshold",
+      "name": "whole_number_unbounded",
+      "type": "int",
+      "label": "Whole number input (no limits)",
+      "description": "The same \"int\" type without 'min'/'max'. Omit those keys to allow any integer.",
+      "default": 0
+    },
+
+    {
+      "name": "decimal_number",
       "type": "float",
-      "label": "Threshold",
-      "description": "Decimal spinner (QDoubleSpinBox). 'decimals' controls precision shown.",
-      "default": 0.5,
+      "label": "Decimal number input",
+      "description": "type \"float\" -> a decimal stepper (QDoubleSpinBox). Optional keys: 'min', 'max', 'decimals' (digits shown), 'default'. Arrives as a Python float.",
+      "default": 0.25,
       "min": 0.0,
       "max": 1.0,
-      "decimals": 3
+      "decimals": 2
     },
 
     {
-      "name": "normalize",
+      "name": "checkbox_option",
       "type": "bool",
-      "label": "Normalize output",
-      "description": "Checkbox (QCheckBox). Value is Python True/False.",
-      "default": false
+      "label": "Checkbox input",
+      "description": "type \"bool\" -> a checkbox (QCheckBox). Optional key: 'default' (true/false). Arrives as Python True or False.",
+      "default": true
     },
 
     {
-      "name": "method",
+      "name": "dropdown_option",
       "type": "choice",
-      "label": "Method",
-      "description": "Drop-down list (QComboBox). Value will be one of the strings in 'options'.",
-      "options": ["mean", "median", "max"],
-      "default": "mean"
+      "label": "Dropdown input",
+      "description": "type \"choice\" -> a drop-down list (QComboBox). Requires 'options'. Optional key: 'default' (must be one of the options). Arrives as one of the option strings.",
+      "options": ["first option", "second option", "third option"],
+      "default": "first option"
     },
 
     {
-      "name": "linked_csv",
+      "name": "file_input",
       "type": "file",
-      "label": "CSV from previous step",
-      "description": "Auto-filled from a previous script's output using 'link'. This is only a default: the user can re-point or clear the link from the dialog's link button.",
+      "label": "File input",
+      "description": "type \"file\" -> a text box with a Browse button (file picker). Optional keys: 'extensions' (filters the dialog), 'required', 'default'. Arrives as an absolute path string. Marked required, so it shows a * and must be set before running.",
+      "required": true,
+      "extensions": [".csv", ".xlsx", ".txt"]
+    },
+
+    {
+      "name": "file_input_any_type",
+      "type": "file",
+      "label": "File input (any type)",
+      "description": "The same \"file\" type without 'extensions', so the picker shows all files. No 'required' key, so it is optional."
+    },
+
+    {
+      "name": "folder_input",
+      "type": "directory",
+      "label": "Folder input",
+      "description": "type \"directory\" -> a text box with a Browse button (folder picker). Optional keys: 'required', 'default'. Arrives as an absolute path string; create it with os.makedirs if needed.",
+      "required": true
+    },
+
+    {
+      "name": "localized_example",
+      "type": "string",
+      "label": { "en": "Localized label", "es": "Etiqueta traducida" },
+      "description": {
+        "en": "Any 'label' or 'description' can be a locale map {\"en\": ..., \"es\": ...} instead of a plain string, so your script's UI follows the app language.",
+        "es": "Cualquier 'label' o 'description' puede ser un mapa de idiomas para que la interfaz siga el idioma de la aplicacion."
+      },
+      "default": ""
+    },
+
+    {
+      "name": "linked_file_input",
+      "type": "file",
+      "label": "Linked file input",
+      "description": "Add 'link': \"<script_id>.<output_key>\" to auto-fill this field from an earlier script's output. It is only a default: the user can re-point or clear the link with the link button. The reference must match a key in that script's 'outputs'.",
       "extensions": [".csv"],
       "link": "generate_signals.output_csv"
     }
@@ -88,7 +116,7 @@
   ],
 
   "outputs": {
-    "result_csv": "Path to the main output CSV",
-    "figures_dir": "Path to the folder containing generated figures"
+    "output_file": "Absolute path to the main file this script produced.",
+    "output_folder": "Absolute path to a folder holding any additional results (figures, tables, ...)."
   }
 }

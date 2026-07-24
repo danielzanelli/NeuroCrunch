@@ -43,6 +43,9 @@ class PluginInfo:
     parameters: List[Dict[str, Any]] = field(default_factory=list)
     outputs: Dict[str, Any] = field(default_factory=dict)
     is_official: bool = True
+    # True only for the bundled example template, shown as a read-only preview
+    # row so users can see every input widget rendered. Never runs in a pipeline.
+    is_template: bool = False
 
 
 class PluginManager:
@@ -92,6 +95,30 @@ class PluginManager:
                     discovered[plugin_info.id] = plugin_info
 
         return discovered
+
+    def load_template(self, bundled_dir: Optional[str]) -> Optional[PluginInfo]:
+        """Load the bundled ``template`` folder as a PluginInfo for previewing.
+
+        ``discover_scripts`` deliberately skips this folder because it is not a
+        runnable plugin, but the app surfaces it as a read-only example row so
+        users can see every declared input type rendered as a real widget.
+        Returns ``None`` (without polluting ``self.warnings``) when the template
+        is missing or malformed.
+        """
+        if not bundled_dir:
+            return None
+        template_path = os.path.join(bundled_dir, 'template')
+        if not os.path.isdir(template_path):
+            return None
+
+        # The template is an example, not a discovered plugin: keep any load
+        # warnings it might produce out of the user-facing warnings list.
+        saved_warnings = list(self.warnings)
+        info = self._load_plugin(template_path, is_official=True)
+        self.warnings = saved_warnings
+        if info is not None:
+            info.is_template = True
+        return info
 
     def _load_plugin(self, folder_path: str, is_official: bool) -> Optional[PluginInfo]:
         folder_name = os.path.basename(folder_path)

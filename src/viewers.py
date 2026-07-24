@@ -15,8 +15,8 @@ import pandas as pd
 import pyqtgraph as pg
 import read_roi
 
-from PySide6.QtCore import QCoreApplication, QPoint, QThread, QTimer, QUrl, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap, QPolygon
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QThread, QTimer, QUrl, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPixmap, QPolygon
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
     QCheckBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy,
@@ -644,6 +644,10 @@ class VideoViewer(BaseViewer):
         super().__init__(parent)
         self.roi_data = {}
         self._pending_frame = None
+        # Last decoded frame kept as a clean (ROI-free) base so the overlay can
+        # be repainted on demand — e.g. when ROIs load or toggle while paused.
+        self._current_image = None
+        self._show_rois = True
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -653,6 +657,26 @@ class VideoViewer(BaseViewer):
         self.display_label = QLabel()
         self.display_label.setAlignment(Qt.AlignCenter)
         self.display_label.setStyleSheet("background: black;")
+
+        # ROI overlay toggle: floats in the top-right corner of the video rather
+        # than sitting next to the play button (where it read as a pause icon).
+        # Hidden until a ROI file is loaded so the video stays uncluttered.
+        self.roi_button = QPushButton(self.display_label)
+        self.roi_button.setCheckable(True)
+        self.roi_button.setChecked(True)
+        self.roi_button.setToolTip(_tr('Show/hide ROIs'))
+        self.roi_button.setIcon(icon_loader.get_icon('square-dashed', '#ffffff', 14))
+        self.roi_button.setFixedSize(28, 28)
+        self.roi_button.setCursor(Qt.PointingHandCursor)
+        self.roi_button.setStyleSheet(
+            "QPushButton { background: rgba(0, 0, 0, 130); border: none; border-radius: 4px; }"
+            "QPushButton:hover { background: rgba(0, 0, 0, 180); }"
+            "QPushButton:checked { background: rgba(25, 158, 112, 190); }"
+        )
+        self.roi_button.clicked.connect(self.toggle_rois)
+        self.roi_button.hide()
+        # Reposition the floating button whenever the video area resizes.
+        self.display_label.installEventFilter(self)
 
         # QVideoSink receives raw frames — lets us draw ROIs before display
         self.media_player = QMediaPlayer(self)
@@ -728,6 +752,11 @@ class VideoViewer(BaseViewer):
                     os.path.basename(roi_zip_path)))
                 return
             self.roi_data = rois
+            self.roi_button.show()
+            self._position_roi_button()
+            # Repaint the frame already on screen so the ROIs appear at once,
+            # even while the video is paused.
+            self._redraw_current_frame()
             self.log_message.emit(_tr('ROIs loaded: {0} regions from {1}').format(
                 len(rois), os.path.basename(roi_zip_path)))
         except Exception as e:
@@ -750,6 +779,18 @@ class VideoViewer(BaseViewer):
     def apply_theme(self, is_dark):
         self._update_play_icon()
 
+    def eventFilter(self, obj, event):
+        # Keep the floating ROI toggle pinned to the top-right of the video area.
+        if obj is self.display_label and event.type() == QEvent.Resize:
+            self._position_roi_button()
+        return super().eventFilter(obj, event)
+
+    def _position_roi_button(self):
+        """Pin the floating ROI toggle to the top-right corner of the video."""
+        margin = 8
+        x = self.display_label.width() - self.roi_button.width() - margin
+        self.roi_button.move(max(margin, x), margin)
+
     def _update_play_icon(self):
         name = 'pause' if self.media_player.isPlaying() else 'play'
         self.play_button.setIcon(icon_loader.get_icon(name, icon_loader.glyph_color(), 14))
@@ -769,7 +810,27 @@ class VideoViewer(BaseViewer):
         if image.isNull():
             return
 
-        if self.roi_data:
+        # Keep the clean frame so ROIs can be repainted on demand while paused.
+        self._current_image = image
+        self._display_image(image)
+
+    def _redraw_current_frame(self):
+        """Repaint the frame already on screen with the current ROI state.
+
+        Used when ROIs load or the overlay is toggled while the video is paused,
+        so the change shows without waiting for the next decoded frame.
+        """
+        if self._current_image is not None and not self._current_image.isNull():
+            self._display_image(self._current_image)
+
+    def _display_image(self, image):
+        """Paint the ROI overlay (when enabled) onto *image* and show it.
+
+        *image* is treated as read-only; a copy is drawn on so the stored base
+        frame stays clean for future repaints.
+        """
+        if self.roi_data and self._show_rois:
+            image = QImage(image)  # copy-on-write; detaches when painted
             painter = QPainter(image)
             painter.setRenderHint(QPainter.Antialiasing, True)
             painter.setPen(QPen(QColor(0, 255, 0, 230), 2))
@@ -805,6 +866,11 @@ class VideoViewer(BaseViewer):
             self.frame_timer.start()
             self.media_player.play()
         self._update_play_icon()
+
+    def toggle_rois(self):
+        """Show or hide the ROI overlay, repainting the current frame at once."""
+        self._show_rois = self.roi_button.isChecked()
+        self._redraw_current_frame()
 
     def set_position(self, position):
         """Set media player position when slider is moved"""

@@ -107,30 +107,46 @@ def select_asset(assets: List[Dict[str, Any]], system: Optional[str] = None) -> 
 def build_windows_update_script() -> str:
     """Batch script that waits for the app to exit, installs, and relaunches.
 
-    Runs detached from the app (see ``_spawn_windows_updater``): it polls until
-    the NeuroCrunch process is gone (capped at ~2 minutes), runs the installer
-    silently, restarts the app, and deletes itself.
+    Runs detached from the app (see ``_spawn_windows_updater``). The sequence is:
+
+      1. Poll until the app process (NC_PID) is gone, capped at ~30s.
+      2. Force-kill any lingering process with the app's image name (NC_IMAGE).
+         The app is a PyInstaller *onefile* build, so a bootloader parent and a
+         Python child both run as ``NeuroCrunch.exe``; the installer needs *both*
+         gone or Inno's Restart Manager pops a blocking "files in use" dialog.
+         This step guarantees the installed exe is unlocked before the installer
+         runs, which is what previously required manual (crash-inducing) closing.
+      3. Run the installer fully silent, suppressing any message box so nothing
+         can block the unattended update.
+      4. Relaunch the app and delete this script.
+
+    ``NC_IMAGE`` is only set for frozen builds (see ``_spawn_windows_updater``);
+    it is deliberately absent in dev so the fallback never kills ``python.exe``.
 
     All paths reach the script through environment variables (NC_PID,
-    NC_INSTALLER, NC_APP_EXE, optional NC_APP_ARG) instead of being inlined:
-    cmd decodes .cmd files with the legacy OEM codepage, which would corrupt
-    non-ASCII characters (e.g. accented Windows user names) in inline paths.
-    ``ping`` is the sleep primitive because ``timeout`` refuses to run without
-    an interactive console.
+    NC_INSTALLER, NC_APP_EXE, NC_IMAGE, optional NC_APP_ARG) instead of being
+    inlined: cmd decodes .cmd files with the legacy OEM codepage, which would
+    corrupt non-ASCII characters (e.g. accented Windows user names) in inline
+    paths. ``ping`` is the sleep primitive because ``timeout`` refuses to run
+    without an interactive console.
     """
     return '\n'.join([
         '@echo off',
         'set /a tries=0',
         ':wait',
         'set /a tries+=1',
-        'if %tries% gtr 120 goto install',
+        'if %tries% gtr 30 goto kill',
         'tasklist /FI "PID eq %NC_PID%" | findstr /C:"%NC_PID%" >nul',
         'if not errorlevel 1 (',
         '    ping -n 2 127.0.0.1 >nul',
         '    goto wait',
         ')',
+        ':kill',
+        'if defined NC_IMAGE taskkill /IM "%NC_IMAGE%" /F >nul 2>&1',
+        'ping -n 3 127.0.0.1 >nul',
         ':install',
-        '"%NC_INSTALLER%" /SILENT /NORESTART /CLOSEAPPLICATIONS',
+        '"%NC_INSTALLER%" /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS',
+        'ping -n 3 127.0.0.1 >nul',
         'if defined NC_APP_ARG (',
         '    start "" "%NC_APP_EXE%" "%NC_APP_ARG%"',
         ') else (',
@@ -157,13 +173,18 @@ def _spawn_windows_updater(asset_path: str) -> None:
     env['NC_INSTALLER'] = asset_path
     if getattr(sys, 'frozen', False):
         # PyInstaller bundle: sys.executable is the installed app exe, which
-        # the installer replaces in place.
+        # the installer replaces in place. NC_IMAGE enables the script's
+        # force-kill fallback — safe here because the name is the app's own exe.
         env['NC_APP_EXE'] = sys.executable
+        env['NC_IMAGE'] = os.path.basename(sys.executable)
         env.pop('NC_APP_ARG', None)
     else:
+        # Dev run: sys.executable is python.exe, so NC_IMAGE stays unset —
+        # force-killing every python.exe on the machine would be catastrophic.
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         env['NC_APP_EXE'] = sys.executable
         env['NC_APP_ARG'] = os.path.join(base_dir, 'src', 'NeuroCrunch.py')
+        env.pop('NC_IMAGE', None)
 
     # CREATE_NO_WINDOW (not DETACHED_PROCESS) keeps a hidden console that
     # tasklist/findstr/ping inherit — with no console at all, each of them

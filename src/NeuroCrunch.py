@@ -461,7 +461,17 @@ class NeuroCrunch(QMainWindow):
             self.tr('The update was downloaded successfully.\nRestart NeuroCrunch to apply it?'))
         if reply == QMessageBox.Yes:
             apply_update(path)
-            QApplication.quit()
+            # The updater script is now waiting on this process: the installer
+            # cannot replace the exe until every NeuroCrunch process is gone.
+            # QApplication.quit() only asks the event loop to unwind, and a slow
+            # or stuck teardown (background QThreads, Qt/OpenGL cleanup) leaves
+            # the exe locked long enough for the installer to raise its blocking
+            # "files in use" dialog. Hide the window for immediate feedback, then
+            # end the process outright — there is no unsaved state at this point
+            # and a guaranteed exit is what keeps the update unattended.
+            self.hide()
+            QApplication.processEvents()
+            os._exit(0)
 
     def get_dir_content(self, path):
         """Get the content of a directory recursively, returning a tree structure.
@@ -1237,6 +1247,7 @@ class NeuroCrunch(QMainWindow):
 
         # Regex finder for column names
         self.regex_input = QLineEdit()
+        self.regex_input.returnPressed.connect(self.plot_data)
         grid.addWidget(QLabel(self.tr('Columns that include:')), 0, 0)
         grid.addWidget(self.regex_input, 0, 1)
 
@@ -1246,6 +1257,7 @@ class NeuroCrunch(QMainWindow):
         self.start_spin.setMinimum(0)
         self.start_spin.setMaximum(total_columns - 1)
         self.start_spin.setValue(default_start)
+        self.start_spin.lineEdit().returnPressed.connect(self.plot_data)
         grid.addWidget(QLabel(self.tr('Start column:')), 1, 0)
         grid.addWidget(self.start_spin, 1, 1)
 
@@ -1254,6 +1266,7 @@ class NeuroCrunch(QMainWindow):
         self.end_spin.setMinimum(0)
         self.end_spin.setMaximum(total_columns - 1)
         self.end_spin.setValue(min(default_start + 1, total_columns - 1))
+        self.end_spin.lineEdit().returnPressed.connect(self.plot_data)
         grid.addWidget(QLabel(self.tr('End column:')), 2, 0)
         grid.addWidget(self.end_spin, 2, 1)
 
@@ -1305,6 +1318,7 @@ class NeuroCrunch(QMainWindow):
         # Neurons: a free-text list of ids and/or ranges (blank = every neuron).
         self.neuron_input = QLineEdit()
         self.neuron_input.setPlaceholderText(self.tr('e.g. 22, 223, 627 or 1-10 (blank = all)'))
+        self.neuron_input.returnPressed.connect(self.plot_selected_neurons)
         grid.addWidget(QLabel(self.tr('Neurons:')), 1, 0)
         grid.addWidget(self.neuron_input, 1, 1)
 

@@ -104,8 +104,13 @@ def test_windows_update_script_waits_installs_and_relaunches():
     assert script.startswith('@echo off')
     # Waits for the app process to be gone before installing over it.
     assert 'tasklist /FI "PID eq %NC_PID%"' in script
-    # Silent install; no restart prompt.
-    assert '"%NC_INSTALLER%" /SILENT /NORESTART /CLOSEAPPLICATIONS' in script
+    # Force-kills any leftover app process (onefile = bootloader + child, both
+    # named NeuroCrunch.exe) so the installer never hits a locked exe and shows
+    # its blocking "files in use" dialog. Guarded on NC_IMAGE, which is only set
+    # for frozen builds so a dev run never kills python.exe.
+    assert 'if defined NC_IMAGE taskkill /IM "%NC_IMAGE%" /F >nul 2>&1' in script
+    # Silent install; message boxes suppressed so nothing can block it.
+    assert '"%NC_INSTALLER%" /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS' in script
     # Relaunches the app (frozen exe, or interpreter + script in dev).
     assert 'start "" "%NC_APP_EXE%"' in script
     assert 'start "" "%NC_APP_EXE%" "%NC_APP_ARG%"' in script

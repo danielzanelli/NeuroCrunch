@@ -82,8 +82,9 @@ class NeuroCrunch(QMainWindow):
         close_tab_shortcut.activated.connect(
             lambda: self.close_tab(self.ui.viewer_tabs.currentIndex()))
 
-        # Default to the application directory as the local folder
-        self.local_folder = os.path.dirname(os.path.abspath(__file__))
+        # Default to the last folder the user browsed, falling back to the
+        # user's home directory on first launch.
+        self.local_folder = self.settings.get('local_folder') or os.path.expanduser('~')
         # Bundled official scripts. Resolved via the frozen-aware resource base so
         # discovery works both in development (project_root/scripts) and inside the
         # PyInstaller bundle (sys._MEIPASS/scripts).
@@ -129,6 +130,8 @@ class NeuroCrunch(QMainWindow):
         self.ui.file_viewer.setContextMenuPolicy(Qt.CustomContextMenu)
         self.ui.file_viewer.customContextMenuRequested.connect(self.show_file_context_menu)
         self.ui.file_viewer.itemDoubleClicked.connect(self.on_file_viewer_double_clicked)
+        # Folders load their children lazily, the first time they are expanded.
+        self.ui.file_viewer.itemExpanded.connect(self.on_item_expanded)
 
         # Scripts table — double-click a row to open the parameter configuration dialog
         self.ui.table_data_columns.cellDoubleClicked.connect(self.open_param_dialog)
@@ -241,11 +244,17 @@ class NeuroCrunch(QMainWindow):
         self.ui.log.setTextCursor(cursor)
         self.ui.log.ensureCursorVisible()
 
+    def _set_local_folder(self, folder):
+        """Point the file viewer at *folder* and remember it across sessions."""
+        self.local_folder = folder
+        self.ui.file_viewer.setHeaderLabel(folder)
+        self.settings['local_folder'] = folder
+        save_settings(self.settings)
+
     def select_local_folder(self):
         selected_folder = askdirectory(title=self.tr('Select local folder'))
         if selected_folder:
-            self.local_folder = selected_folder
-            self.ui.file_viewer.setHeaderLabel(self.local_folder)
+            self._set_local_folder(selected_folder)
             # Create a new pipeline context with temporary directory
             self.pipeline_context_store.cleanup()
             self.pipeline_context_store = self._new_pipeline_context()
@@ -260,8 +269,7 @@ class NeuroCrunch(QMainWindow):
             self.print(self.tr('Local folder "{0}" does not exist.').format(self.local_folder))
             return
 
-        content = self.get_dir_content(self.local_folder)
-        self.populate_file_viewer(content, self.ui.file_viewer.invisibleRootItem(), self.local_folder)
+        self._populate_dir(self.ui.file_viewer.invisibleRootItem(), self.local_folder)
 
     def get_user_plugins_dir(self):
         """Resolve the writable, per-user directory where community/user-installed scripts live.
@@ -391,71 +399,46 @@ class NeuroCrunch(QMainWindow):
             QApplication.processEvents()
             os._exit(0)
 
-    def get_dir_content(self, path):
-        """Get the content of a directory recursively, returning a tree structure.
-        Returns a list where items are either:
-        - Tuples: (folder_name, folder_contents) for directories
-        - Strings: filename for files
+    def _populate_dir(self, parent_item, path):
+        """List a single level of *path* into *parent_item*.
+
+        Only the immediate children are read; sub-folders are filled in
+        lazily the first time they are expanded (see on_item_expanded).
+        This keeps startup fast regardless of how large the tree is.
         """
-        content = []
-
-        if os.path.isfile(path):
-            raise ValueError(f'The path "{path}" is a file, a folder was expected.')
-        if not os.path.exists(path):
-            raise ValueError(f'The folder "{path}" does not exist.')
-
         try:
             items = os.listdir(path)
-        except PermissionError:
-            return content
+        except (PermissionError, OSError):
+            return
 
         # Sort items: folders first, then files
-        folders = sorted([item for item in items if os.path.isdir(os.path.join(path, item))])
-        files = sorted([item for item in items if os.path.isfile(os.path.join(path, item))])
+        folders = sorted([i for i in items if os.path.isdir(os.path.join(path, i))])
+        files = sorted([i for i in items if os.path.isfile(os.path.join(path, i))])
 
         for folder in folders:
-            folder_path = os.path.join(path, folder)
-            try:
-                # Store tuple: (folder_name, folder_contents)
-                content.append((folder, self.get_dir_content(folder_path)))
-            except PermissionError:
-                pass
+            full_path = os.path.join(path, folder)
+            dir_item = QTreeWidgetItem(parent_item)
+            dir_item.setText(0, folder)
+            dir_item.setIcon(0, icon_loader.icon_for_file(folder, is_dir=True))
+            dir_item.setData(0, Qt.UserRole, full_path)
+            # False marks a folder whose children are not loaded yet.
+            dir_item.setData(0, Qt.UserRole + 1, False)
+            # Show expand arrow without having read the folder's contents.
+            dir_item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
 
         for file in files:
-            content.append(file)
+            file_item = QTreeWidgetItem(parent_item)
+            file_item.setText(0, file)
+            file_item.setIcon(0, icon_loader.icon_for_file(file))
+            file_item.setData(0, Qt.UserRole, os.path.join(path, file))
 
-        return content
-
-    def populate_file_viewer(self, content, parent_item, parent_path=''):
-        """Populate the file viewer tree widget with the given content.
-        Expects items to be either tuples (folder_name, contents) or strings (filenames).
-        Stores full paths in item data for context menu operations.
-        """
-        for item in content:
-            if isinstance(item, tuple):
-                # This is a directory: (folder_name, folder_contents)
-                folder_name, folder_contents = item
-                dir_item = QTreeWidgetItem(parent_item)
-                dir_item.setText(0, folder_name)
-                dir_item.setIcon(0, icon_loader.icon_for_file(folder_name, is_dir=True))
-
-                # Store full path
-                full_path = os.path.join(parent_path, folder_name)
-                dir_item.setData(0, Qt.UserRole, full_path)
-
-                # Show expand arrow even if folder is empty
-                dir_item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
-
-                self.populate_file_viewer(folder_contents, dir_item, full_path)
-            else:
-                # This is a file
-                file_item = QTreeWidgetItem(parent_item)
-                file_item.setText(0, item)
-                file_item.setIcon(0, icon_loader.icon_for_file(item))
-
-                # Store full path
-                full_path = os.path.join(parent_path, item)
-                file_item.setData(0, Qt.UserRole, full_path)
+    def on_item_expanded(self, item):
+        """Populate a folder's children the first time it is expanded."""
+        # Only unloaded folders carry a False flag; files/loaded folders skip.
+        if item.data(0, Qt.UserRole + 1) is not False:
+            return
+        item.setData(0, Qt.UserRole + 1, True)
+        self._populate_dir(item, item.data(0, Qt.UserRole))
 
     def show_file_context_menu(self, position):
         """Show context menu for file viewer items on right-click"""
@@ -845,8 +828,7 @@ class NeuroCrunch(QMainWindow):
                     self.config[script_id] = cfg
             self.refresh_scripts_table()
             if saved_cwd and os.path.isdir(saved_cwd):
-                self.local_folder = saved_cwd
-                self.ui.file_viewer.setHeaderLabel(self.local_folder)
+                self._set_local_folder(saved_cwd)
                 self.refresh_local_folder()
                 self.print(self.tr('Working folder restored: {0}').format(saved_cwd))
             self.print(self.tr('Configuration loaded from: {0}').format(os.path.basename(file_path)))

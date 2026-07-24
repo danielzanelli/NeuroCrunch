@@ -1,0 +1,51 @@
+{
+  "id": "mutual_information",
+  "name": "Mutual Information",
+  "description": "Computes a normalised mutual-information matrix between neurons for a chosen metric (captures non-linear dependence, unlike Pearson).",
+  "version": "1.0.0",
+  "author": "Daniel Zanelli",
+  "category": "analysis",
+  "parameters": [
+    {
+      "name": "input_csv",
+      "type": "file",
+      "label": {"en": "Input CSV", "es": "CSV de entrada"},
+      "description": {"en": "CSV file with the fluorescence traces", "es": "Archivo CSV con las trazas de fluorescencia"},
+      "required": true,
+      "extensions": [".csv"],
+      "link": "select_active.active_csv"
+    },
+    {
+      "name": "metric",
+      "type": "choice",
+      "label": {"en": "Metric", "es": "Métrica"},
+      "description": {"en": "Which per-neuron metric to analyse. Matches column names like 'Mean7' or '7_mean' (case-insensitive; 'Std' also matches 'StdDev', 'Int' matches 'IntDen').", "es": "Qué métrica por neurona analizar. Coincide con nombres de columna como 'Mean7' o '7_mean' (sin distinguir mayúsculas; 'Std' también coincide con 'StdDev', 'Int' con 'IntDen')."},
+      "options": ["Mean", "Max", "Std", "Int"],
+      "default": "Mean"
+    },
+    {
+      "name": "bins",
+      "type": "choice",
+      "label": {"en": "Histogram bins", "es": "Bins del histograma"},
+      "description": {"en": "Number of equal-width bins used to estimate each signal's distribution. 'auto' picks a value from the number of frames.", "es": "Número de bins de igual ancho para estimar la distribución de cada señal. 'auto' elige un valor según la cantidad de cuadros."},
+      "options": ["auto", "8", "16", "32", "64"],
+      "default": "auto"
+    },
+    {
+      "name": "notes",
+      "type": "text",
+      "label": {"en": "Notes / remarks", "es": "Notas / observaciones"},
+      "description": {"en": "Free text to record observations about this analysis", "es": "Texto libre para registrar observaciones sobre este análisis"}
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": {"en": "Output folder", "es": "Carpeta de salida"},
+      "required": true
+    }
+  ],
+  "outputs": {
+    "matrix_csv": {"en": "Path to the CSV with the mutual-information matrix", "es": "Ruta del CSV con la matriz de información mutua"},
+    "heatmap_png": {"en": "Path to the mutual-information heatmap image", "es": "Ruta de la imagen del mapa de calor de información mutua"}
+  }
+}

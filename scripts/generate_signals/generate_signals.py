@@ -436,12 +436,22 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     skipped = len(all_masks) - len(valid_masks)
     print(f"  {len(valid_masks)} valid" + (f", {skipped} skipped." if skipped else "."))
 
-    # Build stable neuron index mapping (1..N) in ROI insertion order.
-    roi_items = list(valid_masks.items())
-    neuron_ids = list(range(1, len(roi_items) + 1))
+    # Assign each neuron the 1-based position of its ROI in the *full* ROI list
+    # (all_masks preserves ROI insertion order = order in the ZIP). Numbering over
+    # every ROI — not just the valid ones — keeps neuron numbers aligned with each
+    # ROI's position in the file, so a skipped ROI leaves a gap instead of shifting
+    # the rest. This is the identifier the downstream scripts rely on:
+    # select_active/pearson_matrix preserve it, and connectivity_graph maps column
+    # "N_mean" back to the N-th ROI in the same ZIP.
+    valid_items = [
+        (position, mask)
+        for position, (_, mask) in enumerate(all_masks.items(), start=1)
+        if mask is not None
+    ]
+    neuron_ids = [position for position, _ in valid_items]
 
     # Precompute flattened pixel indices per ROI for faster per-frame extraction.
-    roi_flat_indices = [np.flatnonzero(mask.ravel()) for _, mask in roi_items]
+    roi_flat_indices = [np.flatnonzero(mask.ravel()) for _, mask in valid_items]
 
     # ---- Build output column names -------------------------------------------
     # Frame | Time (s) | ROI1_max | ROI1_mean | ... | ROIn_int

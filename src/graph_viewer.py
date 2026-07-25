@@ -772,7 +772,6 @@ class GraphViewer(BaseViewer):
         parts = [self._data.labels[k]]
         if roi and str(roi) != self._data.labels[k]:
             parts.append(self.tr("ROI: {0}").format(roi))
-        parts.append(self.tr("strength {0:.2f}").format(float(self._data.strength[k])))
         if k < self._degree.size:
             parts.append(self.tr("{0} connections shown").format(int(self._degree[k])))
         return "\n".join(parts)

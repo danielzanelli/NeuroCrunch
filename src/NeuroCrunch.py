@@ -927,6 +927,11 @@ class NeuroCrunch(QMainWindow):
                 if script_id in self.scripts:
                     self.config[script_id] = cfg
             self.refresh_scripts_table()
+            # Open CSV viewers pull calibration knobs from live config, so refresh
+            # their Filter-preview form (and re-plot) against the newly loaded values.
+            for viewer in self.open_viewers():
+                if isinstance(viewer, PlotViewer):
+                    viewer.refresh_calibration()
             if saved_cwd and os.path.isdir(saved_cwd):
                 self._set_local_folder(saved_cwd)
                 self.refresh_local_folder()

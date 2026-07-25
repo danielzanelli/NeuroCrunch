@@ -52,6 +52,10 @@ MAX_PREVIEW_POINTS = 800
 # a few seconds even on a wide selection.
 PREVIEW_MAX_TRACES = 12
 
+# Sentinel series key for the untransformed input trace in the Filter-preview
+# series selector, kept distinct from any name a script's preview() may return.
+_PREVIEW_ORIGINAL = '__original__'
+
 # pyqtgraph backgrounds matched to the viewer_frame color in each QSS theme
 PLOT_BG = {True: '#1a1e23', False: '#ffffff'}
 PLOT_AXIS = {True: '#9aa3ad', False: '#66707c'}
@@ -248,6 +252,12 @@ class PlotViewer(BaseViewer):
         self._preview_token = 0
         self._preview_idx = None          # shared x-axis (frame indices) of the run
         self._preview_raw_map = {}        # {column: decimated raw values}
+        self._preview_result = {}         # {column: {series_name: array}} of the last run
+        self._preview_series_state = {}   # {series_key: checked} persisted across runs
+        self._preview_series_checks = {}  # {series_key: QCheckBox} current widgets
+        self._preview_series_layout = None  # grid holding the series checkboxes
+        self._preview_series_box = None   # container widget (hidden until a run)
+        self._showing_preview = False     # True when the plot shows a preview, not columns
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -284,6 +294,20 @@ class PlotViewer(BaseViewer):
         # If the CSV is already loaded, rebuild the menu so the tab appears now.
         if self.data is not None:
             self._rebuild_plot_menu()
+
+    def refresh_calibration(self):
+        """Re-read configured params into the Filter-preview form after a config load.
+
+        Called by the host when a new pipeline config is loaded at runtime.
+        Rebuilds the knob form so it shows the newly loaded values (the saved-values
+        provider reads live config), and re-runs the preview when one is currently
+        on screen so the plot follows the new config too.
+        """
+        if self._calib_scroll is None:
+            return  # the Filter-preview tab was never built (no calibratable script)
+        self._rebuild_calib_form()
+        if self._showing_preview and self._preview_raw_map:
+            self._run_preview()
 
     def set_calibration_language(self, language):
         """Update the language used for calibration widget labels.
@@ -611,6 +635,7 @@ class PlotViewer(BaseViewer):
 
     def _plot_columns(self, columns_to_plot):
         """Render *columns_to_plot* as lines with a clickable, toggleable legend."""
+        self._showing_preview = False
         try:
             # A 'time_s' column defines the shared x-axis; never plot it as a trace.
             time_col, x = self._time_axis()
@@ -731,31 +756,90 @@ class PlotViewer(BaseViewer):
         row.addWidget(self._calib_script_combo, 1)
         v.addLayout(row)
 
+        # Parameters and the controls sit side by side: the knobs are crowded
+        # vertically but there is spare width, so the action buttons and the
+        # series checkboxes stack in a single column to the right of the inputs.
+        mid_row = QHBoxLayout()
+        mid_row.setContentsMargins(0, 0, 0, 0)
+        mid_row.setSpacing(8)
+
         # Parameters live in a short scroll area so many knobs don't push the
         # plot off screen.
         self._calib_scroll = QScrollArea()
         self._calib_scroll.setWidgetResizable(True)
         self._calib_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self._calib_scroll.setMaximumHeight(150)
-        v.addWidget(self._calib_scroll)
+        mid_row.addWidget(self._calib_scroll, 1)
 
-        btn_row = QHBoxLayout()
-        btn_row.setContentsMargins(0, 0, 0, 0)
-        btn_row.setSpacing(4)
+        # Right column: the two action buttons stacked over the series selector.
+        right_col = QVBoxLayout()
+        right_col.setContentsMargins(0, 0, 0, 0)
+        right_col.setSpacing(4)
+
         preview_btn = QPushButton(_tr('Preview'))
         preview_btn.clicked.connect(self._run_preview)
-        btn_row.addWidget(preview_btn)
-        apply_btn = QPushButton(_tr('Apply to pipeline'))
+        right_col.addWidget(preview_btn)
+        apply_btn = QPushButton(_tr('Apply to Config'))
         apply_btn.clicked.connect(self._on_calib_apply)
-        btn_row.addWidget(apply_btn)
-        btn_row.addStretch(1)
+        right_col.addWidget(apply_btn)
+
+        # Series selector: which of the script's preview outputs to draw. The
+        # available series come from the script's result, so this stays hidden
+        # until the first Preview run populates it.
+        self._preview_series_checks = {}
+        self._preview_series_box = QWidget()
+        box_v = QVBoxLayout(self._preview_series_box)
+        box_v.setContentsMargins(0, 0, 0, 0)
+        box_v.setSpacing(2)
+        box_v.addWidget(QLabel(_tr('Series to plot:')))
+        self._preview_series_layout = QVBoxLayout()
+        self._preview_series_layout.setContentsMargins(0, 0, 0, 0)
+        self._preview_series_layout.setSpacing(1)
+        box_v.addLayout(self._preview_series_layout)
+        self._preview_series_box.setVisible(False)
+        right_col.addWidget(self._preview_series_box)
+        right_col.addStretch(1)
+        mid_row.addLayout(right_col, 0)
+        v.addLayout(mid_row)
+
+        # Status line spans the full width below both columns so it stays legible.
         self._calib_status = QLabel('')
         self._calib_status.setStyleSheet('color: #888888; font-size: 10px;')
-        btn_row.addWidget(self._calib_status)
-        v.addLayout(btn_row)
+        self._calib_status.setWordWrap(True)
+        v.addWidget(self._calib_status)
 
         self._rebuild_calib_form()
         return tab
+
+    def _series_label(self, key):
+        """Human label for a preview series key (the raw trace reads 'Original')."""
+        if key == _PREVIEW_ORIGINAL:
+            return _tr('Original')
+        return key[:1].upper() + key[1:]
+
+    def _rebuild_series_checks(self, ordered_keys):
+        """Populate the series selector with one checkbox per available preview
+        output, preserving each series' prior checked state across runs."""
+        if self._preview_series_layout is None:
+            return
+        while self._preview_series_layout.count():
+            item = self._preview_series_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self._preview_series_checks = {}
+        for key in ordered_keys:
+            cb = QCheckBox(self._series_label(key))
+            cb.setChecked(self._preview_series_state.get(key, True))
+            cb.toggled.connect(lambda checked, k=key: self._on_series_toggled(k, checked))
+            self._preview_series_checks[key] = cb
+            self._preview_series_layout.addWidget(cb)
+        self._preview_series_box.setVisible(bool(ordered_keys))
+
+    def _on_series_toggled(self, key, checked):
+        # Re-plot from the cached result — no need to recompute the preview.
+        self._preview_series_state[key] = checked
+        self._render_preview()
 
     def _saved_values_for(self, script_id):
         """Current saved param values for *script_id* (the script's configured
@@ -792,6 +876,10 @@ class PlotViewer(BaseViewer):
     def _on_calib_script_changed(self, _index):
         # Only swap the knob form; the preview stays manual (Preview button).
         self._rebuild_calib_form()
+        # A different script exposes different preview series, so hide the stale
+        # selector until the next Preview run repopulates it.
+        if self._preview_series_box is not None:
+            self._preview_series_box.setVisible(False)
 
     def _rebuild_calib_form(self):
         """(Re)build the ParamForm for the selected script inside the scroll area."""
@@ -891,14 +979,40 @@ class PlotViewer(BaseViewer):
     def _on_preview_done(self, token, result):
         if token != self._preview_token:
             return  # a newer run superseded this one
-        # One raw line per trace, plus each returned series, labelled "col: name".
+        self._preview_result = result or {}
+        # Discover the series the script returned (union across columns, in the
+        # order first seen), with 'Original' (the raw trace) always first, and
+        # offer them as checkboxes so the user picks which to draw.
+        ordered = [_PREVIEW_ORIGINAL]
+        seen = set()
+        for col in self._preview_raw_map:
+            for name in (self._preview_result.get(col) or {}):
+                if name not in seen:
+                    seen.add(name)
+                    ordered.append(name)
+        self._rebuild_series_checks(ordered)
+        self._render_preview()
+
+    def _render_preview(self):
+        """(Re)plot the cached preview, keeping only the checked series.
+
+        One line per (displayed column x checked series), labelled "col: series".
+        Runs off the stored result, so toggling checkboxes never recomputes.
+        """
+        if not self._preview_raw_map:
+            return
+        self._showing_preview = True
+        checked = {k for k, cb in self._preview_series_checks.items() if cb.isChecked()}
         series = {}
         for col, y in self._preview_raw_map.items():
-            series[f'{col}: raw'] = y
-            for name, values in (result.get(col, {}) or {}).items():
+            if _PREVIEW_ORIGINAL in checked:
+                series[f'{col}: {self._series_label(_PREVIEW_ORIGINAL)}'] = y
+            for name, values in (self._preview_result.get(col, {}) or {}).items():
+                if name not in checked:
+                    continue
                 arr = np.asarray(values, dtype=float).ravel()
                 if arr.shape[0] == y.shape[0]:
-                    series[f'{col}: {name}'] = arr
+                    series[f'{col}: {self._series_label(name)}'] = arr
         self._plot_named_series(self._preview_idx, series)
         self._set_calib_status(_tr('Previewing {0} series (click legend to toggle).').format(
             len(series)))

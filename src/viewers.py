@@ -229,6 +229,7 @@ class PlotViewer(BaseViewer):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.data = None
+        self.file_path = None             # path of the CSV/Excel currently shown
         self._reader = None
         self._plot_items = {}
         self._signal_col_by_key = {}
@@ -267,6 +268,7 @@ class PlotViewer(BaseViewer):
 
     def load(self, file_path):
         # Load data in background thread with progress reporting
+        self.file_path = file_path
         self._reader = CSVReaderWorker(file_path)
         self._reader.progress_updated.connect(self._on_reader_progress, Qt.BlockingQueuedConnection)
         self._reader.data_loaded.connect(self._on_csv_loaded)
@@ -1040,12 +1042,27 @@ class PlotViewer(BaseViewer):
         if self._calib_status is not None:
             self._calib_status.setText(text)
 
+    def _input_param_name(self, pinfo):
+        """Name of the script's input parameter (its first ``file`` knob), or None."""
+        for p in (pinfo.parameters or []):
+            if p.get('type') == 'file':
+                return p.get('name')
+        return None
+
     def _on_calib_apply(self):
-        """Write the current knob values back into the pipeline config."""
+        """Write the current knob values back into the pipeline config.
+
+        Along with the tuned knobs, the path of the CSV currently open in this
+        viewer is written to the script's input parameter, so the calibrated
+        script points at the same data the preview was tuned against.
+        """
         pinfo = self._current_calib_plugin()
         if pinfo is None or self._calib_form is None or self._calib_apply_cb is None:
             return
         values = self._calib_form.get_values()
+        input_name = self._input_param_name(pinfo)
+        if input_name and self.file_path:
+            values[input_name] = self.file_path
         self._calib_apply_cb(pinfo.id, values)
         # Keep the local seed in sync so re-opening the form shows the applied
         # values. When the host supplies a callable, it already reads live config,

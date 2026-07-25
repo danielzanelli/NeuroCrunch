@@ -292,6 +292,7 @@ class NeuroCrunch(QMainWindow):
             self.refresh_local_folder()
 
     def refresh_local_folder(self):
+        expanded = self._get_expanded_paths()
         self.ui.file_viewer.clear()
         if not self.local_folder:
             self.print(self.tr('No local folder selected.'))
@@ -301,6 +302,41 @@ class NeuroCrunch(QMainWindow):
             return
 
         self._populate_dir(self.ui.file_viewer.invisibleRootItem(), self.local_folder)
+        self._restore_expanded_paths(expanded)
+
+    def _get_expanded_paths(self):
+        """Collect the full paths of every expanded folder so a refresh can restore them."""
+        expanded = set()
+
+        def walk(item):
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child.isExpanded():
+                    path = child.data(0, Qt.UserRole)
+                    if path:
+                        expanded.add(path)
+                    walk(child)
+
+        walk(self.ui.file_viewer.invisibleRootItem())
+        return expanded
+
+    def _restore_expanded_paths(self, expanded):
+        """Re-expand folders that were open before the refresh.
+
+        Expanding an item lazily loads its children (see on_item_expanded), so
+        we walk top-down: a level is populated before we descend into it.
+        """
+        if not expanded:
+            return
+
+        def walk(item):
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child.data(0, Qt.UserRole) in expanded:
+                    child.setExpanded(True)
+                    walk(child)
+
+        walk(self.ui.file_viewer.invisibleRootItem())
 
     def get_user_plugins_dir(self):
         """Resolve the writable, per-user directory where community/user-installed scripts live.

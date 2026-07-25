@@ -1,6 +1,6 @@
 {
-  "id": "signal_processing",
-  "name": "Signal Processing",
+  "id": "als_filter",
+  "name": {"en": "ALS Filter", "es": "Filtro ALS"},
   "description": "Removes photobleaching effects from fluorescence signals.",
   "version": "1.0.0",
   "author": "Daniel Zanelli",
@@ -21,6 +21,15 @@
       "label": {"en": "Metrics to process", "es": "Métricas a procesar"},
       "description": {"en": "Comma-separated list (e.g. Mean,Max). Empty = all", "es": "Lista separada por comas (p. ej. Mean,Max). Vacío = todas"},
       "default": "Mean"
+    },
+    {
+      "name": "baseline_offset",
+      "type": "float",
+      "label": {"en": "Signal offset", "es": "Desplazamiento de señal"},
+      "description": {"en": "Constant added to the signal before the baseline, to keep the correction's denominator away from zero. 0 = disabled", "es": "Constante sumada a la señal antes de la línea base, para mantener el denominador de la corrección lejos de cero. 0 = desactivado"},
+      "default": 0.0,
+      "min": 0.0,
+      "decimals": 6
     },
     {
       "name": "baseline_lam",
@@ -116,8 +125,21 @@
     }
   ],
   "outputs": {
-    "baseline_csv": {"en": "Path to the CSV with the estimated ALS baseline", "es": "Ruta del CSV con la línea base ALS estimada"},
-    "corrected_csv": {"en": "Path to the CSV file with the corrected traces", "es": "Ruta del archivo CSV con las trazas corregidas"}
-    ,"smoothed_csv": {"en": "Path to the CSV with the final smoothed signal", "es": "Ruta del CSV con la señal final suavizada"}
+    "smoothed_csv": {"en": "Path to the CSV with the final smoothed signal", "es": "Ruta del CSV con la señal final suavizada"}
+  },
+  "calibration": {
+    "kind": "traces",
+    "params": [
+      "baseline_offset",
+      "baseline_lam",
+      "baseline_p",
+      "baseline_niter",
+      "baseline_lam_factor",
+      "baseline_rampup_fraction",
+      "baseline_rampdown_fraction",
+      "smooth_lam",
+      "smooth_p",
+      "smooth_niter"
+    ]
   }
 }

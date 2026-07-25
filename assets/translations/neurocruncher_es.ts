@@ -304,8 +304,8 @@
         <translation>Error al cargar el archivo de texto:\n{0}</translation>
     </message>
     <message>
-        <source>Regex</source>
-        <translation>Regex</translation>
+        <source>Plot Columns</source>
+        <translation>Graficar columnas</translation>
     </message>
     <message>
         <source>Neuron Selection</source>

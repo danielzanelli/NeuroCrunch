@@ -30,6 +30,44 @@ def _tr(text: str) -> str:
     return QCoreApplication.translate('ScriptRunner', text)
 
 
+def load_script_callable(plugin_info: Any, name: str) -> Optional[Callable]:
+    """Compile a plugin's entry point and return its top-level callable *name*.
+
+    Used outside a pipeline run — e.g. by the calibration preview — to fetch a
+    script's optional ``preview`` function without executing ``run``. The source
+    is compiled and ``exec``'d in a fresh namespace with ``__name__`` set to a
+    non-``'__main__'`` value so the CLI block is skipped, mirroring
+    :meth:`ScriptRunner._run_script`. Returns ``None`` if the file cannot be
+    read/compiled or the callable is absent.
+    """
+    entry_point = getattr(plugin_info, 'entry_point', None)
+    if not entry_point:
+        return None
+    try:
+        with open(entry_point, 'r', encoding='utf-8') as f:
+            source = f.read()
+        code = compile(source, entry_point, 'exec')
+    except (OSError, SyntaxError):
+        return None
+
+    script_dir = os.path.dirname(entry_point)
+    old_cwd = os.getcwd()
+    namespace: Dict[str, Any] = {'__name__': '', '__file__': entry_point}
+    try:
+        os.chdir(script_dir)
+        exec(code, namespace)  # noqa: S102
+    except Exception:  # noqa: BLE001 - a broken module simply yields no callable
+        return None
+    finally:
+        try:
+            os.chdir(old_cwd)
+        except OSError:
+            pass
+
+    fn = namespace.get(name)
+    return fn if callable(fn) else None
+
+
 class _PipelineCancelled(BaseException):
     """Raised inside the worker thread to interrupt a running script on Stop.
 

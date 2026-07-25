@@ -304,8 +304,8 @@
         <translation>Error loading text file:\n{0}</translation>
     </message>
     <message>
-        <source>Regex</source>
-        <translation>Regex</translation>
+        <source>Plot Columns</source>
+        <translation>Plot Columns</translation>
     </message>
     <message>
         <source>Neuron Selection</source>

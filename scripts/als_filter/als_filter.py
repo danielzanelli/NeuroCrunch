@@ -207,6 +207,7 @@ def als_baseline_adaptive(
 def bleach_correct_and_smooth(
 	y: np.ndarray,
 	*,
+	baseline_offset: float,
 	baseline_lam: float,
 	baseline_p: float,
 	baseline_niter: int,
@@ -219,6 +220,13 @@ def bleach_correct_and_smooth(
 	baseline_penalty: np.ndarray | None = None,
 	smooth_penalty: np.ndarray | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+	# Lift the raw signal before estimating the baseline. Because the ALS
+	# baseline is shift-invariant, the offset cancels in (y - baseline) and
+	# survives only in the denominator, keeping it away from zero without
+	# altering the corrected trace elsewhere.
+	if baseline_offset:
+		y = y + baseline_offset
+
 	baseline = als_baseline_adaptive(
 		y,
 		lam=baseline_lam,
@@ -246,6 +254,13 @@ def bleach_correct_and_smooth(
 		penalty_matrix=smooth_penalty,
 	)
 
+	# The offset is an internal trick to stabilize the division; undo it on the
+	# reported baseline so it represents the original signal and overlays on the
+	# raw trace (in the preview and the saved baseline CSV). The corrected and
+	# smoothed traces are offset-invariant and need no adjustment.
+	if baseline_offset:
+		baseline = baseline - baseline_offset
+
 	return baseline, corrected, smoothed
 
 
@@ -254,6 +269,7 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
 	output_dir = os.path.abspath(os.path.normpath(params["output_dir"]))
 	progress_every = max(1, int(params.get("progress_every", 25)))
 
+	baseline_offset = float(params.get("baseline_offset", 0.0))
 	baseline_lam = float(params.get("baseline_lam", 1e5))
 	baseline_p = float(params.get("baseline_p", 0.01))
 	baseline_niter = int(params.get("baseline_niter", 10))
@@ -290,15 +306,12 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
 	print(f"Columns to process: {len(target_columns)}")
 	print("Starting bleaching correction...")
 
-	baseline_df = pd.DataFrame(index=df.index)
 	process_start = time.time()
 	series_len = len(df.index)
 	target_count = len(target_columns)
 
-	baseline_matrix = np.empty((series_len, target_count), dtype=float)
-	baseline_matrix.fill(np.nan)
-	corrected_matrix = np.empty((series_len, target_count), dtype=float)
-	corrected_matrix.fill(np.nan)
+	# Only the final smoothed trace is saved; the baseline and corrected stages
+	# are computed internally but not written out.
 	smoothed_matrix = np.empty((series_len, target_count), dtype=float)
 	smoothed_matrix.fill(np.nan)
 
@@ -339,8 +352,6 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
 		nan_mask = np.isnan(y)
 		if nan_mask.all():
 			nan_all_count += 1
-			baseline_matrix[:, col_idx] = np.nan
-			corrected_matrix[:, col_idx] = np.nan
 			smoothed_matrix[:, col_idx] = np.nan
 			continue
 
@@ -349,8 +360,9 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
 			valid_idx = np.flatnonzero(~nan_mask)
 			y[nan_mask] = np.interp(np.flatnonzero(nan_mask), valid_idx, y[valid_idx])
 
-		baseline, corrected, smoothed = bleach_correct_and_smooth(
+		_baseline, _corrected, smoothed = bleach_correct_and_smooth(
 			y,
+			baseline_offset=baseline_offset,
 			baseline_lam=baseline_lam,
 			baseline_p=baseline_p,
 			baseline_niter=baseline_niter,
@@ -364,32 +376,21 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
 			smooth_penalty=smooth_penalty,
 		)
 
-		baseline_matrix[:, col_idx] = baseline
-		corrected_matrix[:, col_idx] = corrected
 		smoothed_matrix[:, col_idx] = smoothed
 
 	# Close the in-place progress line.
 	print()
 
-	baseline_df = pd.DataFrame(baseline_matrix, index=df.index, columns=target_columns)
-	corrected_df = df.copy()
 	smoothed_df = df.copy()
-	corrected_df.loc[:, target_columns] = corrected_matrix
 	smoothed_df.loc[:, target_columns] = smoothed_matrix
 
 	stem = os.path.splitext(os.path.basename(input_csv))[0]
-	baseline_csv = os.path.join(output_dir, f"{stem}_baseline_als.csv")
-	corrected_csv = os.path.join(output_dir, f"{stem}_corrected_als.csv")
-	smoothed_csv = os.path.join(output_dir, f"{stem}_smoothed_als.csv")
+	smoothed_csv = os.path.join(output_dir, f"{stem}_als.csv")
 	print("Saving results to CSV...")
 
-	baseline_df.to_csv(baseline_csv, index=False)
-	corrected_df.to_csv(corrected_csv, index=False)
 	smoothed_df.to_csv(smoothed_csv, index=False)
 	total_elapsed = time.time() - process_start
 
-	print(f"Baseline CSV saved to: {baseline_csv}")
-	print(f"Corrected CSV saved to: {corrected_csv}")
 	print(f"Smoothed CSV saved to: {smoothed_csv}")
 	if nan_all_count or nan_partial_count:
 		print(
@@ -398,14 +399,61 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
 		)
 	print(f"Total processing time: {total_elapsed:.1f}s")
 
-	print(f"OUTPUT:baseline_csv={baseline_csv}")
-	print(f"OUTPUT:corrected_csv={corrected_csv}")
 	print(f"OUTPUT:smoothed_csv={smoothed_csv}")
 
 	return {
-		"baseline_csv": baseline_csv,
-		"corrected_csv": corrected_csv,
 		"smoothed_csv": smoothed_csv,
+	}
+
+
+def preview(sample: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
+	"""Run the ALS correction on a single trace for interactive calibration.
+
+	Pure and headless — no file I/O, no plotting. The app's Filter-preview tab
+	feeds one (already-decimated) trace and the current parameter values, then
+	overlays the returned series so the user can tune the knobs against real
+	data. It reuses the same core as ``main()`` so the preview matches the batch
+	result.
+
+	Parameters
+	----------
+	sample : dict
+		``{"y": <1-D array-like>}`` — a single fluorescence trace.
+	params : dict
+		Same parameter keys read by ``main()``.
+
+	Returns
+	-------
+	dict
+		``{"baseline", "corrected", "smoothed"}`` — each a list the length of
+		the input trace. Returns ``{}`` when the trace is too short to process.
+	"""
+	y = np.asarray(sample.get("y"), dtype=float).ravel()
+	nan_mask = np.isnan(y)
+	if nan_mask.all() or y.shape[0] < 3:
+		return {}
+	if nan_mask.any():
+		valid_idx = np.flatnonzero(~nan_mask)
+		y[nan_mask] = np.interp(np.flatnonzero(nan_mask), valid_idx, y[valid_idx])
+
+	baseline, corrected, smoothed = bleach_correct_and_smooth(
+		y,
+		baseline_offset=float(params.get("baseline_offset", 0.0)),
+		baseline_lam=float(params.get("baseline_lam", 1e5)),
+		baseline_p=float(params.get("baseline_p", 0.01)),
+		baseline_niter=int(params.get("baseline_niter", 10)),
+		baseline_lam_factor=float(params.get("baseline_lam_factor", 1e-3)),
+		baseline_rampup=float(params.get("baseline_rampup_fraction", 0.2)),
+		baseline_rampdown=float(params.get("baseline_rampdown_fraction", 0.2)),
+		smooth_lam=float(params.get("smooth_lam", 1e1)),
+		smooth_p=float(params.get("smooth_p", 0.5)),
+		smooth_niter=int(params.get("smooth_niter", 10)),
+	)
+
+	return {
+		"baseline": baseline.tolist(),
+		"corrected": corrected.tolist(),
+		"smoothed": smoothed.tolist(),
 	}
 
 
@@ -426,6 +474,7 @@ if __name__ == "__main__":
 	parser.add_argument("--output_dir", type=str)
 	parser.add_argument("--metrics", type=str, default="")
 
+	parser.add_argument("--baseline_offset", type=float, default=0.0)
 	parser.add_argument("--baseline_lam", type=float, default=1e5)
 	parser.add_argument("--baseline_p", type=float, default=0.01)
 	parser.add_argument("--baseline_niter", type=int, default=10)
@@ -462,6 +511,7 @@ if __name__ == "__main__":
 			"input_csv": args.input_csv,
 			"output_dir": args.output_dir,
 			"metrics": args.metrics,
+			"baseline_offset": args.baseline_offset,
 			"baseline_lam": args.baseline_lam,
 			"baseline_p": args.baseline_p,
 			"baseline_niter": args.baseline_niter,

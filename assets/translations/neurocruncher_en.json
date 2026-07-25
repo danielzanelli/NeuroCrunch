@@ -75,7 +75,7 @@
     "Loading PDF (QWebEngineView): {0}": "Loading PDF (QWebEngineView): {0}",
     "Error loading PDF:\\n{0}": "Error loading PDF:\\n{0}",
     "Error loading text file:\\n{0}": "Error loading text file:\\n{0}",
-    "Regex": "Regex",
+    "Plot Columns": "Plot Columns",
     "Neuron Selection": "Neuron Selection",
     "No neuron/metric columns were recognised in this file.": "No neuron/metric columns were recognised in this file.",
     "Found {0} metrics and {1} neurons.": "Found {0} metrics and {1} neurons.",

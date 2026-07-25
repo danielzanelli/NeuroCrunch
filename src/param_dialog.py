@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtCore import QCoreApplication, Qt, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -109,6 +109,137 @@ def _resolve_link(link: str, pipeline_context: PipelineContext) -> Optional[Any]
     if not isinstance(script_outputs, dict):
         return None
     return script_outputs.get(output_key)  # may be None
+
+
+# Simple parameter types whose widget needs no file dialog or link menu, so they
+# can be built and read outside ParamDialog (e.g. by the calibration ParamForm).
+SIMPLE_PARAM_TYPES = ('string', 'int', 'float', 'bool', 'choice', 'text')
+
+
+class _TrimmedDoubleSpinBox(QDoubleSpinBox):
+    """A float spin box that displays values without padding trailing zeros.
+
+    Keeps the configured ``decimals`` capacity so the user can still type finer
+    values, but shows the shortest form with at least one digit after the
+    decimal point — ``1.0000`` reads as ``1.0`` and ``0.2500`` as ``0.25``.
+    """
+
+    def textFromValue(self, value: float) -> str:
+        text = f'{value:.{self.decimals()}f}'
+        if '.' in text:
+            text = text.rstrip('0')
+            if text.endswith('.'):
+                text += '0'
+        return text
+
+
+def make_param_widget(ptype: str, param: Dict[str, Any], initial_val: Any) -> QWidget:
+    """Create the input widget for a simple parameter *ptype*.
+
+    Covers every type except ``file``/``directory`` (those need the link menu and
+    Browse button owned by :class:`ParamDialog`). Unknown types fall back to a
+    plain line edit. Shared by :class:`ParamDialog` and :class:`ParamForm` so both
+    render identical widgets with the same min/max/decimals/options handling.
+    """
+    if ptype == 'int':
+        w = QSpinBox()
+        w.setMinimum(int(param.get('min', -2147483648)))
+        w.setMaximum(int(param.get('max', 2147483647)))
+        if initial_val is not None:
+            try:
+                w.setValue(int(initial_val))
+            except (ValueError, TypeError):
+                pass
+        return w
+
+    if ptype == 'float':
+        w = _TrimmedDoubleSpinBox()
+        w.setMinimum(float(param.get('min', -1e12)))
+        w.setMaximum(float(param.get('max', 1e12)))
+        w.setDecimals(int(param.get('decimals', 4)))
+        if initial_val is not None:
+            try:
+                w.setValue(float(initial_val))
+            except (ValueError, TypeError):
+                pass
+        return w
+
+    if ptype == 'bool':
+        w = QCheckBox()
+        if initial_val is not None:
+            if isinstance(initial_val, bool):
+                w.setChecked(initial_val)
+            elif isinstance(initial_val, str):
+                w.setChecked(initial_val.lower() in ('true', '1', 'yes'))
+            else:
+                w.setChecked(bool(initial_val))
+        return w
+
+    if ptype == 'choice':
+        w = QComboBox()
+        w.addItems([str(o) for o in param.get('options', [])])
+        if initial_val is not None:
+            idx = w.findText(str(initial_val))
+            if idx >= 0:
+                w.setCurrentIndex(idx)
+        return w
+
+    if ptype == 'text':
+        w = QTextEdit()
+        w.setMaximumHeight(120)
+        if initial_val is not None:
+            w.setPlainText(str(initial_val))
+        return w
+
+    # 'string' and any unknown type -> single-line text box.
+    w = QLineEdit()
+    if initial_val is not None:
+        w.setText(str(initial_val))
+    return w
+
+
+def extract_param_value(ptype: str, widget: QWidget) -> Any:
+    """Read the current value from a widget built by :func:`make_param_widget`."""
+    if ptype == 'int' or ptype == 'float':
+        return widget.value()
+    if ptype == 'bool':
+        return widget.isChecked()
+    if ptype == 'choice':
+        return widget.currentText()
+    if ptype == 'text':
+        return widget.toPlainText().strip()
+    # 'string' and unknown fallbacks.
+    if hasattr(widget, 'text'):
+        return widget.text().strip()
+    return None
+
+
+def connect_param_widget(ptype: str, widget: QWidget, callback) -> None:
+    """Connect *widget*'s change signal to *callback* (for live calibration)."""
+    if ptype in ('int', 'float'):
+        widget.valueChanged.connect(lambda _v: callback())
+    elif ptype == 'bool':
+        widget.toggled.connect(lambda _v: callback())
+    elif ptype == 'choice':
+        widget.currentIndexChanged.connect(lambda _v: callback())
+    elif ptype == 'text':
+        widget.textChanged.connect(callback)
+    else:  # string / unknown
+        widget.textChanged.connect(lambda _v: callback())
+
+
+def connect_param_submit(ptype: str, widget: QWidget, callback) -> None:
+    """Connect *widget*'s "Enter pressed" signal to *callback*, when it has one.
+
+    Lets the host act immediately on a committed edit (e.g. re-run a preview)
+    rather than waiting on the debounce. Spin boxes expose their inner line edit;
+    line edits fire ``returnPressed`` directly. Widgets without a meaningful
+    Enter action (checkbox, combo, multi-line text) are skipped.
+    """
+    if ptype in ('int', 'float'):
+        widget.lineEdit().returnPressed.connect(callback)
+    elif ptype not in ('bool', 'choice', 'text'):  # string / unknown -> QLineEdit
+        widget.returnPressed.connect(callback)
 
 
 class ParamDialog(QDialog):
@@ -212,6 +343,33 @@ class ParamDialog(QDialog):
         button_box.rejected.connect(self.reject)
         outer_layout.addWidget(button_box)
 
+        self._size_to_content(form_container, button_box)
+
+    def _size_to_content(self, form_container: QWidget, button_box: QWidget) -> None:
+        """Open the dialog tall enough to show the whole form, capped to the screen.
+
+        The scroll area's default size hint is small, so the dialog would
+        otherwise open short and clip the form even with plenty of vertical
+        space available. We size to the form's natural height (plus the button
+        row and layout margins) but never past ~90% of the available screen
+        height, letting the scroll bar handle the overflow only when it must.
+        """
+        margins = self.layout().contentsMargins()
+        spacing = self.layout().spacing()
+        chrome = (
+            margins.top() + margins.bottom()
+            + button_box.sizeHint().height()
+            + spacing
+        )
+        content_height = form_container.sizeHint().height()
+
+        screen = self.screen()
+        available = screen.availableGeometry().height() if screen is not None else 900
+        desired = min(content_height + chrome, int(available * 0.9))
+
+        width = max(self.minimumWidth(), self.sizeHint().width())
+        self.resize(width, desired)
+
     def _add_param_row(self, form_layout: QFormLayout, param: Dict[str, Any]) -> None:
         """Add a label + widget row for *param* to *form_layout*."""
         name: str = param.get('name', '')
@@ -286,79 +444,21 @@ class ParamDialog(QDialog):
                 actual_widget.setToolTip(description)
 
     def _build_widget(self, ptype: str, param: Dict[str, Any], initial_val: Any) -> QWidget:
-        """Create and return the appropriate Qt widget for *ptype*."""
-        if ptype == 'string':
-            return self._make_line_edit(initial_val)
+        """Create and return the appropriate Qt widget for *ptype*.
 
-        elif ptype == 'int':
-            return self._make_spin_box(param, initial_val)
-
-        elif ptype == 'float':
-            return self._make_double_spin_box(param, initial_val)
-
-        elif ptype == 'bool':
-            return self._make_checkbox(param, initial_val)
-
-        elif ptype == 'file':
+        File/directory pickers are built here (they own a link menu and Browse
+        button); every other type is delegated to the shared
+        :func:`make_param_widget` factory.
+        """
+        if ptype == 'file':
             return self._make_file_picker(param, initial_val, directory=False)
-
-        elif ptype == 'directory':
+        if ptype == 'directory':
             return self._make_file_picker(param, initial_val, directory=True)
-
-        elif ptype == 'choice':
-            return self._make_combo_box(param, initial_val)
-
-        elif ptype == 'text':
-            return self._make_text_edit(initial_val)
-
-        else:
-            # Unknown type — fall back to a plain line edit
-            return self._make_line_edit(initial_val)
+        return make_param_widget(ptype, param, initial_val)
 
     # ------------------------------------------------------------------
     # Widget factory helpers
     # ------------------------------------------------------------------
-
-    def _make_line_edit(self, initial_val: Any) -> QLineEdit:
-        w = QLineEdit()
-        if initial_val is not None:
-            w.setText(str(initial_val))
-        return w
-
-    def _make_spin_box(self, param: Dict[str, Any], initial_val: Any) -> QSpinBox:
-        w = QSpinBox()
-        w.setMinimum(int(param.get('min', -2147483648)))
-        w.setMaximum(int(param.get('max', 2147483647)))
-        if initial_val is not None:
-            try:
-                w.setValue(int(initial_val))
-            except (ValueError, TypeError):
-                pass
-        return w
-
-    def _make_double_spin_box(self, param: Dict[str, Any], initial_val: Any) -> QDoubleSpinBox:
-        w = QDoubleSpinBox()
-        w.setMinimum(float(param.get('min', -1e12)))
-        w.setMaximum(float(param.get('max', 1e12)))
-        decimals = int(param.get('decimals', 4))
-        w.setDecimals(decimals)
-        if initial_val is not None:
-            try:
-                w.setValue(float(initial_val))
-            except (ValueError, TypeError):
-                pass
-        return w
-
-    def _make_checkbox(self, param: Dict[str, Any], initial_val: Any) -> QCheckBox:
-        w = QCheckBox()
-        if initial_val is not None:
-            if isinstance(initial_val, bool):
-                w.setChecked(initial_val)
-            elif isinstance(initial_val, str):
-                w.setChecked(initial_val.lower() in ('true', '1', 'yes'))
-            else:
-                w.setChecked(bool(initial_val))
-        return w
 
     def _make_file_picker(
         self, param: Dict[str, Any], initial_val: Any, *, directory: bool
@@ -510,23 +610,6 @@ class ParamDialog(QDialog):
         container._line_edit = line_edit  # type: ignore[attr-defined]
         return container
 
-    def _make_combo_box(self, param: Dict[str, Any], initial_val: Any) -> QComboBox:
-        w = QComboBox()
-        options: List[str] = [str(o) for o in param.get('options', [])]
-        w.addItems(options)
-        if initial_val is not None:
-            idx = w.findText(str(initial_val))
-            if idx >= 0:
-                w.setCurrentIndex(idx)
-        return w
-
-    def _make_text_edit(self, initial_val: Any) -> QTextEdit:
-        w = QTextEdit()
-        w.setMaximumHeight(120)
-        if initial_val is not None:
-            w.setPlainText(str(initial_val))
-        return w
-
     # ------------------------------------------------------------------
     # Value extraction helpers
     # ------------------------------------------------------------------
@@ -548,26 +631,10 @@ class ParamDialog(QDialog):
         if w is None:
             return None
 
-        if ptype == 'string':
-            return w.text().strip()
-        elif ptype == 'int':
-            return w.value()
-        elif ptype == 'float':
-            return w.value()
-        elif ptype == 'bool':
-            return w.isChecked()
-        elif ptype in ('file', 'directory'):
+        if ptype in ('file', 'directory'):
             line_edit = getattr(w, '_line_edit', None)
             return line_edit.text().strip() if line_edit is not None else ''
-        elif ptype == 'choice':
-            return w.currentText()
-        elif ptype == 'text':
-            return w.toPlainText().strip()
-        else:
-            # Unknown — try text() as fallback
-            if hasattr(w, 'text'):
-                return w.text().strip()
-            return None
+        return extract_param_value(ptype, w)
 
     # ------------------------------------------------------------------
     # Validation & accept
@@ -642,6 +709,87 @@ class ParamDialog(QDialog):
             if current != manifest_link:
                 overrides[name] = current
         return overrides
+
+
+class ParamForm(QWidget):
+    """A compact, embeddable form of tunable parameters for live calibration.
+
+    Unlike :class:`ParamDialog` this is a plain widget (no OK/Cancel, no file
+    pickers or links) meant to sit inside another view — the CSV Filter-preview
+    tab. It renders one label+widget row per parameter using the same shared
+    :func:`make_param_widget` factory, and emits :attr:`changed` (debounced) so
+    the host can re-run a preview as the user drags. Read the current values with
+    :meth:`get_values`.
+
+    Parameters
+    ----------
+    parameters:
+        Manifest parameter dicts to expose (already filtered by the caller, e.g.
+        to a script's ``calibration.params`` list).
+    values:
+        Saved values to seed the widgets with; manifest ``default`` is used for
+        any parameter absent here.
+    language:
+        Active UI language code for locale-map labels.
+    debounce_ms:
+        Idle delay after the last edit before :attr:`changed` fires.
+
+    Also emits :attr:`submitted` immediately when the user presses Enter in any
+    field, so the host can re-run at once instead of waiting on the debounce.
+    """
+
+    changed = Signal()
+    submitted = Signal()
+
+    def __init__(
+        self,
+        parameters: List[Dict[str, Any]],
+        values: Optional[Dict[str, Any]] = None,
+        language: str = 'en',
+        debounce_ms: int = 400,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._language = language or 'en'
+        self._params = [p for p in (parameters or []) if p.get('name')]
+        seed = dict(values) if values else {}
+        self._widgets: Dict[str, QWidget] = {}
+        self._types: Dict[str, str] = {}
+
+        self._debounce = QTimer(self)
+        self._debounce.setSingleShot(True)
+        self._debounce.setInterval(max(0, int(debounce_ms)))
+        self._debounce.timeout.connect(self.changed)
+
+        form = QFormLayout(self)
+        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        form.setContentsMargins(4, 4, 4, 4)
+        form.setSpacing(4)
+
+        for param in self._params:
+            name = param['name']
+            ptype = param.get('type', 'string')
+            initial = seed.get(name, param.get('default'))
+            widget = make_param_widget(ptype, param, initial)
+            connect_param_widget(ptype, widget, self._debounce.start)
+            connect_param_submit(ptype, widget, self.submitted)
+            label = _resolve_label(param, 'label', self._language) or name
+            label_widget = QLabel(label)
+            description = _resolve_label(param, 'description', self._language)
+            if description:
+                label_widget.setToolTip(description)
+                widget.setToolTip(description)
+            form.addRow(label_widget, widget)
+            self._widgets[name] = widget
+            self._types[name] = ptype
+
+    def get_values(self) -> Dict[str, Any]:
+        """Return ``{param_name: current_value}`` for every exposed parameter."""
+        return {
+            name: extract_param_value(self._types[name], widget)
+            for name, widget in self._widgets.items()
+        }
 
 
 # ---------------------------------------------------------------------------

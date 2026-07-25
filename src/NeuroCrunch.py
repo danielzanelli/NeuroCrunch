@@ -28,7 +28,7 @@ from dark_mode_manager import DarkModeManager
 from plugin_manager import PluginManager
 from param_dialog import ParamDialog
 from graph_viewer import GraphViewer
-from viewers import viewer_for, VideoViewer, TextViewer
+from viewers import viewer_for, PlotViewer, VideoViewer, TextViewer
 from script_runner import PipelineContext, ScriptRunner
 from updater import read_current_version, UpdateChecker, UpdateDownloader, apply_update
 
@@ -226,6 +226,8 @@ class NeuroCrunch(QMainWindow):
         # Strings set from code are not covered by retranslateUi:
         self.ui.viewer_placeholder.setText(self.tr('Double-click a file to preview it'))
         for viewer in self.open_viewers():
+            if isinstance(viewer, PlotViewer):
+                viewer.set_calibration_language(self.current_language)
             viewer.retranslate()
 
         # Keep the Run/Stop toggle label consistent with the runner state
@@ -561,7 +563,49 @@ class NeuroCrunch(QMainWindow):
         self.ui.viewer_stack.setCurrentWidget(self.ui.viewer_tabs)
         self.ui.viewer_tabs.setCurrentWidget(viewer)
         viewer.apply_theme(self._is_dark_mode())
+
+        # Enable the CSV "Filter preview" tab for scripts that declare a
+        # 'traces' calibration, so their parameters can be tuned live against
+        # the loaded data. Set before load(): the tab appears once the CSV
+        # finishes loading and the column-selector menu is (re)built.
+        if isinstance(viewer, PlotViewer):
+            calib_plugins = self._calibration_plugins('traces')
+            if calib_plugins:
+                plugin_ids = [p.id for p in calib_plugins]
+                # A provider (not a snapshot) so the Filter-preview tab always
+                # pre-fills from each script's current configuration.
+                saved = lambda: {
+                    sid: self.config.get(sid, {}).get('parameters', {})
+                    for sid in plugin_ids
+                }
+                viewer.set_calibration_context(
+                    calib_plugins, self._apply_calibration_params, saved, self.current_language
+                )
+
         viewer.load(file_path)
+
+    def _calibration_plugins(self, kind):
+        """Discovered plugins whose manifest declares ``calibration.kind == kind``."""
+        return [
+            p for p in self.plugins.values()
+            if (getattr(p, 'calibration', None) or {}).get('kind') == kind
+        ]
+
+    def _apply_calibration_params(self, script_id, values):
+        """Write calibrated parameter *values* back into the pipeline config.
+
+        Called by a viewer's "Apply to pipeline" button. Mirrors the write-back
+        in ``open_param_dialog`` so the script's "Configured" state and saved
+        parameters update immediately.
+        """
+        if script_id not in self.config:
+            return
+        params = self.config[script_id].setdefault('parameters', {})
+        params.update(values)
+        self.config[script_id]['last_modified'] = datetime.datetime.now().strftime('%Y/%m/%d - %H:%M')
+        name = self.plugins[script_id].name if script_id in self.plugins else script_id
+        self.print(self.tr('Calibration applied to "{0}"').format(name))
+        self.refresh_scripts_table()
 
     def close_tab(self, index):
         """Close the tab at *index*, releasing the resources it holds."""

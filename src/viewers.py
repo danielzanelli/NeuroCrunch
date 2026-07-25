@@ -10,17 +10,23 @@ class.
 """
 import os
 import re
+import struct
+import zipfile
 
+import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 import read_roi
 
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QThread, QTimer, QUrl, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPixmap, QPolygon
+from PySide6.QtGui import (
+    QBrush, QColor, QImage, QKeySequence, QPainter, QPen, QPixmap, QPolygon, QShortcut
+)
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
-    QCheckBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy,
-    QSlider, QSpinBox, QTabWidget, QTextBrowser, QVBoxLayout, QWidget
+    QCheckBox, QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox, QTabWidget, QTextBrowser,
+    QVBoxLayout, QWidget
 )
 try:
     # Optional: QtWebEngine is a ~290 MB dependency used only as a PDF-viewer
@@ -32,9 +38,19 @@ except ImportError:
 import icon_loader
 from base_viewer import BaseViewer, keep_alive_until_finished
 from graph_viewer import GraphViewer
+from param_dialog import ParamForm
+from script_runner import load_script_callable
 
 
 MAX_PLOT_COLUMNS = 100  # Maximum number of columns allowed to plot at once
+
+# The ALS calibration preview solves a dense linear system per iteration (cost
+# grows with the cube of the length), so each trace is decimated to this many
+# points before it is handed to the script's preview() function.
+MAX_PREVIEW_POINTS = 800
+# Preview runs on every displayed trace; cap how many so a manual run stays
+# a few seconds even on a wide selection.
+PREVIEW_MAX_TRACES = 12
 
 # pyqtgraph backgrounds matched to the viewer_frame color in each QSS theme
 PLOT_BG = {True: '#1a1e23', False: '#ffffff'}
@@ -169,6 +185,40 @@ class CSVReaderWorker(QThread):
             self.error_occurred.emit(str(e))
 
 
+class _PreviewWorker(QThread):
+    """Runs a script's pure ``preview(sample, params)`` on each trace off the UI
+    thread.
+
+    *samples* is ``{column_name: 1-D array}``; the result is
+    ``{column_name: {series_name: array}}``. A monotonically increasing *token*
+    lets the viewer discard a superseded run's result.
+    """
+
+    progress = Signal(int, int, int)  # token, done, total
+    done = Signal(int, object)        # token, {col: result dict}
+    failed = Signal(int, str)         # token, error message
+
+    def __init__(self, preview_fn, samples, params, token, parent=None):
+        super().__init__(parent)
+        self._preview_fn = preview_fn
+        self._samples = samples
+        self._params = params
+        self._token = token
+
+    def run(self):
+        try:
+            out = {}
+            total = len(self._samples)
+            for i, (name, y) in enumerate(self._samples.items(), start=1):
+                result = self._preview_fn({'y': y}, self._params)
+                if isinstance(result, dict) and result:
+                    out[name] = result
+                self.progress.emit(self._token, i, total)
+            self.done.emit(self._token, out)
+        except Exception as e:  # noqa: BLE001 - surfaced to the log
+            self.failed.emit(self._token, str(e))
+
+
 class PlotViewer(BaseViewer):
     """Plots columns of a CSV/Excel file, with a tabbed column selector below."""
 
@@ -180,6 +230,24 @@ class PlotViewer(BaseViewer):
         self._signal_col_by_key = {}
         self._plot_menu_widget = None
         self._is_dark = True
+        self._displayed_columns = []      # columns from the last plot (preview input)
+
+        # Calibration ("Filter preview") state, injected by the host via
+        # set_calibration_context(). Empty by default so a plain CSV shows no
+        # preview tab.
+        self._calib_plugins = []          # PluginInfo objects with a 'traces' calibration
+        self._calib_apply_cb = None       # host callback: (script_id, values) -> None
+        self._calib_saved_values = {}     # {script_id: saved param values}
+        self._calib_language = 'en'
+        self._calib_form = None           # current ParamForm
+        self._calib_scroll = None         # scroll area the ParamForm lives in
+        self._calib_script_combo = None
+        self._calib_status = None
+        self._preview_fn_cache = {}       # {script_id: preview callable or None}
+        self._preview_worker = None
+        self._preview_token = 0
+        self._preview_idx = None          # shared x-axis (frame indices) of the run
+        self._preview_raw_map = {}        # {column: decimated raw values}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -195,6 +263,35 @@ class PlotViewer(BaseViewer):
         self._reader.error_occurred.connect(self._on_csv_error)
         keep_alive_until_finished(self._reader)
         self._reader.start()
+
+    def set_calibration_context(self, plugins, apply_cb, saved_values_by_id, language='en'):
+        """Enable the "Filter preview" tab for the given calibratable *plugins*.
+
+        Injected by the host so ``viewers`` stays decoupled from the plugin
+        system. *plugins* is a list of PluginInfo objects whose manifest declares
+        ``calibration.kind == 'traces'``; *apply_cb* is ``(script_id, values)``
+        called when the user clicks "Apply to pipeline"; *saved_values_by_id*
+        seeds the knobs from the pipeline config — it may be a
+        ``{script_id: {param: value}}`` dict or a zero-arg callable returning one,
+        so the form reflects the script's *current* configuration each time it is
+        (re)built. A no-op (no tab) when *plugins* is empty.
+        """
+        self._calib_plugins = list(plugins or [])
+        self._calib_apply_cb = apply_cb
+        self._calib_saved_values = saved_values_by_id or {}
+        self._calib_language = language or 'en'
+        self._preview_fn_cache = {}
+        # If the CSV is already loaded, rebuild the menu so the tab appears now.
+        if self.data is not None:
+            self._rebuild_plot_menu()
+
+    def set_calibration_language(self, language):
+        """Update the language used for calibration widget labels.
+
+        Called by the host on a runtime language change, before ``retranslate``
+        rebuilds the menu, so the knob labels follow the new language too.
+        """
+        self._calib_language = language or 'en'
 
     def apply_theme(self, is_dark):
         self._is_dark = is_dark
@@ -221,7 +318,12 @@ class PlotViewer(BaseViewer):
         self.load_done.emit(True, _tr('Loaded: {0} rows, {1} columns').format(
             len(data), len(data.columns)))
         self._rebuild_plot_menu()
-        self.plot_data()
+        # Prefer the Neuron Selection plot when the file's columns match the
+        # neuron/metric convention; otherwise fall back to plotting every column.
+        if self._signal_col_by_key:
+            self.plot_selected_neurons()
+        else:
+            self.plot_data()
 
     def _rebuild_plot_menu(self):
         """(Re)build the tabbed column selector below the plot for self.data.
@@ -231,6 +333,8 @@ class PlotViewer(BaseViewer):
         if self.data is None:
             return
 
+        # Default to the Neuron Selection tab (index 0) on first build; keep the
+        # user's active tab across rebuilds (language change).
         active_tab = 0
         if self._plot_menu_widget is not None:
             active_tab = self._plot_menu_widget.currentIndex()
@@ -246,12 +350,15 @@ class PlotViewer(BaseViewer):
         """Build the tabbed column selector shown below the plot.
 
         Two tabs, both vertically stacked so they stay usable on small screens:
-        a *Regex* tab (column range + substring filter) and a *Neuron Selection*
-        tab that picks columns by neuron id and metric.
+        a *Neuron Selection* tab that picks columns by neuron id and metric, and
+        a *Regex* tab (column range + substring filter).
         """
         tabs = QTabWidget(self)
-        tabs.addTab(self._build_regex_tab(), _tr('Regex'))
         tabs.addTab(self._build_neuron_tab(), _tr('Neuron Selection'))
+        tabs.addTab(self._build_regex_tab(), _tr('Plot Columns'))
+        # A calibratable script (e.g. the ALS filter) adds a live preview tab.
+        if self._calib_plugins:
+            tabs.addTab(self._build_filter_preview_tab(), _tr('Filter preview'))
         # Hug the content vertically so the plot keeps the rest of the tab.
         tabs.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         return tabs
@@ -292,12 +399,12 @@ class PlotViewer(BaseViewer):
         grid.addWidget(QLabel(_tr('Columns that include:')), 0, 0)
         grid.addWidget(self.regex_input, 0, 1)
 
-        # Start column spinbox (default 1: the first column is usually the index)
-        default_start = min(1, total_columns - 1)
+        # Start column spinbox. This tab is the fallback for unrecognised
+        # formats, so default to every column (including the first).
         self.start_spin = QSpinBox()
         self.start_spin.setMinimum(0)
         self.start_spin.setMaximum(total_columns - 1)
-        self.start_spin.setValue(default_start)
+        self.start_spin.setValue(0)
         self.start_spin.lineEdit().returnPressed.connect(self.plot_data)
         grid.addWidget(QLabel(_tr('Start column:')), 1, 0)
         grid.addWidget(self.start_spin, 1, 1)
@@ -306,7 +413,7 @@ class PlotViewer(BaseViewer):
         self.end_spin = QSpinBox()
         self.end_spin.setMinimum(0)
         self.end_spin.setMaximum(total_columns - 1)
-        self.end_spin.setValue(min(default_start + 1, total_columns - 1))
+        self.end_spin.setValue(total_columns - 1)
         self.end_spin.lineEdit().returnPressed.connect(self.plot_data)
         grid.addWidget(QLabel(_tr('End column:')), 2, 0)
         grid.addWidget(self.end_spin, 2, 1)
@@ -342,7 +449,11 @@ class PlotViewer(BaseViewer):
         grid.setColumnStretch(1, 1)
 
         # Metrics: one checkbox each, in a compact 3-column grid so many metrics
-        # don't overflow the width on small screens.
+        # don't overflow the width on small screens. Default to a single metric
+        # (a 'Mean' column, matched case-insensitively, otherwise the first) to
+        # keep the initial plot legible.
+        default_metric = next(
+            (m for m in metrics if m.lower() == 'mean'), metrics[0] if metrics else None)
         grid.addWidget(QLabel(_tr('Metrics:')), 0, 0, Qt.AlignTop)
         metrics_box = QWidget()
         metrics_grid = QGridLayout(metrics_box)
@@ -351,13 +462,15 @@ class PlotViewer(BaseViewer):
         metrics_grid.setVerticalSpacing(1)
         for i, m in enumerate(metrics):
             cb = QCheckBox(m)
-            cb.setChecked(True)
+            cb.setChecked(m == default_metric)
             self.metric_checks[m] = cb
             metrics_grid.addWidget(cb, i // 3, i % 3)
         grid.addWidget(metrics_box, 0, 1)
 
         # Neurons: a free-text list of ids and/or ranges (blank = every neuron).
+        # Default to the first five neurons so the initial plot stays readable.
         self.neuron_input = QLineEdit()
+        self.neuron_input.setText('1-5')
         self.neuron_input.setPlaceholderText(_tr('e.g. 22, 223, 627 or 1-10 (blank = all)'))
         self.neuron_input.returnPressed.connect(self.plot_selected_neurons)
         grid.addWidget(QLabel(_tr('Neurons:')), 1, 0)
@@ -484,9 +597,27 @@ class PlotViewer(BaseViewer):
                     ids.append(n)
         return ids
 
+    def _time_axis(self):
+        """Return ``(column_name, x_array)`` for a ``time_s`` column, else ``(None, None)``.
+
+        When the CSV carries an explicit time base it drives the x-axis of every
+        trace instead of the default sample index.
+        """
+        for col in self.data.columns:
+            if str(col).strip().lower() == 'time_s':
+                x = pd.to_numeric(self.data[col], errors='coerce').to_numpy(dtype=float)
+                return col, x
+        return None, None
+
     def _plot_columns(self, columns_to_plot):
         """Render *columns_to_plot* as lines with a clickable, toggleable legend."""
         try:
+            # A 'time_s' column defines the shared x-axis; never plot it as a trace.
+            time_col, x = self._time_axis()
+            if time_col is not None:
+                columns_to_plot = [c for c in columns_to_plot if c != time_col]
+            self.plot_widget.setLabel('bottom', str(time_col) if time_col is not None else '')
+
             capped = len(columns_to_plot) > MAX_PLOT_COLUMNS
             columns_to_plot = columns_to_plot[:MAX_PLOT_COLUMNS]
             if capped:
@@ -496,6 +627,9 @@ class PlotViewer(BaseViewer):
             # Clear previous plot and legend
             self.plot_widget.clear()
             self._plot_items = {}
+            # Remember what's on screen so the Filter-preview tab can calibrate
+            # against exactly these traces.
+            self._displayed_columns = list(columns_to_plot)
 
             # Create a legend (ensure a single legend is used for this plot)
             try:
@@ -508,62 +642,303 @@ class PlotViewer(BaseViewer):
             # Plot selected columns and save references
             for i, column in enumerate(columns_to_plot):
                 pen = pg.mkPen(PLOT_COLOR_PALETTE[i % len(PLOT_COLOR_PALETTE)], width=2)
-                plot_item = self.plot_widget.plot(self.data[column], pen=pen, name=str(column))
+                if x is not None:
+                    y = pd.to_numeric(self.data[column], errors='coerce').to_numpy(dtype=float)
+                    plot_item = self.plot_widget.plot(x, y, pen=pen, name=str(column))
+                else:
+                    plot_item = self.plot_widget.plot(self.data[column], pen=pen, name=str(column))
                 # store by column name for toggling
                 self._plot_items[str(column)] = plot_item
 
             # Make legend entries clickable to toggle visibility
-            if legend is not None:
-                try:
-                    # legend.items is a list of (sample, label) pairs
-                    for sample, label in list(legend.items):
-                        # label may be a QGraphicsTextItem or similar; get the text
-                        try:
-                            label_text = str(label.text)
-                        except Exception:
-                            try:
-                                label_text = str(label.toPlainText())
-                            except Exception:
-                                # fallback: read from the label's bounding rect or skip
-                                label_text = None
-
-                        # If label_text not available, try reading from the associated plot item name
-                        if not label_text:
-                            continue
-
-                        # Define toggle function bound to this label_text
-                        def make_toggle(name, lab, samp):
-                            def _toggle(event):
-                                item = self._plot_items.get(name)
-                                if item is None:
-                                    return
-                                visible = not item.isVisible()
-                                item.setVisible(visible)
-                                # visually dim the legend entry when hidden
-                                try:
-                                    lab.setOpacity(1.0 if visible else 0.4)
-                                except Exception:
-                                    pass
-                                try:
-                                    samp.setOpacity(1.0 if visible else 0.25)
-                                except Exception:
-                                    pass
-                            return _toggle
-
-                        # Attach click handler to both sample and label if possible
-                        try:
-                            handler = make_toggle(label_text, label, sample)
-                            sample.mousePressEvent = handler
-                            label.mousePressEvent = handler
-                        except Exception:
-                            # best-effort; ignore if API differs
-                            pass
-                except Exception:
-                    # Non-fatal: continue without clickable legend
-                    pass
+            self._attach_clickable_legend(legend)
         except Exception as e:
             self.log_message.emit(_tr('Error loading data for chart:\n{0}').format(str(e)))
             self.plot_widget.clear()
+
+    def _attach_clickable_legend(self, legend):
+        """Make each legend entry toggle its curve's visibility on click.
+
+        Entries are matched to ``self._plot_items`` by their label text, so both
+        the column plots and the calibration preview series can be toggled the
+        same way. Best-effort — silently skips if the pyqtgraph legend API differs.
+        """
+        if legend is None:
+            return
+        try:
+            for sample, label in list(legend.items):  # (sample, label) pairs
+                try:
+                    label_text = str(label.text)
+                except Exception:
+                    try:
+                        label_text = str(label.toPlainText())
+                    except Exception:
+                        label_text = None
+                if not label_text:
+                    continue
+
+                def make_toggle(name, lab, samp):
+                    def _toggle(event):
+                        item = self._plot_items.get(name)
+                        if item is None:
+                            return
+                        visible = not item.isVisible()
+                        item.setVisible(visible)
+                        try:
+                            lab.setOpacity(1.0 if visible else 0.4)
+                        except Exception:
+                            pass
+                        try:
+                            samp.setOpacity(1.0 if visible else 0.25)
+                        except Exception:
+                            pass
+                    return _toggle
+
+                try:
+                    handler = make_toggle(label_text, label, sample)
+                    sample.mousePressEvent = handler
+                    label.mousePressEvent = handler
+                except Exception:
+                    pass
+        except Exception:
+            # Non-fatal: continue without a clickable legend.
+            pass
+
+    # ------------------------------------------------------------------
+    # Filter preview (interactive calibration)
+    # ------------------------------------------------------------------
+
+    def _build_filter_preview_tab(self):
+        """Tab that tunes a calibratable script against the displayed traces.
+
+        Renders the script's numeric knobs (in a compact scroll area so the plot
+        stays large) and, on the *Preview* button, runs the script's ``preview()``
+        on every currently displayed trace and overlays the result. "Apply to
+        pipeline" writes the tuned values back to the pipeline config.
+        """
+        tab = QWidget()
+        v = self._tab_layout(tab)
+
+        # Script row: which calibratable script to tune.
+        self._calib_script_combo = QComboBox()
+        for pinfo in self._calib_plugins:
+            self._calib_script_combo.addItem(str(pinfo.name), pinfo.id)
+        self._calib_script_combo.currentIndexChanged.connect(self._on_calib_script_changed)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        row.addWidget(QLabel(_tr('Script:')))
+        row.addWidget(self._calib_script_combo, 1)
+        v.addLayout(row)
+
+        # Parameters live in a short scroll area so many knobs don't push the
+        # plot off screen.
+        self._calib_scroll = QScrollArea()
+        self._calib_scroll.setWidgetResizable(True)
+        self._calib_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._calib_scroll.setMaximumHeight(150)
+        v.addWidget(self._calib_scroll)
+
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.setSpacing(4)
+        preview_btn = QPushButton(_tr('Preview'))
+        preview_btn.clicked.connect(self._run_preview)
+        btn_row.addWidget(preview_btn)
+        apply_btn = QPushButton(_tr('Apply to pipeline'))
+        apply_btn.clicked.connect(self._on_calib_apply)
+        btn_row.addWidget(apply_btn)
+        btn_row.addStretch(1)
+        self._calib_status = QLabel('')
+        self._calib_status.setStyleSheet('color: #888888; font-size: 10px;')
+        btn_row.addWidget(self._calib_status)
+        v.addLayout(btn_row)
+
+        self._rebuild_calib_form()
+        return tab
+
+    def _saved_values_for(self, script_id):
+        """Current saved param values for *script_id* (the script's configured
+        values when available, else empty so manifest defaults apply).
+
+        Resolves the dict-or-callable passed by the host on every call, so the
+        form always reflects the script's latest configuration.
+        """
+        src = self._calib_saved_values
+        if callable(src):
+            try:
+                src = src() or {}
+            except Exception:
+                src = {}
+        return dict(src.get(script_id) or {})
+
+    def _current_calib_plugin(self):
+        """The PluginInfo currently selected in the script combo, or None."""
+        if self._calib_script_combo is None:
+            return None
+        sid = self._calib_script_combo.currentData()
+        return next((p for p in self._calib_plugins if p.id == sid), None)
+
+    def _calib_param_defs(self, pinfo):
+        """Manifest params of *pinfo* to expose as knobs (calibration.params or all)."""
+        names = (pinfo.calibration or {}).get('params')
+        params = pinfo.parameters or []
+        if names:
+            by_name = {p.get('name'): p for p in params if p.get('name')}
+            return [by_name[n] for n in names if n in by_name]
+        # Default: every tunable (non-file/directory) parameter.
+        return [p for p in params if p.get('type') not in ('file', 'directory')]
+
+    def _on_calib_script_changed(self, _index):
+        # Only swap the knob form; the preview stays manual (Preview button).
+        self._rebuild_calib_form()
+
+    def _rebuild_calib_form(self):
+        """(Re)build the ParamForm for the selected script inside the scroll area."""
+        if self._calib_scroll is None:
+            return
+        pinfo = self._current_calib_plugin()
+        if pinfo is None:
+            return
+        param_defs = self._calib_param_defs(pinfo)
+        saved = self._saved_values_for(pinfo.id)
+        self._calib_form = ParamForm(param_defs, saved, language=self._calib_language)
+        # Pressing Enter in any knob re-runs the preview at once.
+        self._calib_form.submitted.connect(self._run_preview)
+        # Replaces (and deletes) any previous form widget held by the scroll area.
+        self._calib_scroll.setWidget(self._calib_form)
+
+    def _preview_fn_for(self, pinfo):
+        """Return (and cache) the script's ``preview`` callable, or None."""
+        if pinfo.id not in self._preview_fn_cache:
+            self._preview_fn_cache[pinfo.id] = load_script_callable(pinfo, 'preview')
+        return self._preview_fn_cache[pinfo.id]
+
+    def _preview_columns(self):
+        """The displayed traces to calibrate against (numeric only, capped)."""
+        cols = [c for c in self._displayed_columns if c in self.data.columns]
+        numeric = []
+        for c in cols:
+            y = pd.to_numeric(self.data[c], errors='coerce').to_numpy(dtype=float)
+            if np.isfinite(y).any():
+                numeric.append((c, y))
+        return numeric
+
+    def _run_preview(self):
+        """Run the script's preview() on every displayed trace (Preview button)."""
+        if self.data is None or self._calib_form is None:
+            return
+        pinfo = self._current_calib_plugin()
+        if pinfo is None:
+            return
+        preview_fn = self._preview_fn_for(pinfo)
+        if preview_fn is None:
+            self._set_calib_status(_tr('This script has no preview() function.'))
+            return
+
+        numeric = self._preview_columns()
+        if not numeric:
+            self._set_calib_status(_tr('Plot some traces first (Regex or Neuron Selection).'))
+            return
+
+        capped = len(numeric) > PREVIEW_MAX_TRACES
+        numeric = numeric[:PREVIEW_MAX_TRACES]
+
+        # Every column shares the frame axis, so decimate once.
+        n = numeric[0][1].shape[0]
+        if n > MAX_PREVIEW_POINTS:
+            idx = np.linspace(0, n - 1, MAX_PREVIEW_POINTS).astype(int)
+        else:
+            idx = np.arange(n)
+
+        samples = {}
+        raw_map = {}
+        for name, y in numeric:
+            yd = y[idx]
+            nan = np.isnan(yd)
+            if nan.any() and (~nan).any():
+                valid = np.flatnonzero(~nan)
+                yd = yd.copy()
+                yd[nan] = np.interp(np.flatnonzero(nan), valid, yd[valid])
+            samples[name] = yd
+            raw_map[name] = yd
+
+        params = self._calib_form.get_values()
+        self._preview_token += 1
+        token = self._preview_token
+        self._preview_idx = idx
+        self._preview_raw_map = raw_map
+        note = _tr(' (showing first {0})').format(PREVIEW_MAX_TRACES) if capped else ''
+        self._set_calib_status(_tr('Computing preview for {0} trace(s)…').format(len(samples)) + note)
+
+        worker = _PreviewWorker(preview_fn, samples, params, token, parent=self)
+        worker.progress.connect(self._on_preview_progress)
+        worker.done.connect(self._on_preview_done)
+        worker.failed.connect(self._on_preview_failed)
+        keep_alive_until_finished(worker)
+        self._preview_worker = worker
+        worker.start()
+
+    def _on_preview_progress(self, token, done, total):
+        if token == self._preview_token:
+            self._set_calib_status(_tr('Computing preview… {0}/{1}').format(done, total))
+
+    def _on_preview_failed(self, token, message):
+        if token != self._preview_token:
+            return
+        self._set_calib_status(_tr('Preview failed: {0}').format(message))
+
+    def _on_preview_done(self, token, result):
+        if token != self._preview_token:
+            return  # a newer run superseded this one
+        # One raw line per trace, plus each returned series, labelled "col: name".
+        series = {}
+        for col, y in self._preview_raw_map.items():
+            series[f'{col}: raw'] = y
+            for name, values in (result.get(col, {}) or {}).items():
+                arr = np.asarray(values, dtype=float).ravel()
+                if arr.shape[0] == y.shape[0]:
+                    series[f'{col}: {name}'] = arr
+        self._plot_named_series(self._preview_idx, series)
+        self._set_calib_status(_tr('Previewing {0} series (click legend to toggle).').format(
+            len(series)))
+
+    def _plot_named_series(self, x, series_map):
+        """Plot each named 1-D array in *series_map* over the shared x, with a
+        clickable/toggleable legend (shared with the column plots)."""
+        try:
+            self.plot_widget.clear()
+            self._plot_items = {}
+            legend = None
+            try:
+                legend = self.plot_widget.addLegend()
+            except Exception:
+                legend = None
+            for i, (name, values) in enumerate(series_map.items()):
+                pen = pg.mkPen(PLOT_COLOR_PALETTE[i % len(PLOT_COLOR_PALETTE)], width=2)
+                item = self.plot_widget.plot(x, values, pen=pen, name=str(name))
+                self._plot_items[str(name)] = item
+            self._attach_clickable_legend(legend)
+        except Exception as e:
+            self.log_message.emit(_tr('Error rendering preview:\n{0}').format(str(e)))
+
+    def _set_calib_status(self, text):
+        if self._calib_status is not None:
+            self._calib_status.setText(text)
+
+    def _on_calib_apply(self):
+        """Write the current knob values back into the pipeline config."""
+        pinfo = self._current_calib_plugin()
+        if pinfo is None or self._calib_form is None or self._calib_apply_cb is None:
+            return
+        values = self._calib_form.get_values()
+        self._calib_apply_cb(pinfo.id, values)
+        # Keep the local seed in sync so re-opening the form shows the applied
+        # values. When the host supplies a callable, it already reads live config,
+        # so there is nothing to sync here.
+        if isinstance(self._calib_saved_values, dict):
+            self._calib_saved_values[pinfo.id] = dict(values)
+        self._set_calib_status(_tr('Applied to "{0}".').format(str(pinfo.name)))
 
 
 class PdfViewer(BaseViewer):
@@ -637,8 +1012,120 @@ class PdfViewer(BaseViewer):
             self.load_done.emit(False, _tr('Error loading PDF:\n{0}').format(str(e)))
 
 
+# ImageJ ROI type codes (ij.gui.Roi): the annotator maps its shapes onto these.
+_IJ_POLYGON, _IJ_RECT, _IJ_OVAL, _IJ_FREELINE, _IJ_FREEHAND = 0, 1, 2, 4, 7
+
+
+def brush_stroke_to_polygon(points, radius):
+    """Convert a brush stroke into the outline polygon of the area it paints.
+
+    The on-screen brush is a round-capped stroke of width ``2*radius`` — i.e. the
+    union of discs of *radius* swept along *points*. Rasterising that union and
+    tracing its outer contour yields a polygon whose area matches what the user
+    sees, so the saved ROI is an area (not a thin line). Returns a list of
+    absolute ``(x, y)`` vertices, or ``None`` if tracing fails.
+    """
+    try:
+        import cv2
+    except ImportError:
+        return None
+    r = max(1, int(radius))
+    pts = np.array([[int(round(x)), int(round(y))] for x, y in points], dtype=np.int32)
+    pad = r + 2
+    minx, miny = pts[:, 0].min() - pad, pts[:, 1].min() - pad
+    maxx, maxy = pts[:, 0].max() + pad, pts[:, 1].max() + pad
+    mask = np.zeros((maxy - miny + 1, maxx - minx + 1), dtype=np.uint8)
+    local = pts - [minx, miny]
+    if len(local) > 1:
+        cv2.polylines(mask, [local], False, 255, thickness=2 * r)
+    # Discs at every vertex give the round caps and joins the stroke has.
+    for p in local:
+        cv2.circle(mask, (int(p[0]), int(p[1])), r, 255, -1)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+    contour = max(contours, key=cv2.contourArea)
+    contour = cv2.approxPolyDP(contour, 1.5, True)  # drop near-collinear points
+    poly = [(int(x) + minx, int(y) + miny) for [[x, y]] in contour]
+    return poly if len(poly) >= 3 else None
+
+
+def encode_imagej_roi(region):
+    """Encode one annotator *region* as ImageJ ``.roi`` bytes.
+
+    Produces the same binary format ``read_roi`` parses, so a saved archive
+    re-loads in this viewer and in ImageJ/FIJI. Rectangles → RECT, circles →
+    OVAL, polygons → POLYGON, and brush strokes → FREEHAND, saved as the outline
+    of the painted area so their thickness matches the on-screen stroke.
+    Coordinates are stored as shorts relative to the bounding box, per the
+    ImageJ convention.
+    """
+    rtype = region['type']
+    stroke_w = 0
+    xs, ys = [], []
+    if rtype in ('rect', 'ellipse'):
+        left, top = int(region['left']), int(region['top'])
+        right, bottom = left + int(region['width']), top + int(region['height'])
+        n = 0
+        ij_type = _IJ_RECT if rtype == 'rect' else _IJ_OVAL
+    else:
+        pts = region['points']
+        if rtype == 'polygon':
+            ij_type = _IJ_POLYGON
+        else:  # brush → outline of the painted area (fall back to a thick line)
+            poly = brush_stroke_to_polygon(pts, int(region.get('radius', 1)))
+            if poly:
+                pts = poly
+                ij_type = _IJ_FREEHAND
+            else:
+                ij_type = _IJ_FREELINE
+                stroke_w = int(2 * region.get('radius', 1))
+        xs = [int(round(p[0])) for p in pts]
+        ys = [int(round(p[1])) for p in pts]
+        left, top = min(xs), min(ys)
+        right, bottom = max(xs) + 1, max(ys) + 1
+        n = len(pts)
+
+    coords = bytearray()
+    for xi in xs:
+        coords += struct.pack('>h', xi - left)
+    for yi in ys:
+        coords += struct.pack('>h', yi - top)
+
+    # A second 64-byte header follows the coordinates; readers (incl. read_roi)
+    # require its offset to be set even though we leave its C/Z/T fields zero.
+    header2_offset = 64 + len(coords)
+
+    header = bytearray(64)  # ImageJ ROI header is 64 bytes, big-endian
+    struct.pack_into('>4s', header, 0, b'Iout')
+    struct.pack_into('>h', header, 4, 227)        # version
+    header[6] = ij_type & 0xff                     # ROI type
+    struct.pack_into('>h', header, 8, top)
+    struct.pack_into('>h', header, 10, left)
+    struct.pack_into('>h', header, 12, bottom)
+    struct.pack_into('>h', header, 14, right)
+    struct.pack_into('>h', header, 16, n)
+    struct.pack_into('>h', header, 34, stroke_w)   # stroke width
+    struct.pack_into('>i', header, 60, header2_offset)
+
+    header2 = bytearray(64)  # zeroed C/Z/T position + name/image metadata
+    return bytes(header) + bytes(coords) + bytes(header2)
+
+
 class VideoViewer(BaseViewer):
-    """Plays a video through a QVideoSink so ROIs can be painted on each frame."""
+    """Plays a video through a QVideoSink so ROIs can be painted on each frame.
+
+    Also hosts a lightweight ROI *annotator*: pausing on a frame, the user can
+    draw rectangle and polygon regions and save them to a ``regions.json``
+    artifact. That file becomes an ordinary ``file`` input for a downstream ML/ROI
+    script, so the region selection is calibrated visually without the script
+    itself needing any UI.
+    """
+
+    # Colour of regions drawn in edit mode (amber), distinct from the green used
+    # for loaded ImageJ ROIs.
+    _EDIT_PEN = (230, 168, 23, 235)
+    _EDIT_BRUSH = (230, 168, 23, 60)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -648,6 +1135,15 @@ class VideoViewer(BaseViewer):
         # be repainted on demand — e.g. when ROIs load or toggle while paused.
         self._current_image = None
         self._show_rois = True
+
+        # ROI annotator state (Tier 2 calibration). Regions are stored in
+        # original-image coordinates so they scale with the display.
+        self._edit_mode = False
+        self._edit_shape = 'rect'         # 'rect' | 'ellipse' | 'polygon' | 'brush'
+        self._edit_brush_size = 12        # brush stroke radius in image pixels
+        self._edit_regions = []           # finalized regions (dicts)
+        self._edit_current = None         # in-progress region, or None
+        self._edit_cursor = None          # last mouse position (image coords)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -715,8 +1211,66 @@ class VideoViewer(BaseViewer):
         self.time_label.setStyleSheet("font-size: 10px;")
         control_layout.addWidget(self.time_label)
 
+        # ROI annotator toggle: pauses on the current frame and reveals the edit
+        # toolbar below.
+        self.edit_button = QPushButton()
+        self.edit_button.setCheckable(True)
+        self.edit_button.setToolTip(_tr('Draw and save ROIs on the current frame'))
+        self.edit_button.setIcon(icon_loader.get_icon('square-dashed', icon_loader.glyph_color(), 14))
+        self.edit_button.setFixedSize(30, 24)
+        self.edit_button.clicked.connect(self._toggle_edit_mode)
+        control_layout.addWidget(self.edit_button)
+
+        # Edit toolbar (hidden until edit mode is on): shape picker, clear, save.
+        self.edit_toolbar = QWidget()
+        edit_layout = QHBoxLayout(self.edit_toolbar)
+        edit_layout.setContentsMargins(2, 0, 2, 2)
+        edit_layout.setSpacing(4)
+        self.shape_label = QLabel(_tr('Shape:'))
+        edit_layout.addWidget(self.shape_label)
+        self.shape_combo = QComboBox()
+        self.shape_combo.addItem(_tr('Rectangle'), 'rect')
+        self.shape_combo.addItem(_tr('Circle'), 'ellipse')
+        self.shape_combo.addItem(_tr('Polygon'), 'polygon')
+        self.shape_combo.addItem(_tr('Paintbrush'), 'brush')
+        self.shape_combo.currentIndexChanged.connect(self._on_shape_changed)
+        edit_layout.addWidget(self.shape_combo)
+
+        # Brush point size (shown only while the Paintbrush shape is active).
+        self.brush_label = QLabel(_tr('Brush:'))
+        edit_layout.addWidget(self.brush_label)
+        self.brush_spin = QSpinBox()
+        self.brush_spin.setRange(1, 200)
+        self.brush_spin.setValue(self._edit_brush_size)
+        self.brush_spin.setToolTip(_tr('Brush point size (px)'))
+        self.brush_spin.valueChanged.connect(self._on_brush_size_changed)
+        edit_layout.addWidget(self.brush_spin)
+
+        self.edit_hint = QLabel('')
+        self.edit_hint.setStyleSheet('color: #888888; font-size: 10px;')
+        edit_layout.addWidget(self.edit_hint, 1)
+        self.undo_region_btn = QPushButton(_tr('Undo'))
+        self.undo_region_btn.setToolTip(_tr('Undo the last region (Ctrl+Z)'))
+        self.undo_region_btn.clicked.connect(self._undo_region)
+        edit_layout.addWidget(self.undo_region_btn)
+        self.clear_regions_btn = QPushButton(_tr('Clear'))
+        self.clear_regions_btn.clicked.connect(self._clear_regions)
+        edit_layout.addWidget(self.clear_regions_btn)
+        self.save_regions_btn = QPushButton(_tr('Save regions…'))
+        self.save_regions_btn.clicked.connect(self._save_regions)
+        edit_layout.addWidget(self.save_regions_btn)
+        # Brush size is only relevant for the Paintbrush shape (default is Rectangle).
+        self.brush_label.hide()
+        self.brush_spin.hide()
+        self.edit_toolbar.hide()
+
+        # Ctrl+Z undoes the last drawn region while editing.
+        self.undo_shortcut = QShortcut(QKeySequence.Undo, self)
+        self.undo_shortcut.activated.connect(self._undo_region)
+
         layout.addWidget(self.display_label, 1)
         layout.addWidget(control_widget, 0)
+        layout.addWidget(self.edit_toolbar, 0)
 
     def load(self, file_path):
         try:
@@ -779,11 +1333,90 @@ class VideoViewer(BaseViewer):
     def apply_theme(self, is_dark):
         self._update_play_icon()
 
+    def retranslate(self):
+        """Re-apply translations to the code-built ROI edit toolbar."""
+        self.roi_button.setToolTip(_tr('Show/hide ROIs'))
+        self.edit_button.setToolTip(_tr('Draw and save ROIs on the current frame'))
+        self.shape_label.setText(_tr('Shape:'))
+        for i, label in enumerate((_tr('Rectangle'), _tr('Circle'),
+                                   _tr('Polygon'), _tr('Paintbrush'))):
+            self.shape_combo.setItemText(i, label)
+        self.brush_label.setText(_tr('Brush:'))
+        self.brush_spin.setToolTip(_tr('Brush point size (px)'))
+        self.undo_region_btn.setText(_tr('Undo'))
+        self.undo_region_btn.setToolTip(_tr('Undo the last region (Ctrl+Z)'))
+        self.clear_regions_btn.setText(_tr('Clear'))
+        self.save_regions_btn.setText(_tr('Save regions…'))
+        if self._edit_mode:
+            self._update_edit_hint()
+
     def eventFilter(self, obj, event):
         # Keep the floating ROI toggle pinned to the top-right of the video area.
         if obj is self.display_label and event.type() == QEvent.Resize:
             self._position_roi_button()
+        # In edit mode, the label captures mouse input to draw regions.
+        if self._edit_mode and obj is self.display_label:
+            if self._handle_edit_event(event):
+                return True
         return super().eventFilter(obj, event)
+
+    def _handle_edit_event(self, event):
+        """Handle a drawing gesture on the frame; return True if consumed."""
+        etype = event.type()
+        if etype not in (
+            QEvent.MouseButtonPress, QEvent.MouseMove,
+            QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick,
+        ):
+            return False
+
+        pt = self._label_to_image(event.position().toPoint())
+        shape = self._edit_shape
+
+        if etype == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            if pt is None:
+                return True
+            if shape in ('rect', 'ellipse'):
+                self._edit_current = {'type': shape, 'x0': pt[0], 'y0': pt[1],
+                                      'x1': pt[0], 'y1': pt[1]}
+            elif shape == 'brush':
+                self._edit_current = {'type': 'brush', 'radius': int(self._edit_brush_size),
+                                      'points': [pt]}
+            else:  # polygon: each click adds a vertex
+                if self._edit_current is None:
+                    self._edit_current = {'type': 'polygon', 'points': [pt]}
+                else:
+                    self._edit_current['points'].append(pt)
+            self._edit_cursor = pt
+            self._redraw_current_frame()
+            return True
+
+        if etype == QEvent.MouseMove:
+            self._edit_cursor = pt
+            if self._edit_current is not None and pt is not None:
+                if shape in ('rect', 'ellipse'):
+                    self._edit_current['x1'], self._edit_current['y1'] = pt
+                elif shape == 'brush':
+                    self._edit_current['points'].append(pt)
+                self._redraw_current_frame()
+            return True
+
+        if etype == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            if shape in ('rect', 'ellipse', 'brush') and self._edit_current is not None:
+                self._finalize_region(self._edit_current)
+                self._edit_current = None
+                self._redraw_current_frame()
+            return True
+
+        if etype == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton:
+            # Close the polygon in progress.
+            if shape == 'polygon' and self._edit_current is not None:
+                if len(self._edit_current['points']) >= 3:
+                    self._finalize_region(self._edit_current)
+                self._edit_current = None
+                self._redraw_current_frame()
+            return True
+
+        return False
 
     def _position_roi_button(self):
         """Pin the floating ROI toggle to the top-right corner of the video."""
@@ -829,26 +1462,30 @@ class VideoViewer(BaseViewer):
         *image* is treated as read-only; a copy is drawn on so the stored base
         frame stays clean for future repaints.
         """
-        if self.roi_data and self._show_rois:
+        show_loaded = bool(self.roi_data and self._show_rois)
+        if show_loaded or self._edit_mode:
             image = QImage(image)  # copy-on-write; detaches when painted
             painter = QPainter(image)
             painter.setRenderHint(QPainter.Antialiasing, True)
-            painter.setPen(QPen(QColor(0, 255, 0, 230), 2))
-            painter.setBrush(QBrush(QColor(0, 255, 0, 50)))
-            for roi_d in self.roi_data.values():
-                try:
-                    if isinstance(roi_d, dict):
-                        if 'x' in roi_d and 'y' in roi_d:
-                            points = [QPoint(int(x), int(y)) for x, y in zip(roi_d['x'], roi_d['y'])]
-                            if len(points) > 2:
-                                painter.drawPolygon(QPolygon(points))
-                        elif all(k in roi_d for k in ['left', 'top', 'width', 'height']):
-                            painter.drawRect(
-                                int(roi_d['left']), int(roi_d['top']),
-                                int(roi_d['width']), int(roi_d['height'])
-                            )
-                except Exception:
-                    pass
+            if show_loaded:
+                painter.setPen(QPen(QColor(0, 255, 0, 230), 2))
+                painter.setBrush(QBrush(QColor(0, 255, 0, 50)))
+                for roi_d in self.roi_data.values():
+                    try:
+                        if isinstance(roi_d, dict):
+                            if 'x' in roi_d and 'y' in roi_d:
+                                points = [QPoint(int(x), int(y)) for x, y in zip(roi_d['x'], roi_d['y'])]
+                                if len(points) > 2:
+                                    painter.drawPolygon(QPolygon(points))
+                            elif all(k in roi_d for k in ['left', 'top', 'width', 'height']):
+                                painter.drawRect(
+                                    int(roi_d['left']), int(roi_d['top']),
+                                    int(roi_d['width']), int(roi_d['height'])
+                                )
+                    except Exception:
+                        pass
+            if self._edit_mode:
+                self._draw_edit_regions(painter)
             painter.end()
 
         pixmap = QPixmap.fromImage(image)
@@ -871,6 +1508,202 @@ class VideoViewer(BaseViewer):
         """Show or hide the ROI overlay, repainting the current frame at once."""
         self._show_rois = self.roi_button.isChecked()
         self._redraw_current_frame()
+
+    # ------------------------------------------------------------------
+    # ROI annotator (Tier 2 calibration)
+    # ------------------------------------------------------------------
+
+    def _toggle_edit_mode(self):
+        """Enter/leave ROI edit mode: pause on the current frame and draw regions."""
+        self._edit_mode = self.edit_button.isChecked()
+        if self._edit_mode:
+            if self._current_image is None or self._current_image.isNull():
+                self.log_message.emit(_tr('Play the video to a frame before editing ROIs.'))
+                self.edit_button.setChecked(False)
+                self._edit_mode = False
+                return
+            self.media_player.pause()
+            self._update_play_icon()
+            self.edit_toolbar.show()
+            self.display_label.setCursor(Qt.CrossCursor)
+            self._update_edit_hint()
+        else:
+            self._edit_current = None
+            self.edit_toolbar.hide()
+            self.display_label.setCursor(Qt.ArrowCursor)
+        self._redraw_current_frame()
+
+    def _on_shape_changed(self, _index):
+        self._edit_shape = self.shape_combo.currentData() or 'rect'
+        self._edit_current = None  # drop any half-drawn shape when switching
+        is_brush = self._edit_shape == 'brush'
+        self.brush_label.setVisible(is_brush)
+        self.brush_spin.setVisible(is_brush)
+        self._update_edit_hint()
+        self._redraw_current_frame()
+
+    def _on_brush_size_changed(self, value):
+        self._edit_brush_size = int(value)
+
+    def _update_edit_hint(self):
+        hints = {
+            'polygon': _tr('Click to add points, double-click to close.'),
+            'brush': _tr('Drag to paint a freehand area.'),
+            'ellipse': _tr('Drag to draw a circle.'),
+        }
+        self.edit_hint.setText(hints.get(self._edit_shape, _tr('Drag to draw a rectangle.')))
+
+    def _undo_region(self):
+        """Remove the most recent region (button / Ctrl+Z). Cancels a shape in
+        progress first, if any."""
+        if not self._edit_mode:
+            return
+        if self._edit_current is not None:
+            self._edit_current = None
+        elif self._edit_regions:
+            self._edit_regions.pop()
+        else:
+            return
+        self._redraw_current_frame()
+
+    def _clear_regions(self):
+        self._edit_regions = []
+        self._edit_current = None
+        self._redraw_current_frame()
+
+    def _finalize_region(self, region):
+        """Store *region* (in image coords) with an auto label, dropping empties."""
+        label = f'region_{len(self._edit_regions) + 1}'
+        rtype = region['type']
+        if rtype in ('rect', 'ellipse'):
+            x0, x1 = sorted((region['x0'], region['x1']))
+            y0, y1 = sorted((region['y0'], region['y1']))
+            if x1 - x0 < 2 or y1 - y0 < 2:
+                return  # ignore accidental clicks
+            self._edit_regions.append({
+                'type': rtype, 'label': label,
+                'left': int(round(x0)), 'top': int(round(y0)),
+                'width': int(round(x1 - x0)), 'height': int(round(y1 - y0)),
+            })
+        elif rtype == 'brush':
+            pts = region.get('points', [])
+            if not pts:
+                return
+            self._edit_regions.append({
+                'type': 'brush', 'label': label,
+                'radius': int(region.get('radius', self._edit_brush_size)),
+                'points': [[int(round(px)), int(round(py))] for px, py in pts],
+            })
+        else:  # polygon
+            pts = region.get('points', [])
+            if len(pts) < 3:
+                return
+            self._edit_regions.append({
+                'type': 'polygon', 'label': label,
+                'points': [[int(round(px)), int(round(py))] for px, py in pts],
+            })
+
+    def _label_to_image(self, point):
+        """Map a display-label point to original-image coordinates.
+
+        Accounts for the KeepAspectRatio letterboxing in :meth:`_display_image`.
+        Returns ``(x, y)`` floats inside the image, or ``None`` outside it.
+        """
+        img = self._current_image
+        if img is None or img.isNull():
+            return None
+        iw, ih = img.width(), img.height()
+        lw, lh = self.display_label.width(), self.display_label.height()
+        if iw <= 0 or ih <= 0 or lw <= 0 or lh <= 0:
+            return None
+        scale = min(lw / iw, lh / ih)
+        if scale <= 0:
+            return None
+        off_x = (lw - iw * scale) / 2.0
+        off_y = (lh - ih * scale) / 2.0
+        x = (point.x() - off_x) / scale
+        y = (point.y() - off_y) / scale
+        if 0 <= x < iw and 0 <= y < ih:
+            return (x, y)
+        return None
+
+    def _draw_edit_regions(self, painter):
+        """Paint saved regions plus the in-progress shape (in image coords)."""
+        painter.setPen(QPen(QColor(*self._EDIT_PEN), 2))
+        painter.setBrush(QBrush(QColor(*self._EDIT_BRUSH)))
+        for region in self._edit_regions:
+            self._draw_one_region(painter, region, closed=True)
+        if self._edit_current is not None:
+            self._draw_one_region(painter, self._edit_current, closed=False)
+
+    def _region_bbox(self, region):
+        """Return (x, y, w, h) for a rect/ellipse in either storage form."""
+        if 'left' in region:  # finalized: left/top/width/height
+            return int(region['left']), int(region['top']), int(region['width']), int(region['height'])
+        x0, y0, x1, y1 = region['x0'], region['y0'], region['x1'], region['y1']  # in-progress
+        return int(min(x0, x1)), int(min(y0, y1)), int(abs(x1 - x0)), int(abs(y1 - y0))
+
+    def _draw_one_region(self, painter, region, closed):
+        rtype = region['type']
+        if rtype == 'rect':
+            painter.drawRect(*self._region_bbox(region))
+        elif rtype == 'ellipse':
+            painter.drawEllipse(*self._region_bbox(region))
+        elif rtype == 'brush':
+            # Freehand stroke: a thick round-capped polyline of the brush width.
+            pts = [QPoint(int(p[0]), int(p[1])) for p in region['points']]
+            if not pts:
+                return
+            radius = int(region.get('radius', self._edit_brush_size))
+            saved = painter.pen()
+            stroke = QPen(QColor(*self._EDIT_PEN), max(1, 2 * radius))
+            stroke.setCapStyle(Qt.RoundCap)
+            stroke.setJoinStyle(Qt.RoundJoin)
+            painter.setPen(stroke)
+            if len(pts) == 1:
+                painter.drawPoint(pts[0])
+            else:
+                painter.drawPolyline(QPolygon(pts))
+            painter.setPen(saved)
+        elif rtype == 'polygon':
+            # Finalized regions store 'points' as [x, y] pairs; in-progress ones
+            # store (x, y) tuples plus a live cursor segment.
+            pts = [QPoint(int(p[0]), int(p[1])) for p in region['points']]
+            if not pts:
+                return
+            if closed and len(pts) > 2:
+                painter.drawPolygon(QPolygon(pts))
+            else:
+                painter.drawPolyline(QPolygon(pts))
+                if self._edit_cursor is not None:
+                    painter.drawLine(pts[-1], QPoint(int(self._edit_cursor[0]),
+                                                     int(self._edit_cursor[1])))
+
+    def _save_regions(self):
+        """Save the drawn regions as a .zip of ImageJ .roi files.
+
+        This is the format ``read_roi`` reads, so the archive re-loads here (and
+        in ImageJ/FIJI) and feeds a downstream ML/ROI script as an ordinary file
+        input.
+        """
+        if not self._edit_regions:
+            self.log_message.emit(_tr('No regions drawn to save.'))
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, _tr('Save regions'), 'regions.zip',
+            _tr('ROI archives (*.zip)') + ';;' + _tr('All files (*)'),
+        )
+        if not path:
+            return
+        try:
+            with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for i, region in enumerate(self._edit_regions, start=1):
+                    name = region.get('label') or f'region_{i}'
+                    zf.writestr(f'{name}.roi', encode_imagej_roi(region))
+            self.log_message.emit(_tr('Saved {0} ROIs to {1}').format(
+                len(self._edit_regions), os.path.basename(path)))
+        except (OSError, zipfile.BadZipFile) as e:
+            self.log_message.emit(_tr('Error saving regions:\n{0}').format(str(e)))
 
     def set_position(self, position):
         """Set media player position when slider is moved"""

@@ -30,6 +30,23 @@
       "type": "object",
       "default": {},
       "additionalProperties": { "$ref": "#/definitions/localizedString" }
+    },
+    "calibration": {
+      "type": "object",
+      "description": "Declares that this script supports interactive, in-app calibration. The app hosts a live preview (e.g. in the CSV viewer) that runs the script's pure preview() function so parameters can be tuned against real data. Optional.",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "The calibration surface this script plugs into. 'traces' = the CSV Filter-preview tab.",
+          "enum": ["traces"]
+        },
+        "params": {
+          "type": "array",
+          "description": "Names of the parameters to expose as tunable knobs. Defaults to every non-file/directory parameter when omitted.",
+          "items": { "type": "string" }
+        }
+      }
     }
   },
   "definitions": {

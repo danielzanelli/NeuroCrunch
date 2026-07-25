@@ -42,6 +42,9 @@ class PluginInfo:
     entry_point: str  # Absolute path to the script's entry point (e.g. main.py)
     parameters: List[Dict[str, Any]] = field(default_factory=list)
     outputs: Dict[str, Any] = field(default_factory=dict)
+    # Optional interactive-calibration declaration (``{"kind": ..., "params": [...]}``).
+    # Empty when the script does not opt into in-app calibration.
+    calibration: Dict[str, Any] = field(default_factory=dict)
     is_official: bool = True
     # True only for the bundled example template, shown as a read-only preview
     # row so users can see every input widget rendered. Never runs in a pipeline.
@@ -164,6 +167,7 @@ class PluginManager:
             entry_point=os.path.abspath(entry_point_path),
             parameters=config.get('parameters', []),
             outputs=config.get('outputs', {}),
+            calibration=config.get('calibration', {}) or {},
             is_official=is_official,
         )
 

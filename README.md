@@ -67,12 +67,12 @@ Six analysis scripts are bundled. Run them in sequence, or pick and mix:
 
 1. **Generate ROIs** (preprocessing) — automatically detects neuron somas in a calcium-imaging video using computer vision (projection image, Gaussian denoise, Otsu thresholding, optional watershed splitting of touching cells, size/circularity filtering) and fits each one to the requested shape (circular, rectangular, or polygonal). Output: ROI `.zip` (ImageJ/FIJI-compatible) + a PNG preview overlay. You can still define ROIs manually in ImageJ/FIJI and import them instead.
 2. **Generate Signals** (preprocessing) — extracts fluorescence signal from each ROI. Measures max, mean, standard deviation, and integral of pixel intensity per ROI per frame; optional Z-score normalization. Output: CSV of raw traces.
-3. **Signal Processing** (processing) — removes photobleaching (signal decay over time) using an Asymmetric Least Squares (ALS) algorithm with customizable parameters. Output: corrected and smoothed CSV.
+3. **ALS Filter** (processing) — removes photobleaching (signal decay over time) using an Asymmetric Least Squares (ALS) algorithm with customizable parameters. Output: the final smoothed CSV.
 4. **Select Active** (processing) — keeps only cells with activity above a noise threshold sustained for a minimum number of frames. Output: CSV of active cells only.
 5. **Pearson Matrix** (analysis) — computes pairwise Pearson correlations between neurons for a chosen metric (Mean, Max, Std, …). Column names carrying a metric and a neuron number in either order — `Mean7` (ImageJ Multi-Measure) or `7_mean` (Generate Signals) — are recognised, and the output matrix is labelled by neuron number so the connectivity graph can map each cell back to its ROI. The correlation is computed in a chunked streaming pass, so files larger than RAM are handled without loading every frame at once. Output: correlation matrix CSV + heatmap image (PNG).
 6. **Connectivity Graph** (visualization) — builds a connectivity network from a correlation matrix (e.g. the Pearson matrix) and an ROI list, where ROI *i* corresponds to row/column *i* of the matrix. Each node is placed at its ROI centroid and each edge carries the matrix value as a scalar weight. **Every pairwise weight is stored** — no threshold is applied here — so the full weighted graph is saved and you filter it interactively when viewing. Output: a **JSON Graph Format** (`.jgf`) file, openable in NeuroCrunch's interactive graph viewer.
 
-**Typical workflow**: Generate ROIs → Generate Signals → Signal Processing → Select Active → Pearson Matrix → Connectivity Graph. The last step pairs the Pearson matrix with the ROI list from Generate ROIs (both links are pre-filled) and produces the `.jgf` graph.
+**Typical workflow**: Generate ROIs → Generate Signals → ALS Filter → Select Active → Pearson Matrix → Connectivity Graph. The last step pairs the Pearson matrix with the ROI list from Generate ROIs (both links are pre-filled) and produces the `.jgf` graph.
 
 ### Extensibility & Community Scripts
 
@@ -124,7 +124,7 @@ Assume you have a video file `imaging.tif` and ROI definitions in `rois.zip` (e.
    - Frames per second: enter `10` (or your video's frame rate).
    - Output folder: choose an output folder.
    - Click **Accept**.
-3. **Configure Signal Processing**:
+3. **Configure ALS Filter**:
    - Double-click it. Input CSV will auto-fill from Generate Signals' output.
    - Adjust ALS parameters if needed (defaults are reasonable).
    - Click **Accept**.
@@ -321,7 +321,7 @@ NeuroCrunch/
 │       └── light.qss
 ├── scripts/                        # Official bundled analysis scripts
 │   ├── generate_signals/
-│   ├── signal_processing/
+│   ├── als_filter/
 │   ├── select_active/
 │   ├── generate_rois/
 │   ├── pearson_matrix/

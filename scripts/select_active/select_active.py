@@ -4,8 +4,10 @@
 
 Reads a CSV of fluorescence traces (columns = cells/metrics, rows = time),
 detects which traces show at least one activity event — a stretch of
-``min_duration`` consecutive frames above ``mean + threshold_std·deviation`` — and
-writes a CSV with the metadata columns (frame, time_s) plus only the traces
+``min_duration`` consecutive frames above a robust threshold
+``median + threshold_std·(1.4826·MAD)`` (falling back to the standard deviation
+for flat traces) — and writes a CSV with the metadata columns (frame, time_s)
+plus only the traces
 considered active. Preserves the format for the downstream scripts
 (pearson_matrix, connectivity_graph).
 
@@ -66,7 +68,7 @@ def run(params):
         raise ValueError("The CSV contains no numeric signal columns.")
 
     print(f"  Signal columns: {len(signal_cols)} | metadata: {len(meta_cols)}")
-    print(f"  Criterion: > mean + {threshold_std}·deviation for >= {min_duration} frames")
+    print(f"  Criterion: > median + {threshold_std}·(robust MAD) for >= {min_duration} frames")
 
     active_cols = []
     total = len(signal_cols)

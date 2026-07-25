@@ -39,40 +39,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from i18n_utils import localize, resolve_label
+
 # Type alias for the pipeline context passed from the main window.
 # Shape: { script_id: { output_key: value } }
 PipelineContext = Dict[str, Dict[str, Any]]
 
-
-def _resolve_label(field: Dict[str, Any], key: str = 'label', language: str = 'en') -> str:
-    """Return a human-readable string for *key* in *field*, handling locale maps.
-
-    Manifest labels can be either a plain string or a dict mapping locale codes
-    to strings (e.g. ``{"en": "…", "es": "…"}``).  This helper always returns a
-    plain string, preferring *language*, then English, then any available value,
-    then falling back to the parameter ``name``.
-    """
-    value = field.get(key)
-    if value is None:
-        return field.get('name', '')
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict):
-        return (
-            value.get(language) or value.get('en') or next(iter(value.values()), field.get('name', ''))
-        )
-    return str(value)
-
-
-def _localize(value: Any, fallback: str = '', language: str = 'en') -> str:
-    """Return a plain string from *value*, which may be a locale map, preferring *language*."""
-    if value is None:
-        return fallback
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict):
-        return value.get(language) or value.get('en') or next(iter(value.values()), fallback)
-    return str(value)
+# Locale-map resolution lives in i18n_utils (shared with plugin_manager). These
+# module-level aliases keep the historical private names other modules and the
+# test suite import.
+_resolve_label = resolve_label
+_localize = localize
 
 
 def compute_effective_links(plugin_info, user_links: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -252,7 +229,7 @@ class ParamDialog(QDialog):
         list drives widget generation.
     current_values:
         Dict of previously saved values for this script
-        (``self.config[script_id]['parametros']``).  May be empty.
+        (``self.config[script_id]['parameters']``).  May be empty.
     pipeline_context:
         Mapping ``{script_id: {output_key: value}}`` used to pre-fill linked
         parameters.  Pass ``{}`` when no context is available yet.
@@ -262,10 +239,6 @@ class ParamDialog(QDialog):
         Active UI language code (e.g. ``'en'``, ``'es'``) used to resolve
         locale-map labels/descriptions in the manifest.
     """
-
-    # Column index in the "Configured" table column — not used here but
-    # kept as a named constant for documentation clarity.
-    COL_CONFIGURED = 4
 
     def __init__(
         self,
@@ -404,16 +377,12 @@ class ParamDialog(QDialog):
         if description:
             label_widget.setToolTip(description)
 
-        # Build the input widget
+        # Build the input widget. For compound types (file/directory) this is a
+        # QWidget container; for simple types it's the widget itself — either way
+        # it goes straight into the form (optionally wrapped with a link hint).
         widget = self._build_widget(ptype, param, initial_val)
         self._widgets[name] = widget
-
-        # For compound types (file/directory), widget is a QWidget container;
-        # for simple types it's the widget itself.
-        if isinstance(widget, QWidget):
-            input_widget = widget
-        else:
-            input_widget = widget  # same object
+        input_widget = widget
 
         # Wrap with link hint if applicable. File/directory pickers own their
         # hint label (it updates live as the user links/unlinks), so only

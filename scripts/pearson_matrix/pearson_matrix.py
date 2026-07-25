@@ -33,6 +33,11 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+# Column-parsing helpers (_parse_column/_detect_columns/_select_metric/_chunk_rows)
+# are duplicated verbatim in scripts/mutual_information/mutual_information.py.
+# Each script folder is self-contained (isolated namespace), so the copies are
+# intentional — keep the two in sync when editing.
+#
 # A column is <MetricName><neuron> (e.g. "Mean7") or <neuron><sep><MetricName>
 # (e.g. "7_mean"). Separators between the two parts are optional.
 _COL_METRIC_FIRST = re.compile(r"^([A-Za-z]+)[ _\-]*(\d+)$")

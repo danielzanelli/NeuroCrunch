@@ -82,6 +82,11 @@ def _tr(text: str) -> str:
     return QCoreApplication.translate('NeuroCrunch', text)
 
 
+def _tr_csv(text: str) -> str:
+    """Translate a CSVReaderWorker progress string."""
+    return QCoreApplication.translate('CSVReaderWorker', text)
+
+
 class ImageViewer(BaseViewer):
     """Shows a still image, rescaled to the tab as the window resizes."""
 
@@ -152,9 +157,7 @@ class CSVReaderWorker(QThread):
         """Run in background thread."""
         try:
             filename = os.path.basename(self.file_path)
-            self.progress_updated.emit(
-                QCoreApplication.translate('CSVReaderWorker', 'Opening CSV {0}: 0%').format(filename)
-            )
+            self.progress_updated.emit(_tr_csv('Opening CSV {0}: {1}%').format(filename, 0))
 
             if self.file_path.lower().endswith('.csv'):
                 # Count total lines upfront so progress can be calculated correctly
@@ -170,7 +173,8 @@ class CSVReaderWorker(QThread):
                     chunks.append(chunk)
                     loaded_rows += len(chunk)
                     progress = min(int((loaded_rows / max(total_lines, 1)) * 100), 100)
-                    self.progress_updated.emit(f'Opening CSV {filename}: {progress}%')
+                    self.progress_updated.emit(
+                        _tr_csv('Opening CSV {0}: {1}%').format(filename, progress))
 
                 if chunks:
                     data = pd.concat(chunks, ignore_index=True)
@@ -178,9 +182,9 @@ class CSVReaderWorker(QThread):
                     data = pd.read_csv(self.file_path)
 
             elif self.file_path.lower().endswith(('.xls', '.xlsx')):
-                self.progress_updated.emit(f'Opening file {filename}: 0%')
+                self.progress_updated.emit(_tr_csv('Opening file {0}: {1}%').format(filename, 0))
                 data = pd.read_excel(self.file_path)
-                self.progress_updated.emit(f'Opening file {filename}: 100%')
+                self.progress_updated.emit(_tr_csv('Opening file {0}: {1}%').format(filename, 100))
             else:
                 raise ValueError('File format not supported for charts.')
 
@@ -270,7 +274,9 @@ class PlotViewer(BaseViewer):
         # Load data in background thread with progress reporting
         self.file_path = file_path
         self._reader = CSVReaderWorker(file_path)
-        self._reader.progress_updated.connect(self._on_reader_progress, Qt.BlockingQueuedConnection)
+        # Queued (the default across threads): let the reader push progress
+        # without blocking on the GUI slot for every tick.
+        self._reader.progress_updated.connect(self._on_reader_progress)
         self._reader.data_loaded.connect(self._on_csv_loaded)
         self._reader.error_occurred.connect(self._on_csv_error)
         keep_alive_until_finished(self._reader)

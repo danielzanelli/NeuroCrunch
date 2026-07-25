@@ -44,6 +44,16 @@ AVAILABLE_LANGUAGES = [
 SETTINGS_FILENAME = 'settings.json'
 
 
+def _default_script_config():
+    """The canonical per-script config skeleton (all keys present)."""
+    return {
+        'enabled': False,
+        'parameters': {},
+        'last_modified': None,
+        'execution_order': None,
+    }
+
+
 class NeuroCrunch(QMainWindow):
     def __init__(self):
         super(NeuroCrunch, self).__init__()
@@ -605,7 +615,7 @@ class NeuroCrunch(QMainWindow):
         self.config[script_id]['last_modified'] = datetime.datetime.now().strftime('%Y/%m/%d - %H:%M')
         name = self.plugins[script_id].name if script_id in self.plugins else script_id
         self.print(self.tr('Calibration applied to "{0}"').format(name))
-        self.refresh_scripts_table()
+        self._sync_scripts_table_state()
 
     def close_tab(self, index):
         """Close the tab at *index*, releasing the resources it holds."""
@@ -661,6 +671,40 @@ class NeuroCrunch(QMainWindow):
         self._add_tab(file_path, TextViewer(), index=index)
 
     def refresh_scripts_table(self):
+        """Full rebuild of the scripts table (see :meth:`_rebuild_scripts_table`).
+
+        Kept as the public entry point used whenever the discovered script set or
+        the template can change (startup, rescan, config load). Interactive state
+        changes (checkbox/order/config saves) go through the cheaper
+        :meth:`_sync_scripts_table_state` instead of tearing the table down.
+        """
+        self._rebuild_scripts_table()
+
+    def _normalize_script_config(self):
+        """Reconcile per-script config and return the number of enabled scripts.
+
+        Ensures every script has a config entry, clears the enabled/order of any
+        unconfigured script, and drops execution orders that exceed the current
+        selection count. Shared by the full rebuild and the in-place state sync.
+        """
+        for script in self.scripts:
+            if script not in self.config:
+                self.config[script] = _default_script_config()
+
+        # Scripts can only run if they have been configured; clear stale enabled flags
+        for s in self.scripts:
+            if self.config[s]['last_modified'] is None:
+                self.config[s]['enabled'] = False
+                self.config[s]['execution_order'] = None
+
+        # Number of scripts marked for execution; clear any orders that exceed that count
+        n_selected = sum(1 for s in self.scripts if self.config[s]['enabled'])
+        for s in self.scripts:
+            if (self.config[s]['execution_order'] or 0) > n_selected:
+                self.config[s]['execution_order'] = None
+        return n_selected
+
+    def _rebuild_scripts_table(self):
         """
             Refreshes the table_data_columns table with the current list of scripts and their config.
 
@@ -692,27 +736,11 @@ class NeuroCrunch(QMainWindow):
         table.setColumnWidth(2, 80)
         table.setColumnWidth(3, 60)
 
-        # Ensure every script has a config entry before computing selection counts
-        for script in self.scripts:
-            if script not in self.config:
-                self.config[script] = {
-                    'enabled': False,
-                    'parameters': {},
-                    'last_modified': None,
-                    'execution_order': None
-                }
+        n_selected = self._normalize_script_config()
 
-        # Scripts can only run if they have been configured; clear stale enabled flags
-        for s in self.scripts:
-            if self.config[s]['last_modified'] is None:
-                self.config[s]['enabled'] = False
-                self.config[s]['execution_order'] = None
-
-        # Number of scripts marked for execution; clear any orders that exceed that count
-        n_selected = sum(1 for s in self.scripts if self.config[s]['enabled'])
-        for s in self.scripts:
-            if (self.config[s]['execution_order'] or 0) > n_selected:
-                self.config[s]['execution_order'] = None
+        # script_id -> row widgets, so _sync_scripts_table_state can update state
+        # in place without recreating every widget on each interaction.
+        self._row_widgets = {}
 
         for script in self.scripts:
             plugin_info = self.plugins[script]
@@ -789,6 +817,12 @@ class NeuroCrunch(QMainWindow):
 
             table.setCellWidget(row_position, 3, order_widget)
 
+            self._row_widgets[script] = {
+                'checkbox': checkbox,
+                'combo': order_combo,
+                'timestamp': timestamp_item,
+            }
+
 
         # Read-only example row: the bundled template. Double-clicking it opens
         # the parameter dialog showing every input type rendered as a real
@@ -823,8 +857,63 @@ class NeuroCrunch(QMainWindow):
         table.blockSignals(False)
         self._refreshing_table = False
 
+    def _sync_scripts_table_state(self):
+        """Update the existing table rows in place from the current config.
+
+        The hot path for checkbox/order/config-save changes: the row set is
+        unchanged, so instead of recreating every widget we re-apply each row's
+        checkbox (checked/enabled), order combo (item list + selection + enabled)
+        and timestamp text. Falls back to a full rebuild if the row widgets are
+        missing or the discovered script set has drifted.
+        """
+        row_widgets = getattr(self, '_row_widgets', None)
+        if not row_widgets or set(row_widgets) != set(self.scripts):
+            self._rebuild_scripts_table()
+            return
+
+        # Guard the change handlers against re-entry while we mutate widgets.
+        self._refreshing_table = True
+        n_selected = self._normalize_script_config()
+
+        for script in self.scripts:
+            cfg = self.config[script]
+            widgets = row_widgets[script]
+            checkbox = widgets['checkbox']
+            combo = widgets['combo']
+            is_configured = cfg['last_modified'] is not None
+
+            checkbox.blockSignals(True)
+            checkbox.setChecked(cfg['enabled'] if is_configured else False)
+            checkbox.setEnabled(is_configured)
+            checkbox.blockSignals(False)
+
+            widgets['timestamp'].setText(
+                cfg['last_modified'] if cfg['last_modified'] is not None else '-')
+
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem('—')
+            if cfg['enabled']:
+                combo.setEnabled(True)
+                for i in range(1, n_selected + 1):
+                    combo.addItem(str(i))
+                order_val = cfg['execution_order']
+                if order_val is not None and 1 <= order_val <= n_selected:
+                    combo.setCurrentIndex(order_val)
+                else:
+                    combo.setCurrentIndex(0)
+            else:
+                combo.setEnabled(False)
+            for i in range(combo.count()):
+                combo.model().item(i).setTextAlignment(Qt.AlignCenter)
+            combo.blockSignals(False)
+
+        self._refreshing_table = False
+
     def _on_checkbox_state_changed(self) -> None:
         """Handle checkbox state changes from the checkbox widgets."""
+        if self._refreshing_table:
+            return
         sender = self.sender()
         if not isinstance(sender, QCheckBox) or not hasattr(sender, 'script_id'):
             return
@@ -856,7 +945,7 @@ class NeuroCrunch(QMainWindow):
                     if order_val is not None and order_val > removed_order:
                         self.config[s]['execution_order'] = order_val - 1
 
-        self.refresh_scripts_table()
+        self._sync_scripts_table_state()
 
     def _on_combobox_order_changed(self, script_id: str, index: int) -> None:
         """Handle order dropdown selection changes."""
@@ -879,7 +968,7 @@ class NeuroCrunch(QMainWindow):
                     break
 
         self.config[script_id]['execution_order'] = new_order
-        self.refresh_scripts_table()
+        self._sync_scripts_table_state()
 
     def save_config(self) -> None:
         """Save the current script configuration to a JSON .config file."""
@@ -922,10 +1011,12 @@ class NeuroCrunch(QMainWindow):
             if isinstance(saved_outputs, dict):
                 self.config['__outputs__'] = saved_outputs
                 self.pipeline_context_store.seed(saved_outputs)
-            # Merge: only update entries for known scripts; ignore stale keys
+            # Merge: only update entries for known scripts; ignore stale keys.
+            # Layer each loaded entry onto the default skeleton so a partial or
+            # older config (missing keys) can't KeyError the table refresh.
             for script_id, cfg in loaded.items():
-                if script_id in self.scripts:
-                    self.config[script_id] = cfg
+                if script_id in self.scripts and isinstance(cfg, dict):
+                    self.config[script_id] = {**_default_script_config(), **cfg}
             self.refresh_scripts_table()
             # Open CSV viewers pull calibration knobs from live config, so refresh
             # their Filter-preview form (and re-plot) against the newly loaded values.
@@ -976,7 +1067,7 @@ class NeuroCrunch(QMainWindow):
             self.config[script_id]['links'] = dialog.get_links()
             self.config[script_id]['last_modified'] = datetime.datetime.now().strftime('%Y/%m/%d - %H:%M')
             self.print(self.tr('Parameters saved for "{0}"').format(plugin_info.name))
-            self.refresh_scripts_table()
+            self._sync_scripts_table_state()
 
     def _open_template_preview(self) -> None:
         """Show the template's parameter dialog as a read-only visual reference.

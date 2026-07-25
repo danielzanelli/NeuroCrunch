@@ -2,134 +2,19 @@
 """Tests for src/script_runner.py (Phase 5 — threading model).
 
 Scripts are executed in-process via exec() so no external Python interpreter
-is needed. These tests do NOT require PySide6 or a running QApplication. Run:
+is needed. These tests do NOT require PySide6 or a running QApplication; the
+PySide6 stub and the ``src`` import path are installed by ``tests/conftest.py``.
+Run:
 
     pytest tests/test_script_runner.py
 """
 import os
-import sys
 import tempfile
 import textwrap
 import threading
-import types
 import unittest
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
-
-
-# ---------------------------------------------------------------------------
-# Minimal PySide6 mock (no Qt required to run tests)
-# ---------------------------------------------------------------------------
-
-def _make_qt_mock():
-    pyside6 = types.ModuleType('PySide6')
-
-    qtcore = types.ModuleType('PySide6.QtCore')
-    qtcore.Qt = type('Qt', (), {
-        'AlignRight': 0, 'AlignVCenter': 0, 'AlignCenter': 0, 'NoFocus': 0,
-    })()
-    qtcore.QColor = type('QColor', (), {'__init__': lambda self, *a, **k: None})
-    qtcore.QCoreApplication = type('QCoreApplication', (), {
-        'translate': staticmethod(lambda context, text, *a, **k: text),
-    })
-
-    class _Signal:
-        def __init__(self, *_types):
-            self._name = None
-
-        def __set_name__(self, owner, name):
-            self._name = name
-
-        def __get__(self, instance, owner):
-            if instance is None:
-                return self
-            attr = f'_signal_{self._name}'
-            bound = instance.__dict__.get(attr)
-            if bound is None:
-                bound = _BoundSignal()
-                instance.__dict__[attr] = bound
-            return bound
-
-    class _BoundSignal:
-        def __init__(self):
-            self._callbacks = []
-
-        def connect(self, callback):
-            self._callbacks.append(callback)
-
-        def emit(self, *args, **kwargs):
-            for cb in list(self._callbacks):
-                cb(*args, **kwargs)
-
-    qtcore.Signal = _Signal
-
-    class _QThread:
-        """Minimal QThread stand-in: start() runs synchronously."""
-        def __init__(self, parent=None):
-            self._running = False
-
-        def start(self):
-            self._running = True
-            try:
-                self.run()
-            finally:
-                self._running = False
-
-        def isRunning(self):
-            return self._running
-
-        def run(self):
-            pass
-
-    qtcore.QThread = _QThread
-    pyside6.QtCore = qtcore
-
-    qtgui = types.ModuleType('PySide6.QtGui')
-    qtgui.QColor = type('QColor', (), {'__init__': lambda self, *a, **k: None})
-    pyside6.QtGui = qtgui
-
-    def _widget_stub(name):
-        return type(name, (), {
-            '__init__': lambda self, *a, **k: None,
-            'Shape': type('Shape', (), {'NoFrame': 0})(),
-            'StandardButton': type('StandardButton', (), {'Ok': 1, 'Cancel': 2})(),
-            'DialogCode': type('DialogCode', (), {'Accepted': 1, 'Rejected': 0})(),
-        })
-
-    qtwidgets = types.ModuleType('PySide6.QtWidgets')
-    for _w in (
-        'QCheckBox', 'QComboBox', 'QDialog', 'QDialogButtonBox',
-        'QDoubleSpinBox', 'QFileDialog', 'QFormLayout', 'QHBoxLayout',
-        'QLabel', 'QLineEdit', 'QMenu', 'QMessageBox', 'QPushButton',
-        'QScrollArea', 'QSpinBox', 'QTextEdit', 'QVBoxLayout', 'QWidget',
-    ):
-        setattr(qtwidgets, _w, _widget_stub(_w))
-    pyside6.QtWidgets = qtwidgets
-
-    return pyside6, qtcore, qtgui, qtwidgets
-
-
-_pyside6, _qtcore, _qtgui, _qtwidgets = _make_qt_mock()
-sys.modules.setdefault('PySide6', _pyside6)
-sys.modules.setdefault('PySide6.QtCore', _qtcore)
-sys.modules.setdefault('PySide6.QtGui', _qtgui)
-sys.modules.setdefault('PySide6.QtWidgets', _qtwidgets)
-
-# Ensure QThread, Signal and QCoreApplication are present even if another
-# test file registered a lighter mock first.
-_installed_qtcore = sys.modules['PySide6.QtCore']
-for _attr, _val in (
-    ('QThread', _qtcore.QThread),
-    ('Signal', _qtcore.Signal),
-    ('QCoreApplication', _qtcore.QCoreApplication),
-):
-    if not hasattr(_installed_qtcore, _attr):
-        setattr(_installed_qtcore, _attr, _val)
-_installed_qtwidgets = sys.modules['PySide6.QtWidgets']
-if not hasattr(_installed_qtwidgets, 'QMenu'):
-    _installed_qtwidgets.QMenu = _qtwidgets.QMenu
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from script_runner import (  # noqa: E402
     PipelineContext,

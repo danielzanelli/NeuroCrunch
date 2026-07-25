@@ -14,6 +14,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from i18n_utils import localize
+
 try:
     import jsonschema
 except ImportError:  # pragma: no cover - jsonschema is a declared dependency
@@ -159,8 +161,8 @@ class PluginManager:
 
         return PluginInfo(
             id=plugin_id,
-            name=self._extract_string(config['name']),
-            description=self._extract_string(config['description']),
+            name=localize(config['name'], fallback='Unknown'),
+            description=localize(config['description'], fallback='Unknown'),
             version=config.get('version', ''),
             author=config.get('author', ''),
             category=config['category'],
@@ -198,17 +200,6 @@ class PluginManager:
             self._schema = {}
 
         return self._schema
-
-    def _extract_string(self, value: Any) -> str:
-        """Extract a string from either a plain string or a language dict.
-
-        If value is a dict, prefer 'en' (English) or any available language.
-        """
-        if isinstance(value, str):
-            return value
-        if isinstance(value, dict):
-            return value.get('en') or next(iter(value.values()), 'Unknown')
-        return str(value)
 
     def _warn(self, message: str) -> None:
         logger.warning(message)

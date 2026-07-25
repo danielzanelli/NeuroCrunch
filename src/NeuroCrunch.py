@@ -574,7 +574,7 @@ class NeuroCrunch(QMainWindow):
         self.ui.viewer_tabs.setCurrentWidget(viewer)
         viewer.apply_theme(self._is_dark_mode())
 
-        # Enable the CSV "Filter preview" tab for scripts that declare a
+        # Enable the CSV "Calibration" tab for scripts that declare a
         # 'traces' calibration, so their parameters can be tuned live against
         # the loaded data. Set before load(): the tab appears once the CSV
         # finishes loading and the column-selector menu is (re)built.
@@ -680,6 +680,15 @@ class NeuroCrunch(QMainWindow):
         """
         self._rebuild_scripts_table()
 
+    def _is_unfinished(self, script_id: str) -> bool:
+        """True if the script is flagged as a work-in-progress (status='unfinished').
+
+        Unfinished scripts are shown in the table as disabled work-in-progress
+        rows and are never allowed to run in a pipeline.
+        """
+        plugin = self.plugins.get(script_id)
+        return plugin is not None and getattr(plugin, 'status', 'stable') == 'unfinished'
+
     def _normalize_script_config(self):
         """Reconcile per-script config and return the number of enabled scripts.
 
@@ -691,9 +700,10 @@ class NeuroCrunch(QMainWindow):
             if script not in self.config:
                 self.config[script] = _default_script_config()
 
-        # Scripts can only run if they have been configured; clear stale enabled flags
+        # Scripts can only run if they have been configured; clear stale enabled
+        # flags. Unfinished (work-in-progress) scripts can never be enabled.
         for s in self.scripts:
-            if self.config[s]['last_modified'] is None:
+            if self.config[s]['last_modified'] is None or self._is_unfinished(s):
                 self.config[s]['enabled'] = False
                 self.config[s]['execution_order'] = None
 
@@ -748,15 +758,27 @@ class NeuroCrunch(QMainWindow):
             row_position = table.rowCount()
             table.insertRow(row_position)
 
+            unfinished = self._is_unfinished(script)
+
             # Script name (display name from the manifest, with rich metadata as a tooltip)
             script_item = QTableWidgetItem()
-            script_item.setText(plugin_info.name)
             origin = 'Official' if plugin_info.is_official else 'Community'
+            if unfinished:
+                # Work-in-progress: subtle italic/greyed style (like the template
+                # row) with an "(unfinished)" suffix; it cannot be run.
+                script_item.setText(self.tr('{0}  (unfinished)').format(plugin_info.name))
+                font = script_item.font()
+                font.setItalic(True)
+                script_item.setFont(font)
+                script_item.setForeground(Qt.gray)
+            else:
+                script_item.setText(plugin_info.name)
             script_item.setToolTip(
                 f'{plugin_info.name} (v{plugin_info.version})\n'
                 f'{plugin_info.description}\n'
                 f'Category: {plugin_info.category} · Author: {plugin_info.author} · {origin}\n'
-                f'Double-click to configure parameters'
+                + (self.tr('Work in progress — this script is unfinished and cannot be run yet.')
+                   if unfinished else 'Double-click to configure parameters')
             )
             table.setItem(row_position, 0, script_item)
 
@@ -767,8 +789,9 @@ class NeuroCrunch(QMainWindow):
             timestamp_item.setTextAlignment(Qt.AlignCenter)
             table.setItem(row_position, 1, timestamp_item)
 
-            # Checkbox for execution (Selection) — only interactive when the script has been configured
-            is_configured = self.config[script]['last_modified'] is not None
+            # Checkbox for execution (Selection) — only interactive when the script
+            # has been configured and is not an unfinished work-in-progress.
+            is_configured = self.config[script]['last_modified'] is not None and not unfinished
 
             # Create a centered checkbox widget
             checkbox_widget = QWidget()
@@ -880,7 +903,7 @@ class NeuroCrunch(QMainWindow):
             widgets = row_widgets[script]
             checkbox = widgets['checkbox']
             combo = widgets['combo']
-            is_configured = cfg['last_modified'] is not None
+            is_configured = cfg['last_modified'] is not None and not self._is_unfinished(script)
 
             checkbox.blockSignals(True)
             checkbox.setChecked(cfg['enabled'] if is_configured else False)

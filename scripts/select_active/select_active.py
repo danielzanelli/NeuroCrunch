@@ -49,6 +49,22 @@ def _max_run_above(values: np.ndarray, threshold: float) -> int:
     return best
 
 
+def _robust_threshold(x: np.ndarray, threshold_std: float) -> float:
+    """Activity threshold for one trace: median + k·(robust MAD).
+
+    Using median/MAD instead of mean/std keeps the threshold from being inflated
+    by the events themselves (a few large transients would otherwise raise std
+    and mask real activity). Falls back to the standard deviation for flat traces
+    where the MAD is zero.
+    """
+    median = np.nanmedian(x)
+    mad = np.nanmedian(np.abs(x - median))
+    robust_std = 1.4826 * mad
+    if not robust_std or np.isnan(robust_std):
+        robust_std = np.nanstd(x)  # fallback for degenerate/flat traces
+    return median + threshold_std * robust_std
+
+
 def run(params):
     input_csv = params["input_csv"]
     output_dir = params["output_dir"]
@@ -74,15 +90,7 @@ def run(params):
     total = len(signal_cols)
     for i, col in enumerate(signal_cols, start=1):
         x = df[col].to_numpy(dtype=float)
-        # Robust baseline: median + k·σ_MAD. Using median/MAD instead of mean/std
-        # keeps the threshold from being inflated by the events themselves (a few
-        # large transients would otherwise raise std and mask real activity).
-        median = np.nanmedian(x)
-        mad = np.nanmedian(np.abs(x - median))
-        robust_std = 1.4826 * mad
-        if not robust_std or np.isnan(robust_std):
-            robust_std = np.nanstd(x)  # fallback for degenerate/flat traces
-        threshold = median + threshold_std * robust_std
+        threshold = _robust_threshold(x, threshold_std)
         if _max_run_above(x, threshold) >= min_duration:
             active_cols.append(col)
 
@@ -98,6 +106,46 @@ def run(params):
     print(f"Active-cells CSV saved: {active_path}")
 
     return {"active_csv": active_path}
+
+
+def preview(sample, params):
+    """Classify one trace for the interactive threshold preview.
+
+    Pure and headless — no file I/O, no plotting. The app's Filter-preview tab
+    feeds one (already-decimated) trace and the current parameter values, then
+    overlays the returned series so the user can watch which traces clear the
+    threshold as they tune it. It reuses the same core as ``run()`` so the
+    preview matches the batch result.
+
+    The trace is returned under either ``"active"`` or ``"inactive"`` — whichever
+    class it would fall into at the current threshold — plus a flat ``"threshold"``
+    line at the cutoff. A trace only carries the key for its own class, so the
+    tab's Active / Inactive checkboxes separate the surviving traces from the
+    dropped ones, while ``"threshold"`` shows every trace's cutoff line.
+
+    Note: the tab decimates each trace before calling this, so the ``threshold``
+    value (median + k·MAD) is stable but the ``min_duration`` consecutive-frame
+    test runs on the decimated trace — the active/inactive call is therefore
+    approximate right at the boundary.
+
+    Returns ``{}`` for an all-NaN or empty trace.
+    """
+    y = np.asarray(sample.get("y"), dtype=float).ravel()
+    nan = np.isnan(y)
+    if nan.all() or y.shape[0] < 1:
+        return {}
+    if nan.any():
+        valid = np.flatnonzero(~nan)
+        y[nan] = np.interp(np.flatnonzero(nan), valid, y[valid])
+
+    threshold_std = float(params.get("threshold_std", 2.5))
+    min_duration = int(params.get("min_duration", 3))
+    threshold = _robust_threshold(y, threshold_std)
+    active = _max_run_above(y, threshold) >= min_duration
+
+    key = "active" if active else "inactive"
+    line = [float(threshold)] * y.shape[0]
+    return {key: y.tolist(), "threshold": line}
 
 
 if __name__ == "__main__":

@@ -17,6 +17,12 @@
     "version": { "type": "string", "default": "" },
     "author": { "type": "string", "default": "" },
     "category": { "type": "string" },
+    "status": {
+      "type": "string",
+      "description": "Development status of the script. 'unfinished' scripts are shown in the UI as work-in-progress and cannot be run.",
+      "enum": ["stable", "unfinished"],
+      "default": "stable"
+    },
     "entry_point": {
       "type": "string",
       "description": "Relative path to the Python entry point. Auto-derived as <folder_name>.py when absent."

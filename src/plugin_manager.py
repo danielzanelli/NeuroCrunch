@@ -48,6 +48,9 @@ class PluginInfo:
     # Empty when the script does not opt into in-app calibration.
     calibration: Dict[str, Any] = field(default_factory=dict)
     is_official: bool = True
+    # Development status from config.json ('stable' or 'unfinished'). Unfinished
+    # scripts are surfaced as work-in-progress in the UI and cannot be run.
+    status: str = 'stable'
     # True only for the bundled example template, shown as a read-only preview
     # row so users can see every input widget rendered. Never runs in a pipeline.
     is_template: bool = False
@@ -171,6 +174,7 @@ class PluginManager:
             outputs=config.get('outputs', {}),
             calibration=config.get('calibration', {}) or {},
             is_official=is_official,
+            status=config.get('status', 'stable'),
         )
 
     def _validate_manifest(self, manifest: dict, manifest_path: str) -> bool:

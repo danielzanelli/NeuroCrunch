@@ -19,7 +19,7 @@
       "name": "threshold_std",
       "type": "float",
       "label": {"en": "Threshold (standard deviations)", "es": "Umbral (desviaciones estándar)"},
-      "description": {"en": "Number of standard deviations above the mean to consider a cell active", "es": "Número de desviaciones estándar por encima de la media para considerar una célula activa"},
+      "description": {"en": "Robust deviations (median + k·MAD) above the median that a stretch of frames must exceed to count a cell as active", "es": "Desviaciones robustas (mediana + k·MAD) por encima de la mediana que un tramo de cuadros debe superar para considerar activa una célula"},
       "default": 2.5,
       "min": 0.5,
       "max": 10.0,
@@ -43,5 +43,9 @@
   ],
   "outputs": {
     "active_csv": {"en": "Path to the CSV with the traces of active cells only", "es": "Ruta del CSV con las trazas de las células activas únicamente"}
+  },
+  "calibration": {
+    "kind": "traces",
+    "params": ["threshold_std", "min_duration"]
   }
 }

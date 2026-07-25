@@ -241,7 +241,7 @@ class PlotViewer(BaseViewer):
         self._is_dark = True
         self._displayed_columns = []      # columns from the last plot (preview input)
 
-        # Calibration ("Filter preview") state, injected by the host via
+        # Calibration tab state, injected by the host via
         # set_calibration_context(). Empty by default so a plain CSV shows no
         # preview tab.
         self._calib_plugins = []          # PluginInfo objects with a 'traces' calibration
@@ -283,7 +283,7 @@ class PlotViewer(BaseViewer):
         self._reader.start()
 
     def set_calibration_context(self, plugins, apply_cb, saved_values_by_id, language='en'):
-        """Enable the "Filter preview" tab for the given calibratable *plugins*.
+        """Enable the "Calibration" tab for the given calibratable *plugins*.
 
         Injected by the host so ``viewers`` stays decoupled from the plugin
         system. *plugins* is a list of PluginInfo objects whose manifest declares
@@ -390,7 +390,7 @@ class PlotViewer(BaseViewer):
         tabs.addTab(self._build_regex_tab(), _tr('Plot Columns'))
         # A calibratable script (e.g. the ALS filter) adds a live preview tab.
         if self._calib_plugins:
-            tabs.addTab(self._build_filter_preview_tab(), _tr('Filter preview'))
+            tabs.addTab(self._build_filter_preview_tab(), _tr('Calibration'))
         # Hug the content vertically so the plot keeps the rest of the tab.
         tabs.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         return tabs
@@ -738,7 +738,7 @@ class PlotViewer(BaseViewer):
             pass
 
     # ------------------------------------------------------------------
-    # Filter preview (interactive calibration)
+    # Calibration tab (interactive parameter tuning)
     # ------------------------------------------------------------------
 
     def _build_filter_preview_tab(self):

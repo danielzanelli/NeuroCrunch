@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "author": "Daniel Zanelli",
   "category": "preprocessing",
+  "status": "unfinished",
   "parameters": [
     {
       "name": "input_video",

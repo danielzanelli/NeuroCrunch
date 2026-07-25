@@ -107,7 +107,7 @@
     "Draw and save ROIs on the current frame": "Dibujar y guardar ROIs en el fotograma actual",
     "Error rendering preview:\n{0}": "Error al representar la vista previa:\n{0}",
     "Error saving regions:\n{0}": "Error al guardar las regiones:\n{0}",
-    "Filter preview": "Vista previa del filtro",
+    "Calibration": "Calibración",
     "No regions drawn to save.": "No hay regiones dibujadas para guardar.",
     "Paintbrush": "Pincel",
     "Play the video to a frame before editing ROIs.": "Reproduce el vídeo hasta un fotograma antes de editar las ROIs.",

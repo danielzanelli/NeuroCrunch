@@ -2,16 +2,23 @@
 # SPDX-License-Identifier: Apache-2.0
 """generate_rois — Detects neuron somas in a calcium-imaging video and exports ROIs.
 
-Builds a summary projection image from the video (mean, max, or per-pixel
-standard deviation across frames), segments bright round blobs with classic
-computer-vision steps (Gaussian denoise, Otsu threshold, morphological
-cleanup, optional watershed splitting of touching cells), filters the
-candidates by diameter and circularity, and fits each survivor to the
-requested output shape (circular, rectangular or polygonal). Regions are
-written as an ImageJ/FIJI-compatible ROI ZIP — the same format read by
-generate_signals and by NeuroCrunch's video ROI overlay.
+Supervised, per-video approach: the user paints a few example regions over
+neurons ("inner") and over background ("outer") with NeuroCrunch's video ROI
+editor and saves each set as an ImageJ ROI ZIP. This script builds a summary
+projection of the video (mean, max or per-pixel standard deviation), computes a
+small multi-scale feature stack on it, and trains a random forest (a compact,
+self-contained NumPy implementation — see ``_RandomForest``) on the painted
+examples to classify every pixel as neuron/background. The resulting
+probability map is thresholded, cleaned,
+optionally split where somas touch, filtered by diameter/circularity, and each
+survivor is fitted to the requested output shape (circular, rectangular or
+polygonal). Regions are written as an ImageJ/FIJI-compatible ROI ZIP — the same
+format read by generate_signals and by NeuroCrunch's video ROI overlay.
 
-Contract: see README.md > "<script_name>.py — execution contract".
+Only libraries bundled with the app are used (numpy, cv2, tifffile, read_roi,
+matplotlib); there is no scipy or scikit-learn dependency.
+
+Contract: see README.md > "Writing Your Own Scripts".
 """
 from __future__ import annotations
 
@@ -21,13 +28,21 @@ import sys
 import zipfile
 
 import numpy as np
-from scipy import ndimage as ndi
 
 try:
     import cv2
 except ImportError:
     print(
         "ERROR: The 'opencv-python' library is not installed. Run: pip install opencv-python",
+        file=sys.stderr,
+    )
+    raise
+
+try:
+    import read_roi
+except ImportError:
+    print(
+        "ERROR: The 'read_roi' library is not installed. Run: pip install read_roi",
         file=sys.stderr,
     )
     raise
@@ -129,29 +144,250 @@ def _to_uint8(img):
 
 
 # ---------------------------------------------------------------------------
-# Soma segmentation
+# Feature stack (cv2 only) — multi-scale intensity / gradient / texture cues
+# ---------------------------------------------------------------------------
+
+_FEATURE_SIGMAS = (1.0, 2.0, 4.0)
+
+
+def build_feature_stack(proj_u8):
+    """Return an (H, W, K) float32 stack of per-pixel features for the forest.
+
+    Channels: raw intensity, Gaussian-smoothed intensity, gradient magnitude and
+    Laplacian at several scales, plus a difference-of-Gaussians. These give the
+    classifier both brightness and local-shape/texture context so it can tell a
+    bright round soma from bright background structure.
+    """
+    base = proj_u8.astype(np.float32)
+    channels = [base]
+
+    smoothed = {}
+    for sigma in _FEATURE_SIGMAS:
+        g = cv2.GaussianBlur(base, (0, 0), sigma)
+        smoothed[sigma] = g
+        channels.append(g)
+        gx = cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)
+        channels.append(cv2.magnitude(gx, gy))
+        channels.append(cv2.Laplacian(g, cv2.CV_32F, ksize=3))
+
+    channels.append(smoothed[_FEATURE_SIGMAS[0]] - smoothed[_FEATURE_SIGMAS[1]])  # DoG
+
+    return np.stack(channels, axis=-1).astype(np.float32)
+
+
+# ---------------------------------------------------------------------------
+# ImageJ ROI rasterization (copied from generate_signals — isolated namespaces)
 # ---------------------------------------------------------------------------
 
 
-def segment_somas(proj_u8, gaussian_sigma, threshold_offset, min_diameter, max_diameter,
+def _polygon_mask(xs, ys, shape):
+    """Return a boolean mask (H × W) for a polygon defined by *xs*, *ys*."""
+    from matplotlib.path import Path
+
+    H, W = shape
+    col_coords, row_coords = np.meshgrid(np.arange(W), np.arange(H))
+    points = np.column_stack([col_coords.ravel(), row_coords.ravel()])
+    path = Path(list(zip(xs, ys)))
+    return path.contains_points(points).reshape(H, W)
+
+
+def _rect_mask(left, top, width, height, shape):
+    """Return a boolean mask for a rectangle."""
+    H, W = shape
+    mask = np.zeros(shape, dtype=bool)
+    r0, r1 = max(0, int(top)), min(H, int(top + height))
+    c0, c1 = max(0, int(left)), min(W, int(left + width))
+    mask[r0:r1, c0:c1] = True
+    return mask
+
+
+def _oval_mask(left, top, width, height, shape):
+    """Return a boolean mask for an oval/ellipse (approximated as a polygon)."""
+    theta = np.linspace(0, 2 * np.pi, 360)
+    cx, cy = left + width / 2, top + height / 2
+    xs = (cx + (width / 2) * np.cos(theta)).tolist()
+    ys = (cy + (height / 2) * np.sin(theta)).tolist()
+    return _polygon_mask(xs, ys, shape)
+
+
+def _roi_to_mask(name, roi, shape):
+    """Rasterize one read_roi dict to a boolean mask, or None if unusable."""
+    roi_type = roi.get("type", "").lower()
+    if roi_type in ("polygon", "freehand", "traced", "freeline", "polyline"):
+        xs = [float(v) for v in roi.get("x", [])]
+        ys = [float(v) for v in roi.get("y", [])]
+        if len(xs) >= 3:
+            return _polygon_mask(xs, ys, shape)
+    elif roi_type in ("rectangle", "rect"):
+        return _rect_mask(roi["left"], roi["top"], roi["width"], roi["height"], shape)
+    elif roi_type in ("oval", "ellipse"):
+        return _oval_mask(roi["left"], roi["top"], roi["width"], roi["height"], shape)
+    else:  # fallback on available geometry keys
+        if "x" in roi and "y" in roi and len(roi["x"]) >= 3:
+            return _polygon_mask([float(v) for v in roi["x"]], [float(v) for v in roi["y"]], shape)
+        if all(k in roi for k in ("left", "top", "width", "height")):
+            return _rect_mask(roi["left"], roi["top"], roi["width"], roi["height"], shape)
+    print(f"  Warning: could not rasterize ROI '{name}' (type '{roi_type}'), skipping.", file=sys.stderr)
+    return None
+
+
+def load_label_mask(zip_path, shape):
+    """Union every ROI in *zip_path* into a single boolean label mask."""
+    if not os.path.isfile(zip_path):
+        raise FileNotFoundError(f"ROI ZIP not found: {zip_path}")
+    rois = read_roi.read_roi_zip(zip_path)
+    union = np.zeros(shape, dtype=bool)
+    for name, roi in rois.items():
+        mask = _roi_to_mask(name, roi, shape)
+        if mask is not None:
+            union |= mask
+    return union
+
+
+# ---------------------------------------------------------------------------
+# Random-forest pixel classification
+#
+# Implemented in pure NumPy: the bundled OpenCV 5.x headless wheel does not ship
+# the `cv2.ml` module, and scikit-learn (which would pull in scipy) is not part
+# of the app's dependency set. This compact CART/bagging forest keeps the
+# dependency footprint unchanged while giving the user the requested ML model.
+# ---------------------------------------------------------------------------
+
+_MAX_SAMPLES_PER_CLASS = 10000  # cap training pixels per class for speed
+
+
+class _RandomForest:
+    """A small bootstrap-aggregated forest of Gini CART trees for two classes."""
+
+    def __init__(self, n_trees=40, max_depth=10, min_samples=4, n_features=None, seed=0):
+        self.n_trees = n_trees
+        self.max_depth = max_depth
+        self.min_samples = min_samples
+        self.n_features = n_features
+        self.seed = seed
+        self.trees = []
+
+    def fit(self, X, y):
+        X = np.ascontiguousarray(X, dtype=np.float32)
+        y = np.asarray(y, dtype=np.float64)
+        n, k = X.shape
+        self._n_feat = self.n_features or max(1, int(round(np.sqrt(k))))
+        rng = np.random.default_rng(self.seed)
+        self.trees = []
+        for _ in range(self.n_trees):
+            boot = rng.integers(0, n, n)  # bootstrap sample with replacement
+            self.trees.append(self._build(X[boot], y[boot], 0, rng))
+        return self
+
+    def _build(self, X, y, depth, rng):
+        m = X.shape[0]
+        p = float(y.mean()) if m else 0.0
+        if depth >= self.max_depth or m < self.min_samples or p in (0.0, 1.0):
+            return {"leaf": True, "p": p}
+        feat, thr = self._best_split(X, y, rng)
+        if feat is None:
+            return {"leaf": True, "p": p}
+        left = X[:, feat] <= thr
+        if left.all() or not left.any():
+            return {"leaf": True, "p": p}
+        return {
+            "leaf": False, "f": feat, "t": thr,
+            "L": self._build(X[left], y[left], depth + 1, rng),
+            "R": self._build(X[~left], y[~left], depth + 1, rng),
+        }
+
+    def _best_split(self, X, y, rng):
+        m, k = X.shape
+        feats = rng.choice(k, self._n_feat, replace=False)
+        total_pos = y.sum()
+        best_g, best = np.inf, (None, None)
+        for f in feats:
+            vals = X[:, f]
+            order = np.argsort(vals, kind="mergesort")
+            sv, sy = vals[order], y[order]
+            nl = np.arange(1, m)
+            nr = m - nl
+            pl = np.cumsum(sy)[:-1]          # positives in the left partition
+            pr = total_pos - pl
+            gini_l = 1.0 - (pl / nl) ** 2 - ((nl - pl) / nl) ** 2
+            gini_r = 1.0 - (pr / nr) ** 2 - ((nr - pr) / nr) ** 2
+            impurity = (nl * gini_l + nr * gini_r) / m
+            impurity[sv[1:] == sv[:-1]] = np.inf  # can't split between equal values
+            i = int(np.argmin(impurity))
+            if impurity[i] < best_g:
+                best_g = impurity[i]
+                best = (int(f), float((sv[i] + sv[i + 1]) / 2.0))
+        return best
+
+    def predict_proba(self, X):
+        X = np.ascontiguousarray(X, dtype=np.float32)
+        acc = np.zeros(X.shape[0], dtype=np.float64)
+        all_idx = np.arange(X.shape[0])
+        for tree in self.trees:
+            stack = [(tree, all_idx)]
+            while stack:
+                node, idx = stack.pop()
+                if node["leaf"]:
+                    acc[idx] += node["p"]
+                    continue
+                go_left = X[idx, node["f"]] <= node["t"]
+                stack.append((node["L"], idx[go_left]))
+                stack.append((node["R"], idx[~go_left]))
+        return acc / len(self.trees)
+
+
+def train_pixel_forest(features, inner_mask, outer_mask):
+    """Train a random forest on the painted example pixels; return the model."""
+    k = features.shape[2]
+    flat = features.reshape(-1, k)
+
+    pos = inner_mask.ravel()
+    neg = outer_mask.ravel() & ~pos  # inner wins where the two overlap
+
+    pos_idx = np.flatnonzero(pos)
+    neg_idx = np.flatnonzero(neg)
+    if pos_idx.size == 0:
+        raise ValueError("The neuron (inner) ROI ZIP labels no pixels. Draw regions over somas and re-save.")
+    if neg_idx.size == 0:
+        raise ValueError("The background (outer) ROI ZIP labels no pixels. Draw regions over background and re-save.")
+
+    rng = np.random.default_rng(0)
+    if pos_idx.size > _MAX_SAMPLES_PER_CLASS:
+        pos_idx = rng.choice(pos_idx, _MAX_SAMPLES_PER_CLASS, replace=False)
+    if neg_idx.size > _MAX_SAMPLES_PER_CLASS:
+        neg_idx = rng.choice(neg_idx, _MAX_SAMPLES_PER_CLASS, replace=False)
+    print(f"  Training samples: {pos_idx.size} neuron / {neg_idx.size} background")
+
+    X = np.vstack([flat[pos_idx], flat[neg_idx]])
+    y = np.concatenate([np.ones(pos_idx.size), np.zeros(neg_idx.size)])
+    return _RandomForest().fit(X, y)
+
+
+def predict_probability(rf, features):
+    """Return an (H, W) float32 map of the forest's neuron probability."""
+    H, W, k = features.shape
+    proba = rf.predict_proba(features.reshape(-1, k))
+    return proba.reshape(H, W).astype(np.float32)
+
+
+# ---------------------------------------------------------------------------
+# Soma segmentation from the probability map (cv2 only — no scipy)
+# ---------------------------------------------------------------------------
+
+
+def segment_somas(prob_map, threshold, min_diameter, max_diameter,
                    min_circularity, separate_touching):
     """Return a list of OpenCV contours for blobs that pass the soma filters."""
-    if gaussian_sigma > 0:
-        k = max(3, int(round(gaussian_sigma * 3)) | 1)  # odd kernel size
-        blurred = cv2.GaussianBlur(proj_u8, (k, k), gaussian_sigma)
-    else:
-        blurred = proj_u8
-
-    otsu_thresh, _ = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    final_thresh = float(np.clip(otsu_thresh + threshold_offset, 0, 255))
-    _, mask = cv2.threshold(blurred, final_thresh, 255, cv2.THRESH_BINARY)
-    print(f"  Otsu threshold: {otsu_thresh:.1f} (+ offset {threshold_offset:+.1f} = {final_thresh:.1f})")
+    mask = (prob_map >= threshold).astype(np.uint8) * 255
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
     if separate_touching and np.any(mask):
-        contours = _watershed_contours(mask, blurred, min_diameter)
+        # A grayscale guide for the watershed: the probability map itself.
+        guide = _to_uint8(prob_map)
+        contours = _watershed_contours(mask, guide, min_diameter)
     else:
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -171,14 +407,20 @@ def segment_somas(proj_u8, gaussian_sigma, threshold_offset, min_diameter, max_d
     return somas
 
 
-def _watershed_contours(mask, blurred, min_diameter):
+def _watershed_contours(mask, guide, min_diameter):
     """Split touching somas: local-maxima seeding on the distance transform,
-    then classic marker-based watershed."""
+    then classic marker-based watershed. Local maxima and labeling use only cv2
+    (dilation-equality peaks + connected components), so no scipy is needed."""
     dist = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
     min_peak_distance = max(1, min_diameter // 2)
     filt_size = int(2 * min_peak_distance + 1)
-    local_max = (dist == ndi.maximum_filter(dist, size=filt_size)) & (dist > 0)
-    peak_labels, n_peaks = ndi.label(local_max)
+
+    peak_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (filt_size, filt_size))
+    dilated = cv2.dilate(dist, peak_kernel)
+    local_max = ((dist == dilated) & (dist > 0)).astype(np.uint8)
+
+    n_labels, peak_labels = cv2.connectedComponents(local_max, connectivity=8)
+    n_peaks = n_labels - 1  # label 0 is background
     if n_peaks == 0:
         return []
 
@@ -186,7 +428,7 @@ def _watershed_contours(mask, blurred, min_diameter):
     markers[mask == 0] = 1  # background
     markers[peak_labels > 0] = peak_labels[peak_labels > 0] + 1  # soma seeds: 2..n_peaks+1
 
-    img_3ch = cv2.cvtColor(blurred, cv2.COLOR_GRAY2BGR)
+    img_3ch = cv2.cvtColor(guide, cv2.COLOR_GRAY2BGR)
     cv2.watershed(img_3ch, markers)
 
     contours = []
@@ -307,6 +549,13 @@ def _save_preview(proj_u8, shapes, output_dir, video_stem):
     return preview_path
 
 
+def _save_probability(prob_map, output_dir, video_stem):
+    heat = cv2.applyColorMap(_to_uint8(prob_map), cv2.COLORMAP_JET)
+    path = os.path.join(output_dir, f"{video_stem}_probability.png")
+    cv2.imwrite(path, heat)
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -314,11 +563,12 @@ def _save_preview(proj_u8, shapes, output_dir, video_stem):
 
 def run(params):
     input_video = params["input_video"]
+    inner_rois = params["inner_rois"]
+    outer_rois = params["outer_rois"]
     output_dir = params["output_dir"]
     roi_type = params.get("roi_type", "circular")
     projection_method = params.get("projection_method", "std")
-    gaussian_sigma = float(params.get("gaussian_sigma", 1.5))
-    threshold_offset = float(params.get("threshold_offset", 0.0))
+    threshold = float(params.get("probability_threshold", 0.5))
     min_diameter = int(params.get("min_soma_diameter_px", 5))
     max_diameter = int(params.get("max_soma_diameter_px", 40))
     min_circularity = float(params.get("min_circularity", 0.5))
@@ -333,35 +583,52 @@ def run(params):
     print(f"Reading video: {os.path.basename(input_video)}")
     print(f"  Projection: {projection_method}")
     proj = build_projection(input_video, projection_method)
-    print("PROGRESS:40")
-
     proj_u8 = _to_uint8(proj)
+    shape = proj_u8.shape
+    print("PROGRESS:35")
 
-    print("Segmenting somas...")
+    print("Building feature stack...")
+    features = build_feature_stack(proj_u8)
+
+    print("Loading painted example regions...")
+    inner_mask = load_label_mask(inner_rois, shape)
+    outer_mask = load_label_mask(outer_rois, shape)
+    print(f"  Neuron pixels: {int(inner_mask.sum())}, background pixels: {int(outer_mask.sum())}")
+
+    print("Training random forest...")
+    rf = train_pixel_forest(features, inner_mask, outer_mask)
+    print("PROGRESS:60")
+
+    print("Classifying pixels...")
+    prob_map = predict_probability(rf, features)
+    print("PROGRESS:75")
+
+    print(f"Segmenting somas (threshold {threshold:.2f})...")
     contours = segment_somas(
-        proj_u8, gaussian_sigma, threshold_offset,
-        min_diameter, max_diameter, min_circularity, separate_touching,
+        prob_map, threshold, min_diameter, max_diameter,
+        min_circularity, separate_touching,
     )
     print(f"  Candidate somas kept after filtering: {len(contours)}")
-    print("PROGRESS:70")
+    print("PROGRESS:85")
 
     fitted = [_shape_from_contour(cnt, roi_type) for cnt in contours]
     fitted.sort(key=lambda item: (item[1][1], item[1][0]))  # reading order: top-to-bottom, left-to-right
-    shapes = [shape for shape, _ in fitted]
+    shapes = [shp for shp, _ in fitted]
 
     if not shapes:
         raise ValueError(
-            "No somas detected. Try lowering 'min_circularity', widening the "
-            "diameter range, or adjusting 'threshold_offset'."
+            "No somas detected. Try lowering the detection threshold, widening the "
+            "diameter range, lowering 'min_circularity', or painting clearer examples."
         )
 
     video_stem = os.path.splitext(os.path.basename(input_video))[0]
     roi_zip = _write_roi_zip(shapes, output_dir, video_stem)
     print(f"ROI ZIP saved: {roi_zip} ({len(shapes)} ROIs)")
-    print("PROGRESS:90")
 
     preview_png = _save_preview(proj_u8, shapes, output_dir, video_stem)
     print(f"Preview image saved: {preview_png}")
+    prob_png = _save_probability(prob_map, output_dir, video_stem)
+    print(f"Probability map saved: {prob_png}")
     print("PROGRESS:100")
 
     return {"roi_zip": roi_zip, "preview_png": preview_png}
@@ -370,13 +637,14 @@ def run(params):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Detects neuron somas and exports ROIs.")
+    parser = argparse.ArgumentParser(description="Detects neuron somas with a trained random forest and exports ROIs.")
     parser.add_argument("--input_video", required=True)
+    parser.add_argument("--inner_rois", required=True, help="ROI ZIP with neuron (positive) example regions")
+    parser.add_argument("--outer_rois", required=True, help="ROI ZIP with background (negative) example regions")
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--roi_type", default="circular", choices=["circular", "rectangular", "polygonal"])
     parser.add_argument("--projection_method", default="std", choices=["mean", "max", "std"])
-    parser.add_argument("--gaussian_sigma", type=float, default=1.5)
-    parser.add_argument("--threshold_offset", type=float, default=0.0)
+    parser.add_argument("--probability_threshold", type=float, default=0.5)
     parser.add_argument("--min_soma_diameter_px", type=int, default=5)
     parser.add_argument("--max_soma_diameter_px", type=int, default=40)
     parser.add_argument("--min_circularity", type=float, default=0.5)

@@ -1,11 +1,11 @@
 {
   "id": "generate_rois",
   "name": "Generate ROIs",
-  "description": "Automatically detects neuron somas in a calcium-imaging video and exports them as ROIs.",
-  "version": "1.1.0",
+  "description": "Trains a small random forest on painted example regions (neurons vs. background) to detect somas in a calcium-imaging video and export them as ROIs.",
+  "version": "2.0.0",
   "author": "Daniel Zanelli",
   "category": "preprocessing",
-  "status": "unfinished",
+  "status": "stable",
   "parameters": [
     {
       "name": "input_video",
@@ -14,6 +14,22 @@
       "description": {"en": "Calcium-imaging video where the somas will be detected", "es": "Video de imágenes de calcio donde se detectarán los somas"},
       "required": true,
       "extensions": [".tif", ".tiff", ".avi", ".mp4"]
+    },
+    {
+      "name": "inner_rois",
+      "type": "file",
+      "label": {"en": "Neuron examples (inner)", "es": "Ejemplos de neuronas (interior)"},
+      "description": {"en": "ROI ZIP with regions painted over neurons (positive examples the model learns from). Draw them with the video ROI editor and save as a .zip", "es": "ZIP de ROIs con regiones pintadas sobre neuronas (ejemplos positivos con los que aprende el modelo). Dibújalas con el editor de ROIs del video y guárdalas como .zip"},
+      "required": true,
+      "extensions": [".zip"]
+    },
+    {
+      "name": "outer_rois",
+      "type": "file",
+      "label": {"en": "Background examples (outer)", "es": "Ejemplos de fondo (exterior)"},
+      "description": {"en": "ROI ZIP with regions painted over background (negative examples the model learns from). Draw them with the video ROI editor and save as a .zip", "es": "ZIP de ROIs con regiones pintadas sobre el fondo (ejemplos negativos con los que aprende el modelo). Dibújalas con el editor de ROIs del video y guárdalas como .zip"},
+      "required": true,
+      "extensions": [".zip"]
     },
     {
       "name": "roi_type",
@@ -27,29 +43,19 @@
       "name": "projection_method",
       "type": "choice",
       "label": {"en": "Projection method", "es": "Método de proyección"},
-      "description": {"en": "How frames are combined into the summary image somas are detected on: 'mean' averages every frame, 'max' keeps the brightest pixel seen, 'std' highlights pixels that fluctuate over time (usually the best choice for active somas)", "es": "Cómo se combinan los cuadros en la imagen resumen sobre la que se detectan los somas: 'mean' promedia todos los cuadros, 'max' conserva el píxel más brillante observado, 'std' resalta los píxeles que fluctúan en el tiempo (normalmente la mejor opción para somas activos)"},
+      "description": {"en": "How frames are combined into the summary image the model is trained and run on: 'mean' averages every frame, 'max' keeps the brightest pixel seen, 'std' highlights pixels that fluctuate over time (usually the best choice for active somas)", "es": "Cómo se combinan los cuadros en la imagen resumen sobre la que se entrena y ejecuta el modelo: 'mean' promedia todos los cuadros, 'max' conserva el píxel más brillante observado, 'std' resalta los píxeles que fluctúan en el tiempo (normalmente la mejor opción para somas activos)"},
       "options": ["mean", "max", "std"],
       "default": "std"
     },
     {
-      "name": "gaussian_sigma",
+      "name": "probability_threshold",
       "type": "float",
-      "label": {"en": "Gaussian blur (sigma)", "es": "Desenfoque gaussiano (sigma)"},
-      "description": {"en": "Blur applied to the summary image before thresholding, to reduce pixel noise", "es": "Desenfoque aplicado a la imagen resumen antes de umbralizar, para reducir el ruido de píxeles"},
-      "default": 1.5,
+      "label": {"en": "Detection threshold", "es": "Umbral de detección"},
+      "description": {"en": "Minimum neuron probability (fraction of forest votes, 0–1) a pixel needs to count as part of a soma; higher is stricter", "es": "Probabilidad mínima de neurona (fracción de votos del bosque, 0–1) que necesita un píxel para contar como parte de un soma; más alto es más estricto"},
+      "default": 0.5,
       "min": 0.0,
-      "max": 10.0,
+      "max": 1.0,
       "decimals": 2
-    },
-    {
-      "name": "threshold_offset",
-      "type": "float",
-      "label": {"en": "Threshold offset", "es": "Ajuste de umbral"},
-      "description": {"en": "Value added to the automatic (Otsu) threshold; positive is stricter (fewer, brighter somas), negative is more permissive", "es": "Valor sumado al umbral automático (Otsu); positivo es más estricto (menos somas, más brillantes), negativo es más permisivo"},
-      "default": 0.0,
-      "min": -100.0,
-      "max": 100.0,
-      "decimals": 1
     },
     {
       "name": "min_soma_diameter_px",

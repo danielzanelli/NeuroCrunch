@@ -25,8 +25,8 @@ from PySide6.QtGui import (
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox, QTabWidget, QTextBrowser,
-    QVBoxLayout, QWidget
+    QProxyStyle, QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox, QStyle,
+    QTabWidget, QTextBrowser, QVBoxLayout, QWidget
 )
 try:
     # Optional: QtWebEngine is a ~290 MB dependency used only as a PDF-viewer
@@ -1249,6 +1249,17 @@ def encode_imagej_roi(region):
     return bytes(header) + bytes(coords) + bytes(header2)
 
 
+class _AbsoluteSeekStyle(QProxyStyle):
+    """Makes a left-click on the slider groove jump straight to that position
+    (absolute seek) instead of stepping one page at a time. Dragging keeps
+    working, so a click and a drag both map to the same seek behaviour."""
+
+    def styleHint(self, hint, option=None, widget=None, returnData=None):
+        if hint == QStyle.SH_Slider_AbsoluteSetButtons:
+            return Qt.LeftButton.value
+        return super().styleHint(hint, option, widget, returnData)
+
+
 class VideoViewer(BaseViewer):
     """Plays a video through a QVideoSink so ROIs can be painted on each frame.
 
@@ -1264,6 +1275,10 @@ class VideoViewer(BaseViewer):
     _EDIT_PEN = (230, 168, 23, 235)
     _EDIT_BRUSH = (230, 168, 23, 60)
 
+    # Zoom bounds and per-wheel-notch step for the paused-frame zoom.
+    _MAX_ZOOM = 8.0
+    _ZOOM_STEP = 1.25
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.roi_data = {}
@@ -1272,6 +1287,13 @@ class VideoViewer(BaseViewer):
         # be repainted on demand — e.g. when ROIs load or toggle while paused.
         self._current_image = None
         self._show_rois = True
+
+        # Zoom/pan state (only usable while paused). ``_zoom`` is 1.0 at the
+        # fit-to-view baseline; ``_view_center`` is the image-space point shown
+        # at the label centre (None => image centre). Kept in image coordinates
+        # so the same transform positions both the frame and the ROI overlays.
+        self._zoom = 1.0
+        self._view_center = None
 
         # ROI annotator state (Tier 2 calibration). Regions are stored in
         # original-image coordinates so they scale with the display.
@@ -1290,6 +1312,12 @@ class VideoViewer(BaseViewer):
         self.display_label = QLabel()
         self.display_label.setAlignment(Qt.AlignCenter)
         self.display_label.setStyleSheet("background: black;")
+        # The label-sized canvas we set as the pixmap must not feed back into the
+        # layout: without this the pixmap's size becomes the label's sizeHint and
+        # the video (and window) grow every frame. Ignored policy lets the layout
+        # drive the label size instead of the pixmap.
+        self.display_label.setMinimumSize(1, 1)
+        self.display_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
 
         # ROI overlay toggle: floats in the top-right corner of the video rather
         # than sitting next to the play button (where it read as a pause icon).
@@ -1337,6 +1365,8 @@ class VideoViewer(BaseViewer):
 
         self.progress_slider = QSlider(Qt.Horizontal)
         self.progress_slider.setMinimum(0)
+        # Click anywhere on the groove to seek there (not just drag the handle).
+        self.progress_slider.setStyle(_AbsoluteSeekStyle(self.progress_slider.style()))
         self.progress_slider.sliderMoved.connect(self.set_position)
         self.media_player.durationChanged.connect(self.update_duration)
         self.media_player.positionChanged.connect(self.update_position)
@@ -1411,6 +1441,7 @@ class VideoViewer(BaseViewer):
 
     def load(self, file_path):
         try:
+            self._reset_zoom()
             self.frame_timer.start()
             # Load and play, suppressing FFmpeg stderr noise
             try:
@@ -1488,14 +1519,60 @@ class VideoViewer(BaseViewer):
             self._update_edit_hint()
 
     def eventFilter(self, obj, event):
-        # Keep the floating ROI toggle pinned to the top-right of the video area.
-        if obj is self.display_label and event.type() == QEvent.Resize:
-            self._position_roi_button()
-        # In edit mode, the label captures mouse input to draw regions.
-        if self._edit_mode and obj is self.display_label:
-            if self._handle_edit_event(event):
+        if obj is self.display_label:
+            etype = event.type()
+            # Keep the floating ROI toggle pinned to the top-right of the video.
+            if etype == QEvent.Resize:
+                self._position_roi_button()
+            # Mouse wheel zooms the paused frame (and its ROI overlays).
+            elif etype == QEvent.Wheel and self._handle_wheel_zoom(event):
+                return True
+            # In edit mode, the label captures mouse input to draw regions.
+            if self._edit_mode and self._handle_edit_event(event):
                 return True
         return super().eventFilter(obj, event)
+
+    def _handle_wheel_zoom(self, event):
+        """Zoom the paused frame toward the cursor. Returns True if consumed.
+
+        Only active while paused; during playback the view stays fitted so each
+        decoded frame fills the label as before.
+        """
+        if self.media_player.isPlaying():
+            return False
+        if self._current_image is None or self._current_image.isNull():
+            return False
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return False
+
+        transform = self._view_transform()
+        if transform is None:
+            return False
+        scale, tx, ty = transform
+
+        factor = self._ZOOM_STEP if delta > 0 else 1.0 / self._ZOOM_STEP
+        new_zoom = min(max(self._zoom * factor, 1.0), self._MAX_ZOOM)
+        if new_zoom == self._zoom:
+            return True
+
+        # Keep the image point under the cursor pinned in place across the zoom.
+        base = scale / self._zoom
+        new_scale = base * new_zoom
+        pos = event.position()
+        px = (pos.x() - tx) / scale
+        py = (pos.y() - ty) / scale
+        lw, lh = self.display_label.width(), self.display_label.height()
+        self._view_center = (px + (lw / 2.0 - pos.x()) / new_scale,
+                             py + (lh / 2.0 - pos.y()) / new_scale)
+        self._zoom = new_zoom
+        self._redraw_current_frame()
+        return True
+
+    def _reset_zoom(self):
+        """Return to the fit-to-view baseline (used when playback resumes)."""
+        self._zoom = 1.0
+        self._view_center = None
 
     def _handle_edit_event(self, event):
         """Handle a drawing gesture on the frame; return True if consumed."""
@@ -1625,18 +1702,59 @@ class VideoViewer(BaseViewer):
                 self._draw_edit_regions(painter)
             painter.end()
 
-        pixmap = QPixmap.fromImage(image)
-        if not pixmap.isNull() and self.display_label.width() > 0:
-            self.display_label.setPixmap(
-                pixmap.scaled(self.display_label.size(),
-                              Qt.KeepAspectRatio, Qt.FastTransformation)
-            )
+        transform = self._view_transform()
+        if transform is None:
+            return
+        scale, tx, ty = transform
+        lw, lh = self.display_label.width(), self.display_label.height()
+
+        # Compose onto a label-sized canvas: black letterbox, then the frame
+        # (with its baked-in ROIs) placed by the shared image->label transform,
+        # so overlays stay aligned with the video at any zoom/pan.
+        canvas = QPixmap(lw, lh)
+        canvas.fill(Qt.black)
+        painter = QPainter(canvas)
+        # Smooth only when magnified; playback keeps the cheap fast path.
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, self._zoom > 1.0)
+        painter.translate(tx, ty)
+        painter.scale(scale, scale)
+        painter.drawImage(0, 0, image)
+        painter.end()
+        self.display_label.setPixmap(canvas)
+
+    def _view_transform(self):
+        """Return ``(scale, tx, ty)`` mapping image coords to label coords.
+
+        At ``_zoom == 1`` this is the fit-to-view letterbox used during
+        playback; when zoomed in the view is clamped so it stays over the image.
+        The clamped centre is written back to ``_view_center``. Returns ``None``
+        when there is nothing sized to map.
+        """
+        img = self._current_image
+        if img is None or img.isNull():
+            return None
+        iw, ih = img.width(), img.height()
+        lw, lh = self.display_label.width(), self.display_label.height()
+        if iw <= 0 or ih <= 0 or lw <= 0 or lh <= 0:
+            return None
+        base = min(lw / iw, lh / ih)
+        scale = base * self._zoom
+        # Size of the visible window expressed in image pixels.
+        vw, vh = lw / scale, lh / scale
+        cx, cy = self._view_center or (iw / 2.0, ih / 2.0)
+        # Keep the window over the image on each axis it no longer fully covers.
+        cx = min(max(cx, vw / 2.0), iw - vw / 2.0) if vw < iw else iw / 2.0
+        cy = min(max(cy, vh / 2.0), ih - vh / 2.0) if vh < ih else ih / 2.0
+        self._view_center = (cx, cy)
+        return scale, lw / 2.0 - cx * scale, lh / 2.0 - cy * scale
 
     def toggle_play_pause(self):
         """Toggle between play and pause"""
         if self.media_player.isPlaying():
             self.media_player.pause()
         else:
+            # Resuming playback drops any paused-frame zoom back to fit-to-view.
+            self._reset_zoom()
             self.frame_timer.start()
             self.media_player.play()
         self._update_play_icon()
@@ -1743,23 +1861,17 @@ class VideoViewer(BaseViewer):
     def _label_to_image(self, point):
         """Map a display-label point to original-image coordinates.
 
-        Accounts for the KeepAspectRatio letterboxing in :meth:`_display_image`.
-        Returns ``(x, y)`` floats inside the image, or ``None`` outside it.
+        Uses the same zoom/pan transform as :meth:`_display_image`, so drawing
+        lines up with the frame whatever the zoom. Returns ``(x, y)`` floats
+        inside the image, or ``None`` outside it.
         """
-        img = self._current_image
-        if img is None or img.isNull():
+        transform = self._view_transform()
+        if transform is None:
             return None
-        iw, ih = img.width(), img.height()
-        lw, lh = self.display_label.width(), self.display_label.height()
-        if iw <= 0 or ih <= 0 or lw <= 0 or lh <= 0:
-            return None
-        scale = min(lw / iw, lh / ih)
-        if scale <= 0:
-            return None
-        off_x = (lw - iw * scale) / 2.0
-        off_y = (lh - ih * scale) / 2.0
-        x = (point.x() - off_x) / scale
-        y = (point.y() - off_y) / scale
+        scale, tx, ty = transform
+        x = (point.x() - tx) / scale
+        y = (point.y() - ty) / scale
+        iw, ih = self._current_image.width(), self._current_image.height()
         if 0 <= x < iw and 0 <= y < ih:
             return (x, y)
         return None

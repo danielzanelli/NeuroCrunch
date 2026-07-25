@@ -1,6 +1,9 @@
 {
-  "name": "Script template",
-  "description": "A neutral example that shows every input type and every option you can declare. Copy this folder, rename it, and edit config.json + the .py file.",
+  "name": { "en": "Script template", "es": "Plantilla de script" },
+  "description": {
+    "en": "A neutral example that shows every input type and every option you can declare. Copy this folder, rename it, and edit config.json + the .py file.",
+    "es": "Un ejemplo neutro que muestra todos los tipos de entrada y todas las opciones que puedes declarar. Copia esta carpeta, renómbrala y edita config.json y el archivo .py."
+  },
   "category": "example",
   "version": "1.0.0",
   "author": "Your name here",
@@ -11,23 +14,29 @@
       "name": "text_input",
       "type": "string",
       "label": "Text input (single line)",
-      "description": "type \"string\" -> a single-line text box (QLineEdit). Optional keys: 'default', 'required'.",
+      "description": "type \"string\" -> a single-line text box (QLineEdit). This 'label' and 'description' are plain strings, so they show exactly as written no matter the app language (notice they stay in English even in the Spanish preview). Optional keys: 'default', 'required'.",
       "default": "example text"
     },
 
     {
       "name": "long_text_input",
       "type": "text",
-      "label": "Text input (multi-line)",
-      "description": "type \"text\" -> a resizable multi-line box (QTextEdit), for longer notes. Optional keys: 'default', 'required'.",
+      "label": { "en": "Text input (multi-line)", "es": "Entrada de texto (multilínea)" },
+      "description": {
+        "en": "type \"text\" -> a resizable multi-line box (QTextEdit), for longer notes. Optional keys: 'default', 'required'.",
+        "es": "tipo \"text\" -> un cuadro multilínea redimensionable (QTextEdit), para notas más largas. Claves opcionales: 'default', 'required'."
+      },
       "default": ""
     },
 
     {
       "name": "whole_number",
       "type": "int",
-      "label": "Whole number input",
-      "description": "type \"int\" -> an integer stepper (QSpinBox). Optional keys: 'min', 'max', 'default', 'required'. Arrives in the script as a Python int.",
+      "label": { "en": "Whole number input", "es": "Entrada de número entero" },
+      "description": {
+        "en": "type \"int\" -> an integer stepper (QSpinBox). Optional keys: 'min', 'max', 'default', 'required'. Arrives in the script as a Python int.",
+        "es": "tipo \"int\" -> un selector de enteros (QSpinBox). Claves opcionales: 'min', 'max', 'default', 'required'. Llega al script como un int de Python."
+      },
       "default": 10,
       "min": 0,
       "max": 1000
@@ -37,15 +46,18 @@
       "name": "whole_number_unbounded",
       "type": "int",
       "label": "Whole number input (no limits)",
-      "description": "The same \"int\" type without 'min'/'max'. Omit those keys to allow any integer.",
+      "description": "The same \"int\" type without 'min'/'max'. Like the first field, this 'label' and 'description' use the plain-string form, so they are not translated and stay in English in the preview. Omit those keys to allow any integer.",
       "default": 0
     },
 
     {
       "name": "decimal_number",
       "type": "float",
-      "label": "Decimal number input",
-      "description": "type \"float\" -> a decimal stepper (QDoubleSpinBox). Optional keys: 'min', 'max', 'decimals' (digits shown), 'default'. Arrives as a Python float.",
+      "label": { "en": "Decimal number input", "es": "Entrada de número decimal" },
+      "description": {
+        "en": "type \"float\" -> a decimal stepper (QDoubleSpinBox). Optional keys: 'min', 'max', 'decimals' (digits shown), 'default'. Arrives as a Python float.",
+        "es": "tipo \"float\" -> un selector decimal (QDoubleSpinBox). Claves opcionales: 'min', 'max', 'decimals' (dígitos mostrados), 'default'. Llega como un float de Python."
+      },
       "default": 0.25,
       "min": 0.0,
       "max": 1.0,
@@ -55,16 +67,22 @@
     {
       "name": "checkbox_option",
       "type": "bool",
-      "label": "Checkbox input",
-      "description": "type \"bool\" -> a checkbox (QCheckBox). Optional key: 'default' (true/false). Arrives as Python True or False.",
+      "label": { "en": "Checkbox input", "es": "Entrada de casilla" },
+      "description": {
+        "en": "type \"bool\" -> a checkbox (QCheckBox). Optional key: 'default' (true/false). Arrives as Python True or False.",
+        "es": "tipo \"bool\" -> una casilla (QCheckBox). Clave opcional: 'default' (true/false). Llega como True o False de Python."
+      },
       "default": true
     },
 
     {
       "name": "dropdown_option",
       "type": "choice",
-      "label": "Dropdown input",
-      "description": "type \"choice\" -> a drop-down list (QComboBox). Requires 'options'. Optional key: 'default' (must be one of the options). Arrives as one of the option strings.",
+      "label": { "en": "Dropdown input", "es": "Entrada desplegable" },
+      "description": {
+        "en": "type \"choice\" -> a drop-down list (QComboBox). Requires 'options'. Optional key: 'default' (must be one of the options). The 'options' are plain strings and are not localized, so they render the same in every language.",
+        "es": "tipo \"choice\" -> una lista desplegable (QComboBox). Requiere 'options'. Clave opcional: 'default' (debe ser una de las opciones). Las 'options' son cadenas simples y no se traducen, por lo que se muestran igual en todos los idiomas."
+      },
       "options": ["first option", "second option", "third option"],
       "default": "first option"
     },
@@ -72,8 +90,11 @@
     {
       "name": "file_input",
       "type": "file",
-      "label": "File input",
-      "description": "type \"file\" -> a text box with a Browse button (file picker). Optional keys: 'extensions' (filters the dialog), 'required', 'default'. Arrives as an absolute path string. Marked required, so it shows a * and must be set before running.",
+      "label": { "en": "File input", "es": "Entrada de archivo" },
+      "description": {
+        "en": "type \"file\" -> a text box with a Browse button (file picker). Optional keys: 'extensions' (filters the dialog), 'required', 'default'. Arrives as an absolute path string. Marked required, so it shows a * and must be set before running.",
+        "es": "tipo \"file\" -> un cuadro de texto con un botón Examinar (selector de archivos). Claves opcionales: 'extensions' (filtra el diálogo), 'required', 'default'. Llega como una cadena de ruta absoluta. Marcado como requerido, por lo que muestra un * y debe establecerse antes de ejecutar."
+      },
       "required": true,
       "extensions": [".csv", ".xlsx", ".txt"]
     },
@@ -81,15 +102,21 @@
     {
       "name": "file_input_any_type",
       "type": "file",
-      "label": "File input (any type)",
-      "description": "The same \"file\" type without 'extensions', so the picker shows all files. No 'required' key, so it is optional."
+      "label": { "en": "File input (any type)", "es": "Entrada de archivo (cualquier tipo)" },
+      "description": {
+        "en": "The same \"file\" type without 'extensions', so the picker shows all files. No 'required' key, so it is optional.",
+        "es": "El mismo tipo \"file\" sin 'extensions', por lo que el selector muestra todos los archivos. Sin clave 'required', por lo que es opcional."
+      }
     },
 
     {
       "name": "folder_input",
       "type": "directory",
-      "label": "Folder input",
-      "description": "type \"directory\" -> a text box with a Browse button (folder picker). Optional keys: 'required', 'default'. Arrives as an absolute path string; create it with os.makedirs if needed.",
+      "label": { "en": "Folder input", "es": "Entrada de carpeta" },
+      "description": {
+        "en": "type \"directory\" -> a text box with a Browse button (folder picker). Optional keys: 'required', 'default'. Arrives as an absolute path string; create it with os.makedirs if needed.",
+        "es": "tipo \"directory\" -> un cuadro de texto con un botón Examinar (selector de carpetas). Claves opcionales: 'required', 'default'. Llega como una cadena de ruta absoluta; créala con os.makedirs si es necesario."
+      },
       "required": true
     },
 
@@ -98,8 +125,8 @@
       "type": "string",
       "label": { "en": "Localized label", "es": "Etiqueta traducida" },
       "description": {
-        "en": "Any 'label' or 'description' can be a locale map {\"en\": ..., \"es\": ...} instead of a plain string, so your script's UI follows the app language.",
-        "es": "Cualquier 'label' o 'description' puede ser un mapa de idiomas para que la interfaz siga el idioma de la aplicacion."
+        "en": "Any 'label' or 'description' can be a locale map {\"en\": ..., \"es\": ...} instead of a plain string, so your script's UI follows the app language. Most fields in this template use this form.",
+        "es": "Cualquier 'label' o 'description' puede ser un mapa de idiomas {\"en\": ..., \"es\": ...} en lugar de una cadena simple, para que la interfaz siga el idioma de la aplicación. La mayoría de los campos de esta plantilla usan esta forma."
       },
       "default": ""
     },
@@ -107,8 +134,11 @@
     {
       "name": "linked_file_input",
       "type": "file",
-      "label": "Linked file input",
-      "description": "Add 'link': \"<script_id>.<output_key>\" to auto-fill this field from an earlier script's output. It is only a default: the user can re-point or clear the link with the link button. The reference must match a key in that script's 'outputs'.",
+      "label": { "en": "Linked file input", "es": "Entrada de archivo vinculada" },
+      "description": {
+        "en": "Add 'link': \"<script_id>.<output_key>\" to auto-fill this field from an earlier script's output. It is only a default: the user can re-point or clear the link with the link button. The reference must match a key in that script's 'outputs'.",
+        "es": "Añade 'link': \"<script_id>.<output_key>\" para autocompletar este campo con la salida de un script anterior. Es solo un valor por defecto: el usuario puede reasignar o borrar el vínculo con el botón de vínculo. La referencia debe coincidir con una clave en los 'outputs' de ese script."
+      },
       "extensions": [".csv"],
       "link": "generate_signals.output_csv"
     }
@@ -116,7 +146,13 @@
   ],
 
   "outputs": {
-    "output_file": "Absolute path to the main file this script produced.",
-    "output_folder": "Absolute path to a folder holding any additional results (figures, tables, ...)."
+    "output_file": {
+      "en": "Absolute path to the main file this script produced.",
+      "es": "Ruta absoluta al archivo principal que produjo este script."
+    },
+    "output_folder": {
+      "en": "Absolute path to a folder holding any additional results (figures, tables, ...).",
+      "es": "Ruta absoluta a una carpeta con resultados adicionales (figuras, tablas, ...)."
+    }
   }
 }

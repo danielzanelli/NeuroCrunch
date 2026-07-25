@@ -64,7 +64,8 @@ class PluginManager:
         self._schema = None
         self.warnings: List[str] = []
 
-    def discover_scripts(self, bundled_dir: Optional[str], user_dir: Optional[str] = None) -> Dict[str, PluginInfo]:
+    def discover_scripts(self, bundled_dir: Optional[str], user_dir: Optional[str] = None,
+                         language: str = 'en') -> Dict[str, PluginInfo]:
         """Scan bundled_dir and, optionally, user_dir for script subfolders.
 
         A subfolder is a valid plugin if it contains a config.json that
@@ -75,6 +76,10 @@ class PluginManager:
 
         Scripts found in user_dir override bundled scripts with the same id,
         so users can shadow or upgrade an official script locally.
+
+        Localized manifest strings (name, description) are resolved for
+        *language*, so re-running discovery after a language change refreshes the
+        displayed names.
 
         Returns a dict mapping plugin id -> PluginInfo.
         """
@@ -98,13 +103,13 @@ class PluginManager:
                 if not os.path.isdir(entry_path):
                     continue
 
-                plugin_info = self._load_plugin(entry_path, is_official)
+                plugin_info = self._load_plugin(entry_path, is_official, language)
                 if plugin_info is not None:
                     discovered[plugin_info.id] = plugin_info
 
         return discovered
 
-    def load_template(self, bundled_dir: Optional[str]) -> Optional[PluginInfo]:
+    def load_template(self, bundled_dir: Optional[str], language: str = 'en') -> Optional[PluginInfo]:
         """Load the bundled ``template`` folder as a PluginInfo for previewing.
 
         ``discover_scripts`` deliberately skips this folder because it is not a
@@ -122,13 +127,13 @@ class PluginManager:
         # The template is an example, not a discovered plugin: keep any load
         # warnings it might produce out of the user-facing warnings list.
         saved_warnings = list(self.warnings)
-        info = self._load_plugin(template_path, is_official=True)
+        info = self._load_plugin(template_path, is_official=True, language=language)
         self.warnings = saved_warnings
         if info is not None:
             info.is_template = True
         return info
 
-    def _load_plugin(self, folder_path: str, is_official: bool) -> Optional[PluginInfo]:
+    def _load_plugin(self, folder_path: str, is_official: bool, language: str = 'en') -> Optional[PluginInfo]:
         folder_name = os.path.basename(folder_path)
         config_path = os.path.join(folder_path, CONFIG_FILENAME)
         if not os.path.isfile(config_path):
@@ -164,8 +169,8 @@ class PluginManager:
 
         return PluginInfo(
             id=plugin_id,
-            name=localize(config['name'], fallback='Unknown'),
-            description=localize(config['description'], fallback='Unknown'),
+            name=localize(config['name'], fallback='Unknown', language=language),
+            description=localize(config['description'], fallback='Unknown', language=language),
             version=config.get('version', ''),
             author=config.get('author', ''),
             category=config['category'],

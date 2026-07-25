@@ -108,11 +108,13 @@ class NeuroCrunch(QMainWindow):
         # Discover and validate script plugins (bundled + user); user plugins
         # with the same id override the bundled ones with the same id.
         self.plugin_manager = PluginManager()
-        self.plugins = self.plugin_manager.discover_scripts(self.scripts_folder, self.user_plugins_folder)
+        self.plugins = self.plugin_manager.discover_scripts(
+            self.scripts_folder, self.user_plugins_folder, self.current_language)
         self.scripts = sorted(self.plugins.keys())
         # The bundled template, shown as a read-only preview row so users can see
         # every input type rendered as a real widget. Never runs in a pipeline.
-        self.template_plugin = self.plugin_manager.load_template(self.scripts_folder)
+        self.template_plugin = self.plugin_manager.load_template(
+            self.scripts_folder, self.current_language)
         self.config = {}
         self._refreshing_table = False
         # Pipeline context shared between the parameter dialog (Phase 3, for
@@ -240,6 +242,16 @@ class NeuroCrunch(QMainWindow):
                 viewer.set_calibration_language(self.current_language)
             viewer.retranslate()
 
+        # Script names/descriptions are localized at discovery time, so re-resolve
+        # them for the new language and rebuild the scripts table. This refreshes
+        # both the localized manifest strings and the code-side row text (the
+        # "(unfinished)"/"(example …)" suffixes and tooltips) in one pass.
+        self.plugins = self.plugin_manager.discover_scripts(
+            self.scripts_folder, self.user_plugins_folder, self.current_language)
+        self.template_plugin = self.plugin_manager.load_template(
+            self.scripts_folder, self.current_language)
+        self.refresh_scripts_table()
+
         # Keep the Run/Stop toggle label consistent with the runner state
         # (retranslateUi always resets it to the "Run" caption).
         runner = self._script_runner
@@ -355,9 +367,11 @@ class NeuroCrunch(QMainWindow):
         Lets newly added user scripts appear without restarting the app. Config
         for scripts that no longer exist is dropped.
         """
-        self.plugins = self.plugin_manager.discover_scripts(self.scripts_folder, self.user_plugins_folder)
+        self.plugins = self.plugin_manager.discover_scripts(
+            self.scripts_folder, self.user_plugins_folder, self.current_language)
         self.scripts = sorted(self.plugins.keys())
-        self.template_plugin = self.plugin_manager.load_template(self.scripts_folder)
+        self.template_plugin = self.plugin_manager.load_template(
+            self.scripts_folder, self.current_language)
         # Keep '__'-prefixed entries (e.g. '__outputs__') — they are app
         # state, not per-script config.
         self.config = {

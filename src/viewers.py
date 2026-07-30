@@ -18,7 +18,10 @@ import pandas as pd
 import pyqtgraph as pg
 import read_roi
 
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QThread, QTimer, QUrl, Qt, Signal
+from PySide6.QtCore import (
+    QCoreApplication, QEvent, QLoggingCategory, QPoint, QRectF, QThread, QTimer,
+    QUrl, Qt, Signal
+)
 from PySide6.QtGui import (
     QBrush, QColor, QImage, QKeySequence, QPainter, QPen, QPixmap, QPolygon, QShortcut
 )
@@ -1252,12 +1255,70 @@ def encode_imagej_roi(region):
 class _AbsoluteSeekStyle(QProxyStyle):
     """Makes a left-click on the slider groove jump straight to that position
     (absolute seek) instead of stepping one page at a time. Dragging keeps
-    working, so a click and a drag both map to the same seek behaviour."""
+    working, so a click and a drag both map to the same seek behaviour.
+
+    Always construct this without a base style: QProxyStyle *takes ownership*
+    of any style handed to its constructor, and ``QWidget.style()`` returns the
+    application-wide style, so passing one in would make this object delete the
+    style shared by every widget. A base-less proxy resolves
+    ``QApplication.style()`` dynamically instead, which also keeps working when
+    the theme manager swaps the application style.
+    """
 
     def styleHint(self, hint, option=None, widget=None, returnData=None):
         if hint == QStyle.SH_Slider_AbsoluteSetButtons:
             return Qt.LeftButton.value
         return super().styleHint(hint, option, widget, returnData)
+
+
+# Playing a video is noisy on the terminal by default, from two independent
+# sources, so both are turned down once before the first player is built.
+_AV_LOG_ERROR = 16
+_media_logs_quieted = False
+
+
+def _quiet_media_logs():
+    """Turn down media-stack chatter. Best effort, never fatal."""
+    global _media_logs_quieted
+    if _media_logs_quieted:
+        return
+    _media_logs_quieted = True  # only ever worth trying once
+
+    # 1. Qt Multimedia announces itself through Qt's own logging categories at
+    #    info level ("Using Qt multimedia with FFmpeg version ...", "No HW
+    #    decoder found"), which is on by default. Drop info and debug there
+    #    and keep warnings up, so real backend problems still show. Skipped
+    #    when QT_LOGGING_RULES is set, so an explicit debugging session set up
+    #    by the user is never overridden.
+    if not os.environ.get('QT_LOGGING_RULES'):
+        QLoggingCategory.setFilterRules(
+            'qt.multimedia.*.debug=false\nqt.multimedia.*.info=false')
+
+    # 2. FFmpeg — the library behind that backend on Windows and Linux — logs
+    #    straight to the process stderr at AV_LOG_INFO: a stream dump per file
+    #    opened, plus for JPEG-range (yuvj*) video one "deprecated pixel format
+    #    used" line from libswscale per converted frame. AV_LOG_ERROR keeps
+    #    genuine decode failures visible and drops the rest.
+    #    The level is a global inside libavutil, so this has to reach the very
+    #    library the backend uses: loading it by the path Qt ships hands back
+    #    the already-loaded module rather than a second copy. Backends without
+    #    a bundled FFmpeg (macOS uses AVFoundation) have nothing to quiet.
+    try:
+        import ctypes
+        import glob
+        import PySide6
+
+        base = os.path.dirname(PySide6.__file__)
+        names = ('avutil-*.dll' if os.name == 'nt' else 'libavutil.so*')
+        for folder in (base, os.path.join(base, 'Qt', 'lib')):
+            for path in sorted(glob.glob(os.path.join(folder, names))):
+                try:
+                    ctypes.CDLL(path).av_log_set_level(_AV_LOG_ERROR)
+                    return
+                except (OSError, AttributeError):
+                    continue
+    except Exception:
+        pass  # never let log tidying stop a video from playing
 
 
 class VideoViewer(BaseViewer):
@@ -1275,9 +1336,18 @@ class VideoViewer(BaseViewer):
     _EDIT_PEN = (230, 168, 23, 235)
     _EDIT_BRUSH = (230, 168, 23, 60)
 
-    # Zoom bounds and per-wheel-notch step for the paused-frame zoom.
+    # Zoom bounds and per-wheel-notch step for the frame zoom.
     _MAX_ZOOM = 8.0
     _ZOOM_STEP = 1.25
+
+    # Minimap shown while zoomed in: longest side in label pixels, the largest
+    # fraction of the label it may take up (so it stays out of the way on a
+    # small pane), the corner margin, and the size below which it is not worth
+    # drawing at all.
+    _MINIMAP_MAX_SIDE = 108
+    _MINIMAP_MAX_FRACTION = 0.20
+    _MINIMAP_MARGIN = 8
+    _MINIMAP_MIN_SIDE = 36
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1288,12 +1358,19 @@ class VideoViewer(BaseViewer):
         self._current_image = None
         self._show_rois = True
 
-        # Zoom/pan state (only usable while paused). ``_zoom`` is 1.0 at the
-        # fit-to-view baseline; ``_view_center`` is the image-space point shown
-        # at the label centre (None => image centre). Kept in image coordinates
-        # so the same transform positions both the frame and the ROI overlays.
+        # Zoom/pan state, applied whether the video is playing or paused.
+        # ``_zoom`` is 1.0 at the fit-to-view baseline; ``_view_center`` is the
+        # image-space point shown at the label centre (None => image centre).
+        # Kept in image coordinates so the same transform positions both the
+        # frame and the ROI overlays.
         self._zoom = 1.0
         self._view_center = None
+        # Drag-to-pan bookkeeping: (press position, view centre and scale at
+        # press) while a pan gesture is in flight, else None.
+        self._pan_origin = None
+        # Cached minimap thumbnail, keyed on (frame, size) so a pan redraw does
+        # not rescale the whole frame on every mouse move.
+        self._minimap_cache = None
 
         # ROI annotator state (Tier 2 calibration). Regions are stored in
         # original-image coordinates so they scale with the display.
@@ -1339,11 +1416,24 @@ class VideoViewer(BaseViewer):
         # Reposition the floating button whenever the video area resizes.
         self.display_label.installEventFilter(self)
 
+        # Before the first player exists: creating one spins up the media
+        # backend, which announces itself on the terminal unless muted first.
+        _quiet_media_logs()
+
         # QVideoSink receives raw frames — lets us draw ROIs before display
         self.media_player = QMediaPlayer(self)
         self.video_sink = QVideoSink(self)
         self.media_player.setVideoSink(self.video_sink)
         self.video_sink.videoFrameChanged.connect(self._on_video_frame_received)
+        # play() only reaches PlayingState once the media has finished loading,
+        # so the icon has to follow the player's own state rather than be set
+        # from the call site (which would read the pre-transition state).
+        self.media_player.playbackStateChanged.connect(self._on_playback_state_changed)
+        # Basename of the file whose (asynchronous) load has not been reported
+        # yet; None once load_done has been emitted for it.
+        self._pending_load = None
+        self.media_player.mediaStatusChanged.connect(self._on_media_status_changed)
+        self.media_player.errorOccurred.connect(self._on_media_error)
 
         # Render timer: pull the latest stored frame at a fixed ~30 fps so the
         # main thread is not flooded by every decoded frame from the video sink.
@@ -1366,8 +1456,18 @@ class VideoViewer(BaseViewer):
         self.progress_slider = QSlider(Qt.Horizontal)
         self.progress_slider.setMinimum(0)
         # Click anywhere on the groove to seek there (not just drag the handle).
-        self.progress_slider.setStyle(_AbsoluteSeekStyle(self.progress_slider.style()))
+        # setStyle() does not take ownership, so the proxy is kept alive by this
+        # attribute for as long as the slider needs it.
+        self._seek_style = _AbsoluteSeekStyle()
+        self.progress_slider.setStyle(self._seek_style)
         self.progress_slider.sliderMoved.connect(self.set_position)
+        # sliderMoved only fires while dragging: a click on the groove moves the
+        # handle (absolute-set, above) without ever emitting it, so the player
+        # would keep its old position and the next positionChanged would snap the
+        # handle straight back. Seek on press and release too, which covers a
+        # plain click, a click-and-hold and the end of a drag.
+        self.progress_slider.sliderPressed.connect(self._seek_to_slider)
+        self.progress_slider.sliderReleased.connect(self._seek_to_slider)
         self.media_player.durationChanged.connect(self.update_duration)
         self.media_player.positionChanged.connect(self.update_position)
         control_layout.addWidget(self.progress_slider, 1)
@@ -1443,27 +1543,44 @@ class VideoViewer(BaseViewer):
         try:
             self._reset_zoom()
             self.frame_timer.start()
-            # Load and play, suppressing FFmpeg stderr noise
-            try:
-                old_stderr_fd = os.dup(2)
-                null_fd = os.open(os.devnull, os.O_WRONLY)
-                os.dup2(null_fd, 2)
-                try:
-                    self.media_player.setSource(QUrl.fromLocalFile(file_path))
-                    self.media_player.play()
-                finally:
-                    os.dup2(old_stderr_fd, 2)
-                    os.close(old_stderr_fd)
-                    os.close(null_fd)
-            except Exception:
-                self.media_player.setSource(QUrl.fromLocalFile(file_path))
-                self.media_player.play()
+            # Preview videos are usually short clips, so play them on a loop
+            # rather than leaving a frozen last frame. Set per load: the loop
+            # count is tied to the media being played.
+            self.media_player.setLoops(QMediaPlayer.Loops.Infinite)
+            # Opening the media is asynchronous, so the outcome is not known
+            # here: _on_media_status_changed / _on_media_error report it once
+            # the backend has actually parsed the file.
+            self._pending_load = os.path.basename(file_path)
+            self.media_player.setSource(QUrl.fromLocalFile(file_path))
+            self.media_player.play()
 
             self._update_play_icon()
-            self.load_done.emit(True, _tr('Playing video: {0}').format(
-                os.path.basename(file_path)))
         except Exception as e:
+            self._pending_load = None
             self.load_done.emit(False, _tr('Error loading video:\n{0}').format(str(e)))
+
+    def _finish_load(self, ok, detail):
+        """Report the result of the load in flight, at most once per load."""
+        if self._pending_load is None:
+            return
+        name, self._pending_load = self._pending_load, None
+        if ok:
+            self.load_done.emit(True, _tr('Playing video: {0}').format(name))
+        else:
+            self.load_done.emit(
+                False, _tr('Error loading video:\n{0}').format(detail or name))
+
+    def _on_media_status_changed(self, status):
+        if status in (QMediaPlayer.MediaStatus.LoadedMedia,
+                      QMediaPlayer.MediaStatus.BufferedMedia):
+            self._finish_load(True, None)
+        elif status == QMediaPlayer.MediaStatus.InvalidMedia:
+            # Reached when the backend rejects the file without a separate
+            # errorOccurred, so fall back to whatever error text it has.
+            self._finish_load(False, self.media_player.errorString())
+
+    def _on_media_error(self, _error, error_string):
+        self._finish_load(False, error_string)
 
     def load_roi(self, roi_zip_path):
         """Load a ROI zip; the regions are painted onto every subsequent frame."""
@@ -1527,6 +1644,11 @@ class VideoViewer(BaseViewer):
             # Mouse wheel zooms the paused frame (and its ROI overlays).
             elif etype == QEvent.Wheel and self._handle_wheel_zoom(event):
                 return True
+            # Dragging pans the zoomed frame. Checked before the annotator so a
+            # pan in progress keeps the mouse, and so the middle button pans
+            # even in edit mode (where the left button draws).
+            if self._handle_pan_event(event):
+                return True
             # In edit mode, the label captures mouse input to draw regions.
             if self._edit_mode and self._handle_edit_event(event):
                 return True
@@ -1535,11 +1657,10 @@ class VideoViewer(BaseViewer):
     def _handle_wheel_zoom(self, event):
         """Zoom the paused frame toward the cursor. Returns True if consumed.
 
-        Only active while paused; during playback the view stays fitted so each
-        decoded frame fills the label as before.
+        Works while playing as well as while paused: the zoom/pan view belongs
+        to the display, so every decoded frame — and the ROI overlay painted
+        onto it — is shown through the same transform.
         """
-        if self.media_player.isPlaying():
-            return False
         if self._current_image is None or self._current_image.isNull():
             return False
         delta = event.angleDelta().y()
@@ -1566,6 +1687,7 @@ class VideoViewer(BaseViewer):
         self._view_center = (px + (lw / 2.0 - pos.x()) / new_scale,
                              py + (lh / 2.0 - pos.y()) / new_scale)
         self._zoom = new_zoom
+        self._update_cursor()
         self._redraw_current_frame()
         return True
 
@@ -1573,6 +1695,71 @@ class VideoViewer(BaseViewer):
         """Return to the fit-to-view baseline (used when playback resumes)."""
         self._zoom = 1.0
         self._view_center = None
+        self._pan_origin = None
+        self._update_cursor()
+
+    def _can_pan(self):
+        """True when the frame is zoomed in far enough to have somewhere to go."""
+        return (self._zoom > 1.0
+                and self._current_image is not None
+                and not self._current_image.isNull())
+
+    def _handle_pan_event(self, event):
+        """Drag the zoomed frame around. Returns True if the event is consumed.
+
+        The left button pans whenever the annotator is off; the middle button
+        always does, so a zoomed frame can still be navigated while drawing.
+        """
+        etype = event.type()
+        if etype == QEvent.MouseButtonPress:
+            if not self._can_pan():
+                return False
+            button = event.button()
+            if button != Qt.MiddleButton and not (
+                    button == Qt.LeftButton and not self._edit_mode):
+                return False
+            transform = self._view_transform()
+            if transform is None:
+                return False
+            # _view_transform() has just resolved (and clamped) the centre, so
+            # it is safe to anchor the drag to it.
+            self._pan_origin = (event.position(), self._view_center, transform[0])
+            self._update_cursor()
+            return True
+
+        if self._pan_origin is None:
+            return False
+
+        if etype == QEvent.MouseMove:
+            start_pos, start_center, scale = self._pan_origin
+            pos = event.position()
+            # Drag the image with the cursor: the view centre moves the opposite
+            # way, by the cursor delta converted back to image pixels.
+            self._view_center = (
+                start_center[0] - (pos.x() - start_pos.x()) / scale,
+                start_center[1] - (pos.y() - start_pos.y()) / scale,
+            )
+            self._redraw_current_frame()
+            return True
+
+        if etype in (QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick):
+            self._pan_origin = None
+            self._update_cursor()
+            return True
+
+        return False
+
+    def _update_cursor(self):
+        """Pick the frame cursor for the current pan/zoom/edit state."""
+        if self._pan_origin is not None:
+            cursor = Qt.ClosedHandCursor
+        elif self._edit_mode:
+            cursor = Qt.CrossCursor
+        elif self._can_pan():
+            cursor = Qt.OpenHandCursor
+        else:
+            cursor = Qt.ArrowCursor
+        self.display_label.setCursor(cursor)
 
     def _handle_edit_event(self, event):
         """Handle a drawing gesture on the frame; return True if consumed."""
@@ -1641,6 +1828,10 @@ class VideoViewer(BaseViewer):
     def _update_play_icon(self):
         name = 'pause' if self.media_player.isPlaying() else 'play'
         self.play_button.setIcon(icon_loader.get_icon(name, icon_loader.glyph_color(), 14))
+
+    def _on_playback_state_changed(self, _state):
+        """Keep the play/pause icon in sync with the player's actual state."""
+        self._update_play_icon()
 
     def _on_video_frame_received(self, frame):
         """Store the latest decoded frame; rendering is done by the timer at ~30 fps."""
@@ -1714,13 +1905,73 @@ class VideoViewer(BaseViewer):
         canvas = QPixmap(lw, lh)
         canvas.fill(Qt.black)
         painter = QPainter(canvas)
-        # Smooth only when magnified; playback keeps the cheap fast path.
-        painter.setRenderHint(QPainter.SmoothPixmapTransform, self._zoom > 1.0)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, self._smooth_scaling())
+        painter.save()
         painter.translate(tx, ty)
         painter.scale(scale, scale)
         painter.drawImage(0, 0, image)
+        painter.restore()
+        # The minimap is a navigation aid drawn in label space, so it keeps its
+        # size and corner while the frame beneath it zooms and pans.
+        if self._zoom > 1.0:
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            self._draw_minimap(painter, lw, lh, scale, tx, ty)
         painter.end()
         self.display_label.setPixmap(canvas)
+
+    def _smooth_scaling(self):
+        """Whether the magnified frame is interpolated rather than nearest-neighbour.
+
+        Only worth paying for when magnified — at fit-to-view the frame is
+        downscaled, where the fast path is already indistinguishable.
+        """
+        return self._zoom > 1.0
+
+    def _draw_minimap(self, painter, lw, lh, scale, tx, ty):
+        """Draw the whole frame in the top-left corner with the visible region
+        outlined, so it is clear where the zoomed view sits.
+
+        Uses the clean base frame rather than the ROI-painted copy: it is a
+        locator, and a stable source keeps the scaled thumbnail cacheable.
+        """
+        img = self._current_image
+        iw, ih = img.width(), img.height()
+        side = min(self._MINIMAP_MAX_SIDE,
+                   int(lw * self._MINIMAP_MAX_FRACTION),
+                   int(lh * self._MINIMAP_MAX_FRACTION))
+        if side < self._MINIMAP_MIN_SIDE:
+            return  # too little room for the minimap to be readable
+        thumb_scale = min(side / iw, side / ih)
+        mw, mh = max(1, int(iw * thumb_scale)), max(1, int(ih * thumb_scale))
+        # Top-left: the floating ROI toggle occupies the opposite corner.
+        mx = my = self._MINIMAP_MARGIN
+
+        painter.setOpacity(0.85)
+        painter.drawPixmap(mx, my, self._minimap_thumbnail(mw, mh))
+        painter.setOpacity(1.0)
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(QColor(255, 255, 255, 140), 1))
+        painter.drawRect(QRectF(mx - 0.5, my - 0.5, mw + 1, mh + 1))
+
+        # The visible region: the slice of the image the label currently maps
+        # onto, clamped to the frame and expressed in minimap pixels.
+        sx, sy = mw / iw, mh / ih
+        x0, y0 = max(0.0, -tx / scale), max(0.0, -ty / scale)
+        x1, y1 = min(float(iw), (lw - tx) / scale), min(float(ih), (lh - ty) / scale)
+        view = QRectF(mx + x0 * sx, my + y0 * sy,
+                      max(2.0, (x1 - x0) * sx), max(2.0, (y1 - y0) * sy))
+        painter.setPen(QPen(QColor(*self._EDIT_PEN), 2))
+        painter.setBrush(QBrush(QColor(255, 255, 255, 40)))
+        painter.drawRect(view)
+
+    def _minimap_thumbnail(self, mw, mh):
+        """The current frame scaled to *mw* x *mh*, cached between redraws."""
+        key = (self._current_image.cacheKey(), mw, mh)
+        if self._minimap_cache is None or self._minimap_cache[0] != key:
+            scaled = self._current_image.scaled(
+                mw, mh, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+            self._minimap_cache = (key, QPixmap.fromImage(scaled))
+        return self._minimap_cache[1]
 
     def _view_transform(self):
         """Return ``(scale, tx, ty)`` mapping image coords to label coords.
@@ -1753,8 +2004,8 @@ class VideoViewer(BaseViewer):
         if self.media_player.isPlaying():
             self.media_player.pause()
         else:
-            # Resuming playback drops any paused-frame zoom back to fit-to-view.
-            self._reset_zoom()
+            # The zoom/pan view survives play/pause: playback carries on inside
+            # the zoomed region instead of snapping back to fit-to-view.
             self.frame_timer.start()
             self.media_player.play()
         self._update_play_icon()
@@ -1780,12 +2031,11 @@ class VideoViewer(BaseViewer):
             self.media_player.pause()
             self._update_play_icon()
             self.edit_toolbar.show()
-            self.display_label.setCursor(Qt.CrossCursor)
             self._update_edit_hint()
         else:
             self._edit_current = None
             self.edit_toolbar.hide()
-            self.display_label.setCursor(Qt.ArrowCursor)
+        self._update_cursor()
         self._redraw_current_frame()
 
     def _on_shape_changed(self, _index):
@@ -1957,6 +2207,10 @@ class VideoViewer(BaseViewer):
     def set_position(self, position):
         """Set media player position when slider is moved"""
         self.media_player.setPosition(position)
+
+    def _seek_to_slider(self):
+        """Seek to wherever the slider handle currently sits."""
+        self.set_position(self.progress_slider.value())
 
     def update_duration(self, duration):
         """Update slider max when duration changes"""

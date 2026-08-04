@@ -101,6 +101,11 @@ class ImageViewer(BaseViewer):
         layout.setContentsMargins(0, 0, 0, 0)
         self.image_label = QLabel()
         self.image_label.setAlignment(Qt.AlignCenter)
+        # The scaled pixmap must not feed back into the layout: without this it
+        # becomes the label's sizeHint and each resize grows the label (and the
+        # window) a little more. Ignored policy lets the layout drive the size.
+        self.image_label.setMinimumSize(1, 1)
+        self.image_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         layout.addWidget(self.image_label)
 
     def load(self, file_path):

@@ -1,7 +1,7 @@
 {
   "id": "connectivity_graph",
-  "name": "Connectivity Graph",
-  "description": "Builds a JSON Graph Format (JGF) connectivity network from a correlation matrix and an ROI list. Stores every pairwise weight; thresholding is done interactively in the viewer.",
+  "name": {"en": "Connectivity Graph", "es": "Grafo de Conectividad"},
+  "description": {"en": "Builds a JSON Graph Format (JGF) connectivity network from a correlation matrix and an ROI list. Stores every pairwise weight; thresholding is done interactively in the viewer.", "es": "Construye una red de conectividad en formato JSON Graph Format (JGF) a partir de una matriz de correlación y una lista de ROIs. Guarda todos los pesos por pares; el umbral se aplica de forma interactiva en el visor."},
   "version": "2.2.0",
   "author": "Daniel Zanelli",
   "category": "visualization",

@@ -1,7 +1,7 @@
 {
   "id": "als_filter",
   "name": {"en": "ALS Filter", "es": "Filtro ALS"},
-  "description": "Removes photobleaching effects from fluorescence signals.",
+  "description": {"en": "Removes photobleaching effects from fluorescence signals.", "es": "Elimina los efectos del fotoblanqueo de las señales de fluorescencia."},
   "version": "1.0.0",
   "author": "Daniel Zanelli",
   "category": "processing",

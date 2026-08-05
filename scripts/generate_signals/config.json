@@ -1,7 +1,7 @@
 {
   "id": "generate_signals",
-  "name": "Generate Signals",
-  "description": "Extracts fluorescence traces from a calcium-imaging video.",
+  "name": {"en": "Generate Signals", "es": "Generar Señales"},
+  "description": {"en": "Extracts fluorescence traces from a calcium-imaging video.", "es": "Extrae las trazas de fluorescencia de un vídeo de imagen de calcio."},
   "version": "1.1.0",
   "author": "Daniel Zanelli",
   "category": "preprocessing",

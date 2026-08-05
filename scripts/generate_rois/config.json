@@ -1,7 +1,7 @@
 {
   "id": "generate_rois",
-  "name": "Generate ROIs",
-  "description": "Trains a small random forest on painted example regions (neurons vs. background) to detect somas in a calcium-imaging video and export them as ROIs.",
+  "name": {"en": "Generate ROIs", "es": "Generar ROIs"},
+  "description": {"en": "Trains a small random forest on painted example regions (neurons vs. background) to detect somas in a calcium-imaging video and export them as ROIs.", "es": "Entrena un pequeño random forest con regiones de ejemplo pintadas (neuronas frente a fondo) para detectar somas en un vídeo de imagen de calcio y exportarlos como ROIs."},
   "version": "2.0.0",
   "author": "Daniel Zanelli",
   "category": "preprocessing",

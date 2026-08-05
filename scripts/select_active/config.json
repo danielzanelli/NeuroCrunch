@@ -1,7 +1,7 @@
 {
   "id": "select_active",
-  "name": "Select Active",
-  "description": "Selects active cells/traces based on activity criteria.",
+  "name": {"en": "Select Active", "es": "Seleccionar Activas"},
+  "description": {"en": "Selects active cells/traces based on activity criteria.", "es": "Selecciona las células/trazas activas según criterios de actividad."},
   "version": "1.0.0",
   "author": "Daniel Zanelli",
   "category": "processing",

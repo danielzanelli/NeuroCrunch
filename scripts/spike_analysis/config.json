@@ -1,0 +1,87 @@
+{
+  "id": "spike_analysis",
+  "name": {"en": "Spike Analysis", "es": "Análisis de Spikes"},
+  "description": {"en": "Measures every spike in each processed signal — start, end and width at half maximum, amplitude and area under the curve — together with the position of its ROI.", "es": "Mide cada spike de las señales procesadas — inicio, fin y anchura a media altura, amplitud y área bajo la curva — junto con la posición de su ROI."},
+  "version": "1.0.0",
+  "author": "Daniel Zanelli",
+  "category": "analysis",
+  "parameters": [
+    {
+      "name": "input_csv",
+      "type": "file",
+      "label": {"en": "Input CSV", "es": "CSV de entrada"},
+      "description": {"en": "CSV with the processed traces (spikes over a flat baseline)", "es": "CSV con las trazas procesadas (spikes sobre una línea base plana)"},
+      "required": true,
+      "extensions": [".csv"],
+      "link": "band_pass_filter.filtered_csv"
+    },
+    {
+      "name": "roi_zip",
+      "type": "file",
+      "label": {"en": "ROI list", "es": "Lista de ROIs"},
+      "description": {"en": "ImageJ/FIJI ROI ZIP. ROI i corresponds to signal i; its centroid gives the x/y columns", "es": "ZIP de ROIs de ImageJ/FIJI. El ROI i corresponde a la señal i; su centroide da las columnas x/y"},
+      "required": true,
+      "extensions": [".zip"],
+      "link": "generate_rois.roi_zip"
+    },
+    {
+      "name": "metrics",
+      "type": "string",
+      "label": {"en": "Metrics to process", "es": "Métricas a procesar"},
+      "description": {"en": "Comma-separated list (e.g. Mean,Max). Empty = all", "es": "Lista separada por comas (p. ej. Mean,Max). Vacío = todas"},
+      "default": "Mean"
+    },
+    {
+      "name": "threshold_std",
+      "type": "float",
+      "label": {"en": "Detection threshold (SD)", "es": "Umbral de detección (DE)"},
+      "description": {"en": "A spike is detected where the signal rises this many robust standard deviations above its baseline", "es": "Se detecta un spike donde la señal supera su línea base en esta cantidad de desviaciones estándar robustas"},
+      "default": 3.0,
+      "min": 0.5,
+      "max": 10.0,
+      "decimals": 2
+    },
+    {
+      "name": "height_fraction",
+      "type": "float",
+      "label": {"en": "Height fraction for the width", "es": "Fracción de altura para la anchura"},
+      "description": {"en": "Fraction of each spike's own amplitude at which its start and end are measured. 0.5 = width at half maximum (FWHM)", "es": "Fracción de la amplitud de cada spike a la que se miden su inicio y su fin. 0.5 = anchura a media altura (FWHM)"},
+      "default": 0.5,
+      "min": 0.05,
+      "max": 0.95,
+      "decimals": 2
+    },
+    {
+      "name": "min_duration",
+      "type": "int",
+      "label": {"en": "Minimum duration (frames)", "es": "Duración mínima (cuadros)"},
+      "description": {"en": "Consecutive frames the signal must stay above the detection threshold to count as a spike", "es": "Cuadros consecutivos que la señal debe permanecer sobre el umbral de detección para contar como spike"},
+      "default": 3,
+      "min": 1,
+      "max": 1000
+    },
+    {
+      "name": "fps",
+      "type": "float",
+      "label": {"en": "Sampling rate (fps)", "es": "Frecuencia de muestreo (fps)"},
+      "description": {"en": "Frames per second, used to build the time axis only when the CSV has no time_s column", "es": "Cuadros por segundo, usado para construir el eje temporal solo cuando el CSV no tiene columna time_s"},
+      "default": 10.0,
+      "min": 0.001,
+      "decimals": 3
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": {"en": "Output folder", "es": "Carpeta de salida"},
+      "description": {"en": "Folder where the spikes CSV will be saved", "es": "Carpeta donde se guardará el CSV de spikes"},
+      "required": true
+    }
+  ],
+  "outputs": {
+    "spikes_csv": {"en": "Path to the CSV with one row per detected spike", "es": "Ruta del CSV con una fila por spike detectado"}
+  },
+  "calibration": {
+    "kind": "traces",
+    "params": ["threshold_std", "height_fraction", "min_duration"]
+  }
+}

@@ -1,7 +1,7 @@
 {
   "id": "mutual_information",
-  "name": "Mutual Information",
-  "description": "Computes a normalised mutual-information matrix between neurons for a chosen metric (captures non-linear dependence, unlike Pearson).",
+  "name": {"en": "Mutual Information", "es": "Información Mutua"},
+  "description": {"en": "Computes a normalised mutual-information matrix between neurons for a chosen metric (captures non-linear dependence, unlike Pearson).", "es": "Calcula una matriz de información mutua normalizada entre neuronas para una métrica elegida (capta dependencias no lineales, a diferencia de Pearson)."},
   "version": "1.0.0",
   "author": "Daniel Zanelli",
   "category": "analysis",

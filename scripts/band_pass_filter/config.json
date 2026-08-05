@@ -1,0 +1,76 @@
+{
+  "id": "band_pass_filter",
+  "name": {"en": "Band-Pass Filter", "es": "Filtro Paso-Banda"},
+  "description": {"en": "Removes slow drift and high-frequency noise from fluorescence signals with a band-pass filter.", "es": "Elimina la deriva lenta y el ruido de alta frecuencia de las señales de fluorescencia con un filtro paso-banda."},
+  "version": "1.0.0",
+  "author": "Daniel Zanelli",
+  "category": "processing",
+  "parameters": [
+    {
+      "name": "input_csv",
+      "type": "file",
+      "label": {"en": "Input CSV", "es": "CSV de entrada"},
+      "description": {"en": "CSV file with the fluorescence traces", "es": "Archivo CSV con las trazas de fluorescencia"},
+      "required": true,
+      "extensions": [".csv"],
+      "link": "als_filter.smoothed_csv"
+    },
+    {
+      "name": "metrics",
+      "type": "string",
+      "label": {"en": "Metrics to process", "es": "Métricas a procesar"},
+      "description": {"en": "Comma-separated list (e.g. Mean,Max). Empty = all", "es": "Lista separada por comas (p. ej. Mean,Max). Vacío = todas"},
+      "default": "Mean"
+    },
+    {
+      "name": "fps",
+      "type": "float",
+      "label": {"en": "Sampling rate (fps)", "es": "Frecuencia de muestreo (fps)"},
+      "description": {"en": "Frames per second of the recording, used to convert the cutoffs below from Hz", "es": "Cuadros por segundo de la grabación, usado para convertir los cortes de abajo desde Hz"},
+      "default": 10.0,
+      "min": 0.001,
+      "decimals": 3
+    },
+    {
+      "name": "low_cutoff",
+      "type": "float",
+      "label": {"en": "Low cutoff (Hz)", "es": "Corte inferior (Hz)"},
+      "description": {"en": "High-pass cutoff: frequencies below this are attenuated (removes slow drift). 0 = disabled", "es": "Corte paso-alto: las frecuencias por debajo de este valor se atenúan (elimina la deriva lenta). 0 = desactivado"},
+      "default": 0.1,
+      "min": 0.0,
+      "decimals": 4
+    },
+    {
+      "name": "high_cutoff",
+      "type": "float",
+      "label": {"en": "High cutoff (Hz)", "es": "Corte superior (Hz)"},
+      "description": {"en": "Low-pass cutoff: frequencies above this are attenuated (removes fast noise). 0 = disabled", "es": "Corte paso-bajo: las frecuencias por encima de este valor se atenúan (elimina el ruido rápido). 0 = desactivado"},
+      "default": 3.0,
+      "min": 0.0,
+      "decimals": 4
+    },
+    {
+      "name": "order",
+      "type": "int",
+      "label": {"en": "Filter order", "es": "Orden del filtro"},
+      "description": {"en": "Steepness of the cutoff roll-off. Higher = sharper cutoff", "es": "Pendiente de la caída en los cortes. Mayor = corte más abrupto"},
+      "default": 2,
+      "min": 1,
+      "max": 10
+    },
+    {
+      "name": "output_dir",
+      "type": "directory",
+      "label": {"en": "Output folder", "es": "Carpeta de salida"},
+      "description": {"en": "Folder where the filtered CSV will be saved", "es": "Carpeta donde se guardará el CSV filtrado"},
+      "required": true
+    }
+  ],
+  "outputs": {
+    "filtered_csv": {"en": "Path to the CSV with the band-pass filtered signal", "es": "Ruta del CSV con la señal filtrada paso-banda"}
+  },
+  "calibration": {
+    "kind": "traces",
+    "params": ["fps", "low_cutoff", "high_cutoff", "order"]
+  }
+}

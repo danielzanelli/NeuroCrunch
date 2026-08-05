@@ -1,7 +1,7 @@
 {
   "id": "pearson_matrix",
-  "name": "Pearson Matrix",
-  "description": "Computes a Pearson correlation matrix between neurons for a chosen metric.",
+  "name": {"en": "Pearson Matrix", "es": "Matriz de Pearson"},
+  "description": {"en": "Computes a Pearson correlation matrix between neurons for a chosen metric.", "es": "Calcula una matriz de correlación de Pearson entre neuronas para una métrica elegida."},
   "version": "2.0.0",
   "author": "Daniel Zanelli",
   "category": "analysis",

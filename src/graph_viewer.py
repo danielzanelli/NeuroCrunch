@@ -9,7 +9,8 @@ the network redraws dynamically. Node diameter and edge stroke width have their
 own sliders, edges are colour-graded by sign and strength with opacity
 proportional to ``|weight|``, nodes are shaded by how many edges they still
 have at the current threshold so hubs stand out, and clicking a node highlights
-it and its neighbours (with their labels).
+it and its neighbours (with their labels). Right-clicking opens a small menu
+that saves the current view as an image or the thresholded network as CSV.
 
 The viewer is built to stay responsive on large graphs:
 
@@ -28,6 +29,7 @@ Public surface used by the main window: :meth:`GraphViewer.load` (async),
 """
 from __future__ import annotations
 
+import csv
 import json
 import math
 import os
@@ -35,12 +37,16 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pyqtgraph as pg
+from pyqtgraph.exporters import ImageExporter, SVGExporter
 from PySide6.QtCore import QCoreApplication, QRectF, QSize, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QCursor, QPainter
 from PySide6.QtWidgets import (
+    QFileDialog,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMenu,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSlider,
@@ -333,6 +339,7 @@ class GraphViewer(BaseViewer):
         super().__init__(parent)
 
         self._data: Optional[_GraphData] = None
+        self._file_path: Optional[str] = None  # source .jgf, for export defaults
         self._selected: Optional[int] = None
         self._degree = np.zeros(0, dtype=np.int64)  # per node, at the threshold
         self._node_diameter = 8.0
@@ -477,6 +484,7 @@ class GraphViewer(BaseViewer):
     def load(self, file_path: str) -> None:
         """Start loading *file_path* on a background thread."""
         self._token += 1
+        self._file_path = file_path
         self._set_controls_enabled(False)
         self.info.setText(
             self.tr("Loading {0}...").format(os.path.basename(file_path))
@@ -786,8 +794,17 @@ class GraphViewer(BaseViewer):
         Selection is done here (rather than via ScatterPlotItem.sigClicked) so it
         picks the genuinely nearest node within a pixel tolerance — robust to
         overlapping points and zoom level, and never intercepted by overlays.
+
+        Right clicks land here too: the scene only emits this signal when no drag
+        happened, so the export menu never fires on a right-drag zoom.
         """
-        if self._data is None or event.button() != Qt.LeftButton:
+        if self._data is None:
+            return
+        if event.button() == Qt.RightButton:
+            event.accept()
+            self._show_context_menu()
+            return
+        if event.button() != Qt.LeftButton:
             return
         vb = self.plot_widget.getViewBox()
         pt = vb.mapSceneToView(event.scenePos())
@@ -831,6 +848,120 @@ class GraphViewer(BaseViewer):
             self._selected = None
             self._render_edges()
         self.plot_widget.getViewBox().autoRange(padding=0.08)
+
+    # ------------------------------------------------------------------
+    # Export
+    # ------------------------------------------------------------------
+
+    def _show_context_menu(self) -> None:
+        """Right-click menu: save the view as an image, or the graph as CSV."""
+        menu = QMenu(self)
+        menu.addAction(self.tr("Save image..."), self._save_image)
+        menu.addAction(self.tr("Save data..."), self._save_data)
+        menu.addSeparator()
+        menu.addAction(self.tr("Reset view"), self.reset_view)
+        menu.exec(QCursor.pos())
+
+    def _export_stem(self) -> str:
+        """Default name for the save dialogs: the graph file's own stem."""
+        if not self._file_path:
+            return "graph"
+        return os.path.splitext(os.path.basename(self._file_path))[0]
+
+    def _save_image(self) -> None:
+        """Save the plot exactly as shown: PNG at 2x resolution, or SVG.
+
+        The transparent variants drop the theme background, so the graph can be
+        dropped straight onto a figure or slide of any colour.
+        """
+        filters = [
+            self.tr("PNG image (*.png)"),
+            self.tr("PNG image, transparent background (*.png)"),
+            self.tr("SVG image (*.svg)"),
+            self.tr("SVG image, transparent background (*.svg)"),
+        ]
+        path, chosen = QFileDialog.getSaveFileName(
+            self, self.tr("Save image"), f"{self._export_stem()}.png",
+            ";;".join(filters),
+        )
+        if not path:
+            return
+        # The PlotItem, not the scene: this keeps the export to the plot area,
+        # and the exporter picks the current theme's background off the view.
+        plot_item = self.plot_widget.getPlotItem()
+        try:
+            if os.path.splitext(path)[1].lower() == ".svg":
+                exporter = SVGExporter(plot_item)
+            else:
+                exporter = ImageExporter(plot_item)
+                # Height follows through the exporter's own aspect handler.
+                exporter.params["width"] = int(exporter.params["width"]) * 2
+            if chosen in (filters[1], filters[3]):
+                # Both exporters fill the page from this colour (the SVG writes
+                # its alpha out as fill-opacity), so alpha 0 leaves it clear.
+                exporter.params["background"] = QColor(0, 0, 0, 0)
+            exporter.export(path)
+        except Exception as e:  # noqa: BLE001 - exporters raise their own types
+            self.log_message.emit(self.tr("Error saving image:\n{0}").format(str(e)))
+            return
+        self.log_message.emit(
+            self.tr("Saved image to {0}").format(os.path.basename(path)))
+
+    def _save_data(self) -> None:
+        """Write the network above the current threshold as two CSV files."""
+        data = self._data
+        if data is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, self.tr("Save data"), f"{self._export_stem()}.csv",
+            self.tr("CSV files (*.csv)") + ";;" + self.tr("All files (*)"),
+        )
+        if not path:
+            return
+        base = os.path.splitext(path)[0]
+        edges_path = f"{base}_edges.csv"
+        nodes_path = f"{base}_nodes.csv"
+
+        # The dialog only confirms the name that was typed; both real names are
+        # derived from it, so they need their own overwrite check.
+        clashes = [p for p in (edges_path, nodes_path) if os.path.exists(p)]
+        if clashes:
+            reply = QMessageBox.question(
+                self, self.tr("Overwrite files?"),
+                self.tr("{0} already exists. Overwrite?").format(
+                    ", ".join(os.path.basename(p) for p in clashes)),
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        # Everything above the threshold — the render cap is a drawing limit,
+        # not an export one, so the CSV is the full thresholded network.
+        above = np.flatnonzero(data.abs_weight >= self._threshold())
+        try:
+            with open(edges_path, "w", newline="", encoding="utf-8") as fh:
+                writer = csv.writer(fh)
+                writer.writerow(("source", "target", "weight"))
+                writer.writerows(
+                    (data.labels[data.src[e]], data.labels[data.dst[e]],
+                     f"{data.weight[e]:.6f}")
+                    for e in above
+                )
+            with open(nodes_path, "w", newline="", encoding="utf-8") as fh:
+                writer = csv.writer(fh)
+                writer.writerow(("id", "label", "roi", "x", "y", "degree"))
+                writer.writerows(
+                    (data.ids[k], data.labels[k], data.roi_names[k] or "",
+                     f"{data.pos[k, 0]:.6f}", f"{data.pos[k, 1]:.6f}",
+                     int(self._degree[k]) if k < self._degree.size else 0)
+                    for k in range(len(data.ids))
+                )
+        except OSError as e:
+            self.log_message.emit(self.tr("Error saving data:\n{0}").format(str(e)))
+            return
+        self.log_message.emit(
+            self.tr("Saved {0} edges and {1} nodes to {2} and {3}").format(
+                int(above.size), len(data.ids),
+                os.path.basename(edges_path), os.path.basename(nodes_path)))
 
     # ------------------------------------------------------------------
     # Info panel

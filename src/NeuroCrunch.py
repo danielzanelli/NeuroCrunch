@@ -152,6 +152,9 @@ class NeuroCrunch(QMainWindow):
         # Folders load their children lazily, the first time they are expanded.
         self.ui.file_viewer.itemExpanded.connect(self.on_item_expanded)
 
+        # Files dropped anywhere on the window open like a file-tree double-click
+        self.setAcceptDrops(True)
+
         # Scripts table — double-click a row to open the parameter configuration dialog
         self.ui.table_data_columns.cellDoubleClicked.connect(self.open_param_dialog)
         # Note: checkbox changes are now handled by individual QCheckBox widgets
@@ -582,6 +585,18 @@ class NeuroCrunch(QMainWindow):
         file_path = item.data(0, Qt.UserRole)
         if file_path and os.path.isfile(file_path):
             self.open_file(file_path)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        """Open every dropped local file, as a file-tree double-click would."""
+        for url in event.mimeData().urls():
+            file_path = url.toLocalFile()
+            if file_path and os.path.isfile(file_path):
+                self.open_file(os.path.normpath(file_path))
+        event.acceptProposedAction()
 
     def open_file(self, file_path):
         """Show *file_path* in the central tab area, focusing it if already open.

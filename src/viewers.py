@@ -19,7 +19,7 @@ import pyqtgraph as pg
 import read_roi
 
 from PySide6.QtCore import (
-    QCoreApplication, QEvent, QLoggingCategory, QPoint, QRectF, QThread, QTimer,
+    QAbstractTableModel, QCoreApplication, QEvent, QLoggingCategory, QPoint, QRectF, QThread, QTimer,
     QUrl, Qt, Signal
 )
 from PySide6.QtGui import (
@@ -29,7 +29,7 @@ from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QProxyStyle, QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox, QStyle,
-    QTabWidget, QTextBrowser, QVBoxLayout, QWidget
+    QTableView, QTabWidget, QTextBrowser, QVBoxLayout, QWidget
 )
 try:
     # Optional: QtWebEngine is a ~290 MB dependency used only as a PDF-viewer
@@ -71,7 +71,11 @@ PLOT_COLOR_PALETTE = [
 ]
 
 IMAGE_SUFFIXES = ('.png', '.jpg', '.jpeg', '.bmp', '.gif')
-DATA_SUFFIXES = ('.csv', '.xls', '.xlsx')
+# Tabular files: delimited text opens as a plot by default, spreadsheets as a
+# table; either can be opened the other way from the file explorer menu.
+DELIMITED_SUFFIXES = ('.csv', '.tsv')
+SPREADSHEET_SUFFIXES = ('.xlsx', '.xlsm', '.xls')
+DATA_SUFFIXES = DELIMITED_SUFFIXES + SPREADSHEET_SUFFIXES
 VIDEO_SUFFIXES = ('.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.mpeg', '.mpg',
                   '.webm', '.tif', '.tiff')
 
@@ -157,9 +161,11 @@ class CSVReaderWorker(QThread):
     data_loaded = Signal(object)  # Signal when data is loaded
     error_occurred = Signal(str)  # Signal when error occurs
 
-    def __init__(self, file_path):
+    def __init__(self, file_path, all_sheets=False):
         super().__init__()
         self.file_path = file_path
+        # Spreadsheets only: emit {sheet name: DataFrame} instead of the first sheet.
+        self.all_sheets = all_sheets
 
     def run(self):
         """Run in background thread."""
@@ -167,7 +173,10 @@ class CSVReaderWorker(QThread):
             filename = os.path.basename(self.file_path)
             self.progress_updated.emit(_tr_csv('Opening CSV {0}: {1}%').format(filename, 0))
 
-            if self.file_path.lower().endswith('.csv'):
+            lowered = self.file_path.lower()
+            if lowered.endswith(DELIMITED_SUFFIXES):
+                sep = '\t' if lowered.endswith('.tsv') else ','
+
                 # Count total lines upfront so progress can be calculated correctly
                 with open(self.file_path, 'rb') as f:
                     total_lines = sum(1 for _ in f) - 1  # subtract header row
@@ -177,7 +186,7 @@ class CSVReaderWorker(QThread):
 
                 chunks = []
                 loaded_rows = 0
-                for chunk in pd.read_csv(self.file_path, chunksize=chunk_size):
+                for chunk in pd.read_csv(self.file_path, sep=sep, chunksize=chunk_size):
                     chunks.append(chunk)
                     loaded_rows += len(chunk)
                     progress = min(int((loaded_rows / max(total_lines, 1)) * 100), 100)
@@ -187,11 +196,11 @@ class CSVReaderWorker(QThread):
                 if chunks:
                     data = pd.concat(chunks, ignore_index=True)
                 else:
-                    data = pd.read_csv(self.file_path)
+                    data = pd.read_csv(self.file_path, sep=sep)
 
-            elif self.file_path.lower().endswith(('.xls', '.xlsx')):
+            elif lowered.endswith(SPREADSHEET_SUFFIXES):
                 self.progress_updated.emit(_tr_csv('Opening file {0}: {1}%').format(filename, 0))
-                data = pd.read_excel(self.file_path)
+                data = pd.read_excel(self.file_path, sheet_name=None if self.all_sheets else 0)
                 self.progress_updated.emit(_tr_csv('Opening file {0}: {1}%').format(filename, 100))
             else:
                 raise ValueError('File format not supported for charts.')
@@ -199,6 +208,98 @@ class CSVReaderWorker(QThread):
             self.data_loaded.emit(data)
         except Exception as e:
             self.error_occurred.emit(str(e))
+
+
+class _DataFrameModel(QAbstractTableModel):
+    """Read-only Qt model over a DataFrame; cells are formatted only when shown,
+    so large sheets open without building a widget per cell."""
+
+    def __init__(self, df, parent=None):
+        super().__init__(parent)
+        self._df = df
+        self._numeric = [pd.api.types.is_numeric_dtype(dt) for dt in df.dtypes]
+
+    def rowCount(self, parent=None):
+        return 0 if parent is not None and parent.isValid() else len(self._df)
+
+    def columnCount(self, parent=None):
+        return 0 if parent is not None and parent.isValid() else len(self._df.columns)
+
+    def data(self, index, role=Qt.DisplayRole):
+        if role == Qt.DisplayRole:
+            value = self._df.iat[index.row(), index.column()]
+            return '' if pd.isna(value) else str(value)
+        if role == Qt.TextAlignmentRole and self._numeric[index.column()]:
+            return int(Qt.AlignRight | Qt.AlignVCenter)
+        return None
+
+    def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if role != Qt.DisplayRole:
+            return None
+        if orientation == Qt.Horizontal:
+            return str(self._df.columns[section])
+        return str(section + 1)
+
+
+class TableViewer(BaseViewer):
+    """Shows a CSV/Excel file as a read-only table, one sheet at a time."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._sheets = {}
+        self._reader = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # Sheet picker, shown only for workbooks with more than one sheet.
+        self._sheet_row = QWidget()
+        row = QHBoxLayout(self._sheet_row)
+        row.setContentsMargins(4, 3, 4, 3)
+        self._sheet_label = QLabel(_tr('Sheet:'))
+        row.addWidget(self._sheet_label)
+        self._sheet_combo = QComboBox()
+        self._sheet_combo.currentIndexChanged.connect(self._show_sheet)
+        row.addWidget(self._sheet_combo, 1)
+        self._sheet_row.setVisible(False)
+        layout.addWidget(self._sheet_row)
+
+        self.table = QTableView()
+        self.table.setAlternatingRowColors(True)
+        self.table.setEditTriggers(QTableView.NoEditTriggers)
+        layout.addWidget(self.table, 1)
+
+    def load(self, file_path):
+        self._reader = CSVReaderWorker(file_path, all_sheets=True)
+        self._reader.progress_updated.connect(self.progress_changed.emit)
+        self._reader.data_loaded.connect(self._on_loaded)
+        self._reader.error_occurred.connect(
+            lambda msg: self.load_done.emit(False, _tr('Error loading table:\n{0}').format(msg)))
+        keep_alive_until_finished(self._reader)
+        self._reader.start()
+
+    def retranslate(self):
+        self._sheet_label.setText(_tr('Sheet:'))
+
+    def _on_loaded(self, data):
+        self._sheets = data if isinstance(data, dict) else {'': data}
+        self._sheet_combo.blockSignals(True)
+        self._sheet_combo.addItems([str(name) for name in self._sheets])
+        self._sheet_combo.blockSignals(False)
+        self._sheet_row.setVisible(len(self._sheets) > 1)
+        self._show_sheet(0)
+        df = next(iter(self._sheets.values()), pd.DataFrame())
+        self.load_done.emit(True, _tr('Loaded: {0} rows, {1} columns').format(
+            len(df), len(df.columns)))
+
+    def _show_sheet(self, index):
+        frames = list(self._sheets.values())
+        if not 0 <= index < len(frames):
+            return
+        old = self.table.model()
+        self.table.setModel(_DataFrameModel(frames[index], self.table))
+        if old is not None:
+            old.deleteLater()
 
 
 class _PreviewWorker(QThread):
@@ -2234,11 +2335,13 @@ class VideoViewer(BaseViewer):
         self.time_label.setText(f"{current_time} / {total_time}")
 
 
-def viewer_for(file_path, parent=None):
+def viewer_for(file_path, parent=None, as_table=None):
     """Return the viewer class instance that can preview *file_path*.
 
-    Unknown extensions fall back to :class:`TextViewer`, as the single-viewer
-    version did.
+    Tabular files open as a :class:`TableViewer` when *as_table* is true and as
+    a :class:`PlotViewer` otherwise; ``None`` picks the table for spreadsheets
+    and the plot for delimited text. Unknown extensions fall back to
+    :class:`TextViewer`, as the single-viewer version did.
     """
     lowered = file_path.lower()
     if lowered.endswith(IMAGE_SUFFIXES):
@@ -2246,7 +2349,9 @@ def viewer_for(file_path, parent=None):
     if lowered.endswith('.jgf'):
         return GraphViewer(parent)
     if lowered.endswith(DATA_SUFFIXES):
-        return PlotViewer(parent)
+        if as_table is None:
+            as_table = lowered.endswith(SPREADSHEET_SUFFIXES)
+        return TableViewer(parent) if as_table else PlotViewer(parent)
     if lowered.endswith('.pdf'):
         return PdfViewer(parent)
     if lowered.endswith(VIDEO_SUFFIXES):

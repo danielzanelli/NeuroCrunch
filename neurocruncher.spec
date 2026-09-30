@@ -17,7 +17,7 @@ block_cipher = None
 # ModuleNotFoundError on the first script run. Keep this list in sync with the imports
 # used by bundled scripts and with requirements.txt.
 _script_datas, _script_binaries, _script_hiddenimports = [], [], []
-for _pkg in ('numpy', 'pandas', 'cv2', 'tifffile', 'matplotlib', 'read_roi', 'jsonschema'):
+for _pkg in ('numpy', 'pandas', 'cv2', 'tifffile', 'matplotlib', 'read_roi', 'jsonschema', 'openpyxl', 'xlrd'):
     _d, _b, _h = collect_all(_pkg)
     _script_datas += _d
     _script_binaries += _b

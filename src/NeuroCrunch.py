@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QTreeWidgetItem, QTableWidgetItem, QMenu,
     QHBoxLayout, QWidget, QDialog, QMessageBox, QComboBox, QCheckBox, QLabel
 )
-from PySide6.QtCore import QCoreApplication, QUrl, Qt, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QSize, QUrl, Qt, QTimer
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut, QTextCursor, QDesktopServices
 
 from tkinter.filedialog import askopenfilename, askdirectory, asksaveasfilename
@@ -28,7 +28,10 @@ from dark_mode_manager import DarkModeManager
 from plugin_manager import PluginManager
 from param_dialog import ParamDialog
 from graph_viewer import GraphViewer
-from viewers import viewer_for, PlotViewer, VideoViewer, TextViewer
+from viewers import (
+    viewer_for, DATA_SUFFIXES, SPREADSHEET_SUFFIXES, PlotViewer, TableViewer, VideoViewer,
+    TextViewer
+)
 from script_runner import PipelineContext, ScriptRunner
 from updater import read_current_version, UpdateChecker, UpdateDownloader, apply_update
 
@@ -42,6 +45,8 @@ AVAILABLE_LANGUAGES = [
     ('es', 'Español'),
 ]
 SETTINGS_FILENAME = 'settings.json'
+# Max pixel width of a viewer tab's label; longer file names are elided.
+TAB_TEXT_MAX_WIDTH = 140
 
 
 def _default_script_config():
@@ -84,7 +89,7 @@ class NeuroCrunch(QMainWindow):
 
         # Central pane: one tab per open file. The stack shows the empty-state
         # hint instead whenever no file is open.
-        self._viewers = {}  # normalised path -> viewer widget
+        self._viewers = {}  # _viewer_key(path, as_table) -> viewer widget
         self.ui.viewer_placeholder.setText(self.tr('Double-click a file to preview it'))
         self.ui.viewer_tabs.tabCloseRequested.connect(self.close_tab)
         self.ui.viewer_tabs.currentChanged.connect(self._on_tab_changed)
@@ -92,6 +97,14 @@ class NeuroCrunch(QMainWindow):
         close_tab_shortcut = QShortcut(QKeySequence.Close, self)  # Ctrl+W
         close_tab_shortcut.activated.connect(
             lambda: self.close_tab(self.ui.viewer_tabs.currentIndex()))
+        # Compact tabs: smaller font/icons, names elided in _add_tab. Middle
+        # click closes a tab (see eventFilter).
+        tab_bar = self.ui.viewer_tabs.tabBar()
+        tab_font = tab_bar.font()
+        tab_font.setPointSizeF(tab_font.pointSizeF() * 0.85)
+        tab_bar.setFont(tab_font)
+        tab_bar.setIconSize(QSize(14, 14))
+        tab_bar.installEventFilter(self)
 
         # Default to the last folder the user browsed, falling back to the
         # user's home directory on first launch.
@@ -549,6 +562,13 @@ class NeuroCrunch(QMainWindow):
         open_action = menu.addAction(self.tr("Open"))
         open_action.triggered.connect(lambda: self.on_file_viewer_double_clicked(item, 0))
 
+        # Tabular files can be shown either way, whatever their default is.
+        if file_path.lower().endswith(DATA_SUFFIXES):
+            menu.addAction(self.tr("Open as plot")).triggered.connect(
+                lambda: self.open_file(file_path, as_table=False))
+            menu.addAction(self.tr("Open as table")).triggered.connect(
+                lambda: self.open_file(file_path, as_table=True))
+
         menu.addSeparator()
 
         # Open in location action
@@ -598,11 +618,13 @@ class NeuroCrunch(QMainWindow):
                 self.open_file(os.path.normpath(file_path))
         event.acceptProposedAction()
 
-    def open_file(self, file_path):
+    def open_file(self, file_path, as_table=None):
         """Show *file_path* in the central tab area, focusing it if already open.
 
         ROI zips are not files with a viewer of their own: they are an overlay
-        for the video in the current tab.
+        for the video in the current tab. For tabular files *as_table* picks the
+        table or plot view (``None``: table for spreadsheets, plot for CSV); the
+        two views of one file are separate tabs.
         """
         try:
             current = self.current_viewer()
@@ -610,16 +632,19 @@ class NeuroCrunch(QMainWindow):
                 current.load_roi(file_path)
                 return
 
-            existing = self._viewers.get(_viewer_key(file_path))
+            if as_table is None:
+                as_table = file_path.lower().endswith(SPREADSHEET_SUFFIXES)
+            key = _viewer_key(file_path, as_table)
+            existing = self._viewers.get(key)
             if existing is not None:
                 self.ui.viewer_tabs.setCurrentWidget(existing)
                 return
 
-            self._add_tab(file_path, viewer_for(file_path))
+            self._add_tab(file_path, viewer_for(file_path, as_table=as_table), key=key)
         except Exception as e:
             self.print(self.tr('Error opening the file:\n{0}').format(str(e)))
 
-    def _add_tab(self, file_path, viewer, index=None):
+    def _add_tab(self, file_path, viewer, index=None, key=None):
         """Add *viewer* as a tab for *file_path*, make it current and load it."""
         viewer.progress_changed.connect(self._on_viewer_progress)
         viewer.log_message.connect(self.print)
@@ -627,13 +652,23 @@ class NeuroCrunch(QMainWindow):
             lambda ok, message, v=viewer: self._on_viewer_load_done(v, ok, message))
 
         name = os.path.basename(file_path)
-        icon = icon_loader.icon_for_file(name)
-        if index is None:
-            index = self.ui.viewer_tabs.addTab(viewer, icon, name)
+        # Long names are elided in the middle so the distinguishing tail
+        # (suffix numbers, extension) stays visible; the tooltip has the path.
+        tab_label = self.ui.viewer_tabs.tabBar().fontMetrics().elidedText(
+            name, Qt.ElideMiddle, TAB_TEXT_MAX_WIDTH)
+        # Tabular files show the icon of the view, not of the extension, so the
+        # plot and the table of one file are told apart.
+        view_icon = {PlotViewer: 'chart-line', TableViewer: 'table'}.get(type(viewer))
+        if view_icon:
+            icon = icon_loader.get_icon(view_icon, icon_loader.FILE_TYPE_COLORS[view_icon], 18)
         else:
-            self.ui.viewer_tabs.insertTab(index, viewer, icon, name)
-        self.ui.viewer_tabs.setTabToolTip(index, file_path)
-        self._viewers[_viewer_key(file_path)] = viewer
+            icon = icon_loader.icon_for_file(name)
+        if index is None:
+            index = self.ui.viewer_tabs.addTab(viewer, icon, tab_label)
+        else:
+            self.ui.viewer_tabs.insertTab(index, viewer, icon, tab_label)
+        self.ui.viewer_tabs.setTabToolTip(index, os.path.normpath(file_path))
+        self._viewers[key or _viewer_key(file_path)] = viewer
 
         self.ui.viewer_stack.setCurrentWidget(self.ui.viewer_tabs)
         self.ui.viewer_tabs.setCurrentWidget(viewer)
@@ -697,6 +732,17 @@ class NeuroCrunch(QMainWindow):
         viewer.deleteLater()
         if self.ui.viewer_tabs.count() == 0:
             self.ui.viewer_stack.setCurrentWidget(self.ui.placeholder_page)
+
+    def eventFilter(self, obj, event):
+        """Middle-click on a viewer tab closes it."""
+        if (obj is self.ui.viewer_tabs.tabBar()
+                and event.type() == QEvent.MouseButtonRelease
+                and event.button() == Qt.MiddleButton):
+            index = obj.tabAt(event.position().toPoint())
+            if index >= 0:
+                self.close_tab(index)
+                return True
+        return super().eventFilter(obj, event)
 
     def current_viewer(self):
         """The viewer of the current tab, or None when no file is open."""
@@ -779,6 +825,16 @@ class NeuroCrunch(QMainWindow):
                 self.config[s]['execution_order'] = None
         return n_selected
 
+    def _display_order(self):
+        """Script ids in table row order: ordered scripts by execution order,
+        then the rest, then unfinished ones (the template row comes last)."""
+        def key(s):
+            if self._is_unfinished(s):
+                return (2, 0)
+            order = self.config[s]['execution_order']
+            return (0, order) if order is not None else (1, 0)
+        return sorted(self.scripts, key=key)  # stable: ties keep alphabetical order
+
     def _rebuild_scripts_table(self):
         """
             Refreshes the table_data_columns table with the current list of scripts and their config.
@@ -816,8 +872,9 @@ class NeuroCrunch(QMainWindow):
         # script_id -> row widgets, so _sync_scripts_table_state can update state
         # in place without recreating every widget on each interaction.
         self._row_widgets = {}
+        self._row_order = self._display_order()
 
-        for script in self.scripts:
+        for script in self._row_order:
             plugin_info = self.plugins[script]
 
             row_position = table.rowCount()
@@ -962,6 +1019,12 @@ class NeuroCrunch(QMainWindow):
         # Guard the change handlers against re-entry while we mutate widgets.
         self._refreshing_table = True
         n_selected = self._normalize_script_config()
+
+        # Rows follow the execution order, so an order change moves rows.
+        if self._display_order() != self._row_order:
+            self._refreshing_table = False
+            self._rebuild_scripts_table()
+            return
 
         for script in self.scripts:
             cfg = self.config[script]
@@ -1134,10 +1197,10 @@ class NeuroCrunch(QMainWindow):
 
         if column == 2:  # checkbox column — ignore double-clicks
             return
-        if row < 0 or row >= len(self.scripts):
+        if row < 0 or row >= len(self._row_order):
             return
 
-        script_id = self.scripts[row]
+        script_id = self._row_order[row]
         plugin_info = self.plugins.get(script_id)
         if plugin_info is None:
             return
@@ -1310,9 +1373,14 @@ class NeuroCrunch(QMainWindow):
 
 ############################################################################################################
 
-def _viewer_key(file_path):
-    """Identity of an open file: same file, same tab, however it was spelled."""
-    return os.path.normcase(os.path.abspath(file_path))
+def _viewer_key(file_path, as_table=False):
+    """Identity of an open file: same file, same tab, however it was spelled.
+
+    Tabular files are keyed by view too, so the plot and the table of one file
+    can be open side by side.
+    """
+    path = os.path.normcase(os.path.abspath(file_path))
+    return path, bool(as_table) and path.lower().endswith(DATA_SUFFIXES)
 
 
 def get_resource_base():

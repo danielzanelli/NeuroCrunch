@@ -53,7 +53,8 @@ FILE_TYPE_COLORS = {
 _EXT_ICONS = {
     ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.svg'): 'image',
     ('.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.mpeg', '.mpg', '.webm', '.tif', '.tiff'): 'film',
-    ('.csv', '.xls', '.xlsx'): 'table',
+    ('.csv', '.tsv'): 'chart-line',
+    ('.xlsx', '.xlsm', '.xls'): 'table',
     ('.pdf', '.txt', '.md', '.log'): 'file-text',
     ('.py', '.m', '.r', '.jl'): 'file-code',
     ('.zip', '.gz', '.tar', '.7z', '.rar'): 'file-archive',

@@ -21,7 +21,7 @@ single spike at the higher of the two. Lowering ``threshold_std`` separates them
 whenever the trace dips between them.
 
 Output (in the output folder):
-  * <name>_spikes.csv       — one row per spike
+  * <name>_spikes.xlsx (or .csv, per ``output_format``) — one row per spike
 
 Contract: see README.md > "<script_name>.py — execution contract".
 """
@@ -286,15 +286,17 @@ def _measure_spike(
     right: int,
     baseline: float,
     height_fraction: float,
-) -> Dict[str, Any]:
+) -> Optional[Dict[str, Any]]:
     """Measure one spike by the half-peak method.
 
     The apex is strictly above the half level (it cleared the detection
     threshold and ``height_fraction`` < 1), so both flank walks start below it.
+    Returns None when a flank never drops to the half level within its search
+    bound: the spike is clipped by the recording edge or runs into its
+    neighbour, so it cannot be measured.
     """
     amplitude = float(y[apex] - baseline)
     half_level = baseline + height_fraction * amplitude
-    truncated = False
 
     # Rising flank: last sample at or below the half level before the apex.
     j = None
@@ -302,15 +304,6 @@ def _measure_spike(
         if y[i] <= half_level:
             j = i
             break
-    if j is None:
-        # Still above the half level at the search bound: the spike is clipped
-        # by the recording edge or runs into its neighbour.
-        truncated = True
-        start_s, y_start, lo_idx = float(t[left]), float(y[left]), left
-        interior_lo = left + 1
-    else:
-        start_s, y_start, lo_idx = _cross_time(t, y, j, j + 1, half_level), half_level, j
-        interior_lo = j + 1
 
     # Falling flank: first sample at or below the half level after the apex.
     k = None
@@ -318,18 +311,17 @@ def _measure_spike(
         if y[i] <= half_level:
             k = i
             break
-    if k is None:
-        truncated = True
-        end_s, y_end, hi_idx = float(t[right]), float(y[right]), right
-        interior_hi = right - 1
-    else:
-        end_s, y_end, hi_idx = _cross_time(t, y, k - 1, k, half_level), half_level, k
-        interior_hi = k - 1
+
+    if j is None or k is None:
+        return None
+
+    start_s = _cross_time(t, y, j, j + 1, half_level)
+    end_s = _cross_time(t, y, k - 1, k, half_level)
 
     # Area over exactly the reported window, with the interpolated crossings
     # spliced in as endpoints so the area matches the reported start/end times.
-    t_seg = np.concatenate(([start_s], t[interior_lo:interior_hi + 1], [end_s]))
-    y_seg = np.concatenate(([y_start], y[interior_lo:interior_hi + 1], [y_end]))
+    t_seg = np.concatenate(([start_s], t[j + 1:k], [end_s]))
+    y_seg = np.concatenate(([half_level], y[j + 1:k], [half_level]))
     auc = float(np.trapezoid(y_seg - baseline, x=t_seg))
 
     return {
@@ -339,10 +331,9 @@ def _measure_spike(
         "spike_time_s": float(t[apex]),
         "max_height": amplitude,
         "auc": auc,
-        "truncated": truncated,
         # Sample span and level of the window, for the calibration preview.
-        "lo_idx": lo_idx,
-        "hi_idx": hi_idx,
+        "lo_idx": j,
+        "hi_idx": k,
         "half_level": half_level,
     }
 
@@ -371,9 +362,11 @@ def analyze_trace(
 
     bounds = _search_bounds(y, apexes)
     spikes = []
-    for index, (apex, (left, right)) in enumerate(zip(apexes, bounds), start=1):
+    for apex, (left, right) in zip(apexes, bounds):
         spike = _measure_spike(y, t, apex, left, right, baseline, height_fraction)
-        spike["spike_index"] = index
+        if spike is None:
+            continue
+        spike["spike_index"] = len(spikes) + 1
         spikes.append(spike)
     return spikes
 
@@ -393,7 +386,6 @@ OUTPUT_COLUMNS = [
     "auc",
     "x",
     "y",
-    "truncated",
 ]
 
 
@@ -416,7 +408,10 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     height_fraction = float(params.get("height_fraction", 0.5))
     min_duration = int(params.get("min_duration", 3))
     fps = float(params.get("fps", 10.0))
+    output_format = str(params.get("output_format", "xlsx")).lower()
 
+    if output_format not in ("xlsx", "csv"):
+        raise ValueError(f"output_format must be 'xlsx' or 'csv' (got {output_format}).")
     if not 0.0 < height_fraction < 1.0:
         raise ValueError(f"height_fraction must be between 0 and 1 (got {height_fraction}).")
     if fps <= 0:
@@ -511,16 +506,16 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
 
     spikes_df = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
     stem = os.path.splitext(os.path.basename(input_csv))[0]
-    spikes_csv = os.path.join(output_dir, f"{stem}_spikes.csv")
-    spikes_df.to_csv(spikes_csv, index=False, float_format="%.6f")
+    spikes_file = os.path.join(output_dir, f"{stem}_spikes.{output_format}")
+    if output_format == "xlsx":
+        spikes_df.to_excel(spikes_file, index=False, sheet_name="spikes")
+    else:
+        spikes_df.to_csv(spikes_file, index=False, float_format="%.6f")
 
-    truncated_count = int(spikes_df["truncated"].sum()) if not spikes_df.empty else 0
     print(f"{len(rows)} spike(s) measured across {total - empty_signals} signal(s)")
-    if truncated_count:
-        print(f"  {truncated_count} spike(s) clipped at a search bound (truncated = True)")
-    print(f"Spikes CSV saved to: {spikes_csv}")
+    print(f"Spikes file saved to: {spikes_file}")
 
-    return {"spikes_csv": spikes_csv}
+    return {"spikes_file": spikes_file}
 
 
 def preview(sample: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
@@ -532,9 +527,9 @@ def preview(sample: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
     at most 800 points, so ``min_duration`` (counted in frames) is coarser here
     than in the real run on a long recording.
 
-    Returns the detection threshold, each spike's own half level over its window,
-    and the trace itself inside the detected windows. The two window series sit
-    at the baseline outside the spikes rather than using NaN gaps.
+    Returns the detection threshold and each spike's own half level over its
+    window ("detected"), which sits at the baseline outside the spikes rather
+    than using NaN gaps.
     """
     y = np.asarray(sample.get("y"), dtype=float).ravel()
     y = _interpolate_nans(y)
@@ -562,17 +557,13 @@ def preview(sample: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
         min_duration=min_duration,
     )
 
-    half_levels = np.full(y.shape[0], baseline, dtype=float)
     detected = np.full(y.shape[0], baseline, dtype=float)
     for spike in spikes:
-        lo, hi = spike["lo_idx"], spike["hi_idx"]
-        half_levels[lo:hi + 1] = spike["half_level"]
-        detected[lo:hi + 1] = y[lo:hi + 1]
+        detected[spike["lo_idx"]:spike["hi_idx"] + 1] = spike["half_level"]
 
     threshold = baseline + threshold_std * sigma
     return {
         "threshold": [threshold] * y.shape[0],
-        "half_level": half_levels.tolist(),
         "detected": detected.tolist(),
     }
 
@@ -599,6 +590,7 @@ if __name__ == "__main__":
     parser.add_argument("--height_fraction", type=float, default=0.5)
     parser.add_argument("--min_duration", type=int, default=3)
     parser.add_argument("--fps", type=float, default=10.0)
+    parser.add_argument("--output_format", choices=("xlsx", "csv"), default="xlsx")
 
     args = parser.parse_args()
 
@@ -629,6 +621,7 @@ if __name__ == "__main__":
             "height_fraction": args.height_fraction,
             "min_duration": args.min_duration,
             "fps": args.fps,
+            "output_format": args.output_format,
         }
 
     try:

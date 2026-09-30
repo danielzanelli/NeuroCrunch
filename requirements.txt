@@ -7,4 +7,6 @@ read_roi==1.6.0
 opencv-python-headless==5.0.0.93
 tifffile==2026.3.3
 matplotlib==3.10.8
+openpyxl==3.1.5
+xlrd==2.0.2
 certifi==2026.2.25

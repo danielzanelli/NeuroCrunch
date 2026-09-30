@@ -15,6 +15,8 @@ licensed under their own terms:
 | [matplotlib](https://matplotlib.org) | matplotlib license (PSF-based, BSD-compatible) | Bundled DejaVu and STIX fonts carry their own licenses |
 | [OpenCV (opencv-python-headless)](https://github.com/opencv/opencv-python) | Apache-2.0 | The wheel bundles additional components; see `LICENSE-3RD-PARTY.txt` inside the `opencv_python_headless` distribution |
 | [jsonschema](https://github.com/python-jsonschema/jsonschema) | MIT | |
+| [openpyxl](https://foss.heptapod.net/openpyxl/openpyxl) | MIT | |
+| [xlrd](https://github.com/python-excel/xlrd) | BSD-3-Clause | |
 | [Lucide icons](https://lucide.dev) | ISC | Icon SVGs in `assets/icons/`; license text at [assets/icons/lucide/LICENSE](assets/icons/lucide/LICENSE) |
 | [Python](https://www.python.org) + standard library | PSF-2.0 | Embedded by the PyInstaller bundle |
 | [PyInstaller bootloader](https://pyinstaller.org) | GPL-2.0 with bootloader exception | The exception explicitly permits distributing bundled applications under any license |

@@ -73,12 +73,20 @@
       "name": "output_dir",
       "type": "directory",
       "label": {"en": "Output folder", "es": "Carpeta de salida"},
-      "description": {"en": "Folder where the spikes CSV will be saved", "es": "Carpeta donde se guardará el CSV de spikes"},
+      "description": {"en": "Folder where the spikes file will be saved", "es": "Carpeta donde se guardará el archivo de spikes"},
       "required": true
+    },
+    {
+      "name": "output_format",
+      "type": "choice",
+      "label": {"en": "Output format", "es": "Formato de salida"},
+      "description": {"en": "xlsx = Excel spreadsheet, csv = comma-separated text", "es": "xlsx = hoja de cálculo de Excel, csv = texto separado por comas"},
+      "options": ["xlsx", "csv"],
+      "default": "xlsx"
     }
   ],
   "outputs": {
-    "spikes_csv": {"en": "Path to the CSV with one row per detected spike", "es": "Ruta del CSV con una fila por spike detectado"}
+    "spikes_file": {"en": "Path to the spreadsheet (xlsx or csv) with one row per detected spike", "es": "Ruta de la hoja de cálculo (xlsx o csv) con una fila por spike detectado"}
   },
   "calibration": {
     "kind": "traces",

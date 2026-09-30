@@ -363,6 +363,206 @@
         <source>Plotting the first {0} columns only.</source>
         <translation>Graficando solo las primeras {0} columnas.</translation>
     </message>
+    <message>
+        <source>{0}  (example — double-click to preview)</source>
+        <translation>{0}  (ejemplo — doble clic para previsualizar)</translation>
+    </message>
+    <message>
+        <source>Example template showing every available input type.
+Double-click to preview the widgets, then copy the "template" folder from your scripts folder to start your own script.</source>
+        <translation>Plantilla de ejemplo que muestra todos los tipos de entrada disponibles.
+Haz doble clic para previsualizar los widgets y luego copia la carpeta "template" de tu carpeta de scripts para empezar tu propio script.</translation>
+    </message>
+    <message>
+        <source>example</source>
+        <translation>ejemplo</translation>
+    </message>
+    <message>
+        <source>{0}  (unfinished)</source>
+        <translation>{0}  (sin terminar)</translation>
+    </message>
+    <message>
+        <source>Work in progress — this script is unfinished and cannot be run yet.</source>
+        <translation>En desarrollo — este script está sin terminar y aún no se puede ejecutar.</translation>
+    </message>
+    <message>
+        <source> (showing first {0})</source>
+        <translation> (mostrando los primeros {0})</translation>
+    </message>
+    <message>
+        <source>All files (*)</source>
+        <translation>Todos los archivos (*)</translation>
+    </message>
+    <message>
+        <source>Applied to "{0}".</source>
+        <translation>Aplicado a «{0}».</translation>
+    </message>
+    <message>
+        <source>Apply to Config</source>
+        <translation>Aplicar a config.</translation>
+    </message>
+    <message>
+        <source>Brush point size (px)</source>
+        <translation>Tamaño del pincel (px)</translation>
+    </message>
+    <message>
+        <source>Brush:</source>
+        <translation>Pincel:</translation>
+    </message>
+    <message>
+        <source>Circle</source>
+        <translation>Círculo</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>Limpiar</translation>
+    </message>
+    <message>
+        <source>Click to add points, double-click to close.</source>
+        <translation>Haz clic para añadir puntos; doble clic para cerrar.</translation>
+    </message>
+    <message>
+        <source>Computing preview for {0} trace(s)…</source>
+        <translation>Calculando la vista previa para {0} traza(s)…</translation>
+    </message>
+    <message>
+        <source>Computing preview… {0}/{1}</source>
+        <translation>Calculando la vista previa… {0}/{1}</translation>
+    </message>
+    <message>
+        <source>Drag to draw a circle.</source>
+        <translation>Arrastra para dibujar un círculo.</translation>
+    </message>
+    <message>
+        <source>Drag to draw a rectangle.</source>
+        <translation>Arrastra para dibujar un rectángulo.</translation>
+    </message>
+    <message>
+        <source>Drag to paint a freehand area.</source>
+        <translation>Arrastra para pintar un área a mano alzada.</translation>
+    </message>
+    <message>
+        <source>Draw and save ROIs on the current frame</source>
+        <translation>Dibujar y guardar ROIs en el fotograma actual</translation>
+    </message>
+    <message>
+        <source>Error rendering preview:
+{0}</source>
+        <translation>Error al representar la vista previa:
+{0}</translation>
+    </message>
+    <message>
+        <source>Error saving regions:
+{0}</source>
+        <translation>Error al guardar las regiones:
+{0}</translation>
+    </message>
+    <message>
+        <source>Calibration</source>
+        <translation>Calibración</translation>
+    </message>
+    <message>
+        <source>No regions drawn to save.</source>
+        <translation>No hay regiones dibujadas para guardar.</translation>
+    </message>
+    <message>
+        <source>Paintbrush</source>
+        <translation>Pincel</translation>
+    </message>
+    <message>
+        <source>Play the video to a frame before editing ROIs.</source>
+        <translation>Reproduce el vídeo hasta un fotograma antes de editar las ROIs.</translation>
+    </message>
+    <message>
+        <source>Plot some traces first (Regex or Neuron Selection).</source>
+        <translation>Primero grafica algunas trazas (Regex o Selección de neuronas).</translation>
+    </message>
+    <message>
+        <source>Polygon</source>
+        <translation>Polígono</translation>
+    </message>
+    <message>
+        <source>Preview</source>
+        <translation>Vista previa</translation>
+    </message>
+    <message>
+        <source>Preview failed: {0}</source>
+        <translation>La vista previa falló: {0}</translation>
+    </message>
+    <message>
+        <source>Previewing {0} series (click legend to toggle).</source>
+        <translation>Mostrando {0} series (haz clic en la leyenda para alternar).</translation>
+    </message>
+    <message>
+        <source>ROI archives (*.zip)</source>
+        <translation>Archivos de ROI (*.zip)</translation>
+    </message>
+    <message>
+        <source>Rectangle</source>
+        <translation>Rectángulo</translation>
+    </message>
+    <message>
+        <source>Save regions</source>
+        <translation>Guardar regiones</translation>
+    </message>
+    <message>
+        <source>Save regions…</source>
+        <translation>Guardar regiones…</translation>
+    </message>
+    <message>
+        <source>Saved {0} ROIs to {1}</source>
+        <translation>Se guardaron {0} ROIs en {1}</translation>
+    </message>
+    <message>
+        <source>Script:</source>
+        <translation>Script:</translation>
+    </message>
+    <message>
+        <source>Series to plot:</source>
+        <translation>Series a graficar:</translation>
+    </message>
+    <message>
+        <source>Original</source>
+        <translation>Original</translation>
+    </message>
+    <message>
+        <source>Shape:</source>
+        <translation>Forma:</translation>
+    </message>
+    <message>
+        <source>Show/hide ROIs</source>
+        <translation>Mostrar/ocultar ROIs</translation>
+    </message>
+    <message>
+        <source>This script has no preview() function.</source>
+        <translation>Este script no tiene una función preview().</translation>
+    </message>
+    <message>
+        <source>Undo</source>
+        <translation>Deshacer</translation>
+    </message>
+    <message>
+        <source>Undo the last region (Ctrl+Z)</source>
+        <translation>Deshacer la última región (Ctrl+Z)</translation>
+    </message>
+    <message>
+        <source>Open as plot</source>
+        <translation>Abrir como gráfico</translation>
+    </message>
+    <message>
+        <source>Open as table</source>
+        <translation>Abrir como tabla</translation>
+    </message>
+    <message>
+        <source>Sheet:</source>
+        <translation>Hoja:</translation>
+    </message>
+    <message>
+        <source>Error loading table:
+{0}</source>
+        <translation>Error al cargar la tabla:
+{0}</translation>
+    </message>
 </context>
 <context>
     <name>CSVReaderWorker</name>

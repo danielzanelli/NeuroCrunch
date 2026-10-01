@@ -375,6 +375,7 @@ class PlotViewer(BaseViewer):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)  # no gap between plot and menu, so no seam
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.plot_widget, 1)
@@ -495,6 +496,10 @@ class PlotViewer(BaseViewer):
         a *Regex* tab (column range + substring filter).
         """
         tabs = QTabWidget(self)
+        tabs.setObjectName('plot_menu')  # styled in the QSS themes
+        # QTabWidget ignores a QSS background unless asked to paint it; without
+        # this the strip beside the tabs shows the window colour behind it.
+        tabs.setAttribute(Qt.WA_StyledBackground, True)
         tabs.addTab(self._build_neuron_tab(), _tr('Neuron Selection'))
         tabs.addTab(self._build_regex_tab(), _tr('Plot Columns'))
         # A calibratable script (e.g. the ALS filter) adds a live preview tab.

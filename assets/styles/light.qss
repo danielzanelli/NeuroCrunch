@@ -326,8 +326,8 @@ QLabel#viewer_placeholder {
 }
 
 /* ---- Open-file tabs ----------------------------------------------- */
-/* Scoped with '>' so the selector tabs nested inside the plot viewer keep
-   their plain default look and stay visually subordinate. */
+/* Scoped with '>' so the plot viewer's selector tabs (#plot_menu, below)
+   don't inherit this look. */
 
 QTabWidget#viewer_tabs::pane {
     border: none;
@@ -357,6 +357,62 @@ QTabWidget#viewer_tabs > QTabBar::tab:selected {
 QTabWidget#viewer_tabs > QTabBar::close-button {
     image: url("@ICONS@/x-light.svg");
     subcontrol-position: right;
+}
+
+/* ---- Plot viewer selector tabs ------------------------------------ */
+/* Folder-style tabs that open onto a rounded panel, matching the open-file tabs. */
+
+/* Same colour as the plot above (PLOT_BG in viewers.py), so the tab strip
+   and the margins around the panel blend into the plot area. */
+QTabWidget#plot_menu,
+QTabWidget#plot_menu > QTabBar {
+    background-color: #ffffff;
+}
+
+QTabWidget#plot_menu::pane {
+    background-color: #ffffff;
+    border: 1px solid #d5dae1;
+    border-radius: 8px;
+    padding: 2px;
+}
+
+/* Let the pane's rounded fill show through the page containers ('.QWidget'
+   matches plain QWidgets only, so inputs and buttons keep their own fill). */
+QTabWidget#plot_menu > QStackedWidget,
+QTabWidget#plot_menu .QWidget {
+    background: transparent;
+}
+
+QTabWidget#plot_menu::tab-bar {
+    left: 8px;
+}
+
+/* Every tab is outlined; the selected one takes the pane's fill, gains an
+   accent top edge, stands 2px taller and overlaps the pane's top border by
+   1px so it reads as one piece with the panel below. */
+QTabWidget#plot_menu > QTabBar::tab {
+    background-color: #f2f4f7;
+    color: #66707c;
+    padding: 5px 10px;
+    margin-top: 2px;
+    margin-right: 2px;
+    border: 1px solid #d5dae1;
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}
+
+QTabWidget#plot_menu > QTabBar::tab:hover:!selected {
+    background-color: #e9edf2;
+    color: #21262c;
+}
+
+QTabWidget#plot_menu > QTabBar::tab:selected {
+    background-color: #ffffff;
+    color: #21262c;
+    border-top: 2px solid #3b74e0;
+    margin-top: 0;
+    margin-bottom: -1px;
 }
 
 /* ---- Scrollbars --------------------------------------------------- */

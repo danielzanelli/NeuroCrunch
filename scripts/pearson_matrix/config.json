@@ -16,11 +16,18 @@
       "link": "select_active.active_csv"
     },
     {
-      "name": "metric",
+      "name": "column_order",
       "type": "choice",
+      "label": {"en": "Column naming", "es": "Nombre de columnas"},
+      "description": {"en": "Order of the parts in the signal column names: feature_neuron = <feature>_<neuron> (e.g. Mean_7), neuron_feature = <neuron>_<feature> (e.g. 7_Mean). The feature name may contain any character except '_'", "es": "Orden de las partes en los nombres de las columnas de señal: feature_neuron = <característica>_<neurona> (p. ej. Mean_7), neuron_feature = <neurona>_<característica> (p. ej. 7_Mean). El nombre de la característica puede contener cualquier carácter excepto '_'"},
+      "options": ["feature_neuron", "neuron_feature"],
+      "default": "feature_neuron"
+    },
+    {
+      "name": "metric",
+      "type": "string",
       "label": {"en": "Metric", "es": "Métrica"},
-      "description": {"en": "Which per-neuron metric to correlate. Matches column names like 'Mean7' or '7_mean' (case-insensitive; 'Std' also matches 'StdDev', 'Int' matches 'IntDen').", "es": "Qué métrica por neurona correlacionar. Coincide con nombres de columna como 'Mean7' o '7_mean' (sin distinguir mayúsculas; 'Std' también coincide con 'StdDev', 'Int' con 'IntDen')."},
-      "options": ["Mean", "Max", "Std", "Int"],
+      "description": {"en": "Which per-neuron feature to correlate: a generate_signals metric (Mean, Max, Std, Int) or any external feature name present in the columns. Case-insensitive; an unambiguous prefix also matches ('Std' matches 'StdDev').", "es": "Qué característica por neurona correlacionar: una métrica de generate_signals (Mean, Max, Std, Int) o cualquier característica externa presente en las columnas. Sin distinguir mayúsculas; un prefijo no ambiguo también coincide ('Std' coincide con 'StdDev')."},
       "default": "Mean"
     },
     {

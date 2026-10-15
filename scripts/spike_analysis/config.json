@@ -1,7 +1,7 @@
 {
   "id": "spike_analysis",
   "name": {"en": "Spike Analysis", "es": "Análisis de Spikes"},
-  "description": {"en": "Measures every spike in each processed signal — start, end and width at half maximum, amplitude and area under the curve — together with the position of its ROI.", "es": "Mide cada spike de las señales procesadas — inicio, fin y anchura a media altura, amplitud y área bajo la curva — junto con la posición de su ROI."},
+  "description": {"en": "Measures every spike in each processed signal — start, end and width at half maximum, amplitude and area under the curve — and, if an ROI file is given, the position of its ROI.", "es": "Mide cada spike de las señales procesadas — inicio, fin y anchura a media altura, amplitud y área bajo la curva — y, si se da un archivo de ROIs, la posición de su ROI."},
   "version": "1.0.0",
   "author": "Daniel Zanelli",
   "category": "analysis",
@@ -19,16 +19,23 @@
       "name": "roi_zip",
       "type": "file",
       "label": {"en": "ROI list", "es": "Lista de ROIs"},
-      "description": {"en": "ImageJ/FIJI ROI ZIP. ROI i corresponds to signal i; its centroid gives the x/y columns", "es": "ZIP de ROIs de ImageJ/FIJI. El ROI i corresponde a la señal i; su centroide da las columnas x/y"},
-      "required": true,
+      "description": {"en": "Optional ImageJ/FIJI ROI ZIP. ROI i corresponds to signal i; its centroid gives the x/y columns. Leave empty to omit x/y", "es": "ZIP de ROIs de ImageJ/FIJI opcional. El ROI i corresponde a la señal i; su centroide da las columnas x/y. Dejar vacío para omitir x/y"},
       "extensions": [".zip"],
       "link": "generate_rois.roi_zip"
+    },
+    {
+      "name": "column_order",
+      "type": "choice",
+      "label": {"en": "Column naming", "es": "Nombre de columnas"},
+      "description": {"en": "Order of the parts in the signal column names: feature_neuron = <feature>_<neuron> (e.g. Mean_7), neuron_feature = <neuron>_<feature> (e.g. 7_Mean). The feature name may contain any character except '_'", "es": "Orden de las partes en los nombres de las columnas de señal: feature_neuron = <característica>_<neurona> (p. ej. Mean_7), neuron_feature = <neurona>_<característica> (p. ej. 7_Mean). El nombre de la característica puede contener cualquier carácter excepto '_'"},
+      "options": ["feature_neuron", "neuron_feature"],
+      "default": "feature_neuron"
     },
     {
       "name": "metrics",
       "type": "string",
       "label": {"en": "Metrics to process", "es": "Métricas a procesar"},
-      "description": {"en": "Comma-separated list (e.g. Mean,Max). Empty = all", "es": "Lista separada por comas (p. ej. Mean,Max). Vacío = todas"},
+      "description": {"en": "Comma-separated list of features (e.g. Mean,Max), matched case-insensitively. Empty = all", "es": "Lista de características separadas por comas (p. ej. Mean,Max), sin distinguir mayúsculas. Vacío = todas"},
       "default": "Mean"
     },
     {
@@ -38,7 +45,7 @@
       "description": {"en": "A spike is detected where the signal rises this many robust standard deviations above its baseline", "es": "Se detecta un spike donde la señal supera su línea base en esta cantidad de desviaciones estándar robustas"},
       "default": 3.0,
       "min": 0.5,
-      "max": 10.0,
+      "max": 100.0,
       "decimals": 2
     },
     {
@@ -59,6 +66,24 @@
       "default": 3,
       "min": 1,
       "max": 1000
+    },
+    {
+      "name": "reference_start_s",
+      "type": "float",
+      "label": {"en": "SD reference start (s)", "es": "Inicio de referencia de DE (s)"},
+      "description": {"en": "Start of the time window whose baseline and standard deviation define the detection threshold. 0 = start of the recording", "es": "Inicio de la ventana temporal cuya línea base y desviación estándar definen el umbral de detección. 0 = inicio del registro"},
+      "default": 0.0,
+      "min": 0.0,
+      "decimals": 3
+    },
+    {
+      "name": "reference_end_s",
+      "type": "float",
+      "label": {"en": "SD reference end (s)", "es": "Fin de referencia de DE (s)"},
+      "description": {"en": "End of the reference time window. 0 = end of the recording (with start 0, the whole signal is the reference)", "es": "Fin de la ventana temporal de referencia. 0 = fin del registro (con inicio 0, toda la señal es la referencia)"},
+      "default": 0.0,
+      "min": 0.0,
+      "decimals": 3
     },
     {
       "name": "fps",
@@ -90,6 +115,6 @@
   },
   "calibration": {
     "kind": "traces",
-    "params": ["threshold_std", "height_fraction", "min_duration"]
+    "params": ["threshold_std", "height_fraction", "min_duration", "reference_start_s", "reference_end_s", "fps"]
   }
 }

@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
 
@@ -20,28 +19,33 @@ def _is_ignored_column(column: str) -> bool:
     return column.strip() in IGNORED_COLUMNS
 
 
-def split_metric_and_index(column: str) -> Tuple[str, int]:
-    # Pattern 1: Mean123 / baseline_filt_123
-    match_metric_first = re.match(r"^([a-zA-Z_]+?)(\d+)$", column)
-    if match_metric_first:
-        metric_name = match_metric_first.group(1)
-        index = int(match_metric_first.group(2))
-        return metric_name, index
-
-    # Pattern 2: 123_mean / 123_baseline_filt
-    match_index_first = re.match(r"^(\d+)_([a-zA-Z_]+)$", column)
-    if match_index_first:
-        index = int(match_index_first.group(1))
-        metric_name = match_index_first.group(2)
-        return metric_name, index
-
-    raise ValueError(
-        f"Column name '{column}' does not match the supported patterns: "
-        "'(MetricName)(index)' or '(index)_(metric_name)'"
-    )
+# Signal columns are "<feature>_<neuron>" (e.g. "Mean_7", "dF/F0_7") or
+# "<neuron>_<feature>" (e.g. "7_Mean"), as set by the column_order parameter.
+# The feature name may hold any character except "_", which separates the parts.
+COLUMN_ORDERS = ("feature_neuron", "neuron_feature")
 
 
-def _iter_signal_columns(columns: Iterable[str]) -> Tuple[List[str], List[str]]:
+def parse_column_order(value: Any) -> str:
+    column_order = str(value or "feature_neuron").strip().lower()
+    if column_order not in COLUMN_ORDERS:
+        raise ValueError(
+            f"column_order must be one of {', '.join(COLUMN_ORDERS)} (got {value})."
+        )
+    return column_order
+
+
+def split_metric_and_index(column: str, column_order: str) -> Tuple[str, int]:
+    parts = str(column).strip().split("_")
+    if len(parts) == 2:
+        metric_name, index = parts if column_order == "feature_neuron" else parts[::-1]
+        if metric_name and index.isascii() and index.isdigit():
+            return metric_name, int(index)
+
+    expected = "<feature>_<neuron>" if column_order == "feature_neuron" else "<neuron>_<feature>"
+    raise ValueError(f"Column name '{column}' does not match the pattern '{expected}'")
+
+
+def _iter_signal_columns(columns: Iterable[str], column_order: str) -> Tuple[List[str], List[str]]:
     signal_columns: List[str] = []
     skipped_columns: List[str] = []
 
@@ -49,7 +53,7 @@ def _iter_signal_columns(columns: Iterable[str]) -> Tuple[List[str], List[str]]:
         if _is_ignored_column(col):
             continue
         try:
-            split_metric_and_index(col)
+            split_metric_and_index(col, column_order)
             signal_columns.append(col)
         except ValueError:
             skipped_columns.append(col)
@@ -57,13 +61,13 @@ def _iter_signal_columns(columns: Iterable[str]) -> Tuple[List[str], List[str]]:
     return signal_columns, skipped_columns
 
 
-def get_metrics_and_indices(df: pd.DataFrame) -> Tuple[List[str], List[int]]:
+def get_metrics_and_indices(df: pd.DataFrame, column_order: str) -> Tuple[List[str], List[int]]:
     metrics: Set[str] = set()
     indices: Set[int] = set()
 
-    signal_columns, _ = _iter_signal_columns(df.columns)
+    signal_columns, _ = _iter_signal_columns(df.columns, column_order)
     for col in signal_columns:
-        metric, idx = split_metric_and_index(col)
+        metric, idx = split_metric_and_index(col, column_order)
         metrics.add(metric)
         indices.add(idx)
 
@@ -92,13 +96,15 @@ def parse_metrics_param(metrics_param: str | None, available_metrics: Sequence[s
     return [available_by_lower[m.lower()] for m in requested]
 
 
-def build_target_columns(df: pd.DataFrame, selected_metrics: Iterable[str]) -> List[str]:
+def build_target_columns(
+    df: pd.DataFrame, selected_metrics: Iterable[str], column_order: str
+) -> List[str]:
     metric_set = set(selected_metrics)
     target_cols: List[str] = []
 
-    signal_columns, _ = _iter_signal_columns(df.columns)
+    signal_columns, _ = _iter_signal_columns(df.columns, column_order)
     for col in signal_columns:
-        metric, _ = split_metric_and_index(col)
+        metric, _ = split_metric_and_index(col, column_order)
         if metric in metric_set:
             target_cols.append(col)
 
@@ -167,6 +173,7 @@ def bandpass_filter(
 def main(params: Dict[str, Any]) -> Dict[str, Any]:
     input_csv = os.path.abspath(os.path.normpath(params["input_csv"]))
     output_dir = os.path.abspath(os.path.normpath(params["output_dir"]))
+    column_order = parse_column_order(params.get("column_order"))
 
     fps = float(params.get("fps", 10.0))
     low_cutoff = float(params.get("low_cutoff", 0.1))
@@ -182,7 +189,7 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     print(f"Loading CSV: {input_csv}")
     df = pd.read_csv(input_csv)
     print(f"CSV loaded: {df.shape[0]} rows x {df.shape[1]} columns")
-    signal_columns, skipped_columns = _iter_signal_columns(df.columns)
+    signal_columns, skipped_columns = _iter_signal_columns(df.columns, column_order)
     if skipped_columns:
         print(
             "Skipping unsupported columns (no signal pattern): "
@@ -191,9 +198,9 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     if not signal_columns:
         raise ValueError("No signal columns found in the input CSV.")
 
-    available_metrics, _ = get_metrics_and_indices(df)
+    available_metrics, _ = get_metrics_and_indices(df, column_order)
     selected_metrics = parse_metrics_param(params.get("metrics"), available_metrics)
-    target_columns = build_target_columns(df, selected_metrics)
+    target_columns = build_target_columns(df, selected_metrics, column_order)
 
     print(f"Available metrics: {', '.join(available_metrics)}")
     print(f"Selected metrics: {', '.join(selected_metrics)}")
@@ -291,6 +298,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--input_csv", type=str)
     parser.add_argument("--output_dir", type=str)
+    parser.add_argument("--column_order", choices=COLUMN_ORDERS, default="feature_neuron")
     parser.add_argument("--metrics", type=str, default="")
 
     parser.add_argument("--fps", type=float, default=10.0)
@@ -321,6 +329,7 @@ if __name__ == "__main__":
         params = {
             "input_csv": args.input_csv,
             "output_dir": args.output_dir,
+            "column_order": args.column_order,
             "metrics": args.metrics,
             "fps": args.fps,
             "low_cutoff": args.low_cutoff,

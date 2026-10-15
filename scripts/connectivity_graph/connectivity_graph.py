@@ -89,8 +89,8 @@ def _map_labels_to_rois(labels: List[str], n_rois: int) -> Tuple[List[Optional[i
 
     Two strategies, in order of preference:
 
-    1. *Indexed* — when every label starts with an integer (e.g. ``"1_mean"``
-       from generate_signals) that lands inside ``1..n_rois``, use that integer
+    1. *Indexed* — when every label starts with an integer (e.g. the neuron
+       numbers pearson_matrix writes) that lands inside ``1..n_rois``, use that integer
        as a 1-based ROI index. This survives ``select_active`` dropping cells,
        because the surviving column keeps its original neuron number.
     2. *Positional* — otherwise fall back to row *i* ↔ ROI *i*, honouring the

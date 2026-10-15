@@ -33,6 +33,14 @@
       "max": 1000
     },
     {
+      "name": "column_order",
+      "type": "choice",
+      "label": {"en": "Column naming", "es": "Nombre de columnas"},
+      "description": {"en": "Order of the parts in the output column names: feature_neuron = <feature>_<neuron> (e.g. Mean_7), neuron_feature = <neuron>_<feature> (e.g. 7_Mean)", "es": "Orden de las partes en los nombres de las columnas de salida: feature_neuron = <característica>_<neurona> (p. ej. Mean_7), neuron_feature = <neurona>_<característica> (p. ej. 7_Mean)"},
+      "options": ["feature_neuron", "neuron_feature"],
+      "default": "feature_neuron"
+    },
+    {
       "name": "metric_max",
       "type": "bool",
       "label": {"en": "Metric: Maximum", "es": "Métrica: Máximo"},

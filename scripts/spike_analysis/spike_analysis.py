@@ -3,8 +3,10 @@
 """spike_analysis — Measures every spike in each processed signal.
 
 Reads a CSV of processed traces (ALS-corrected and/or band-passed, so spikes sit
-above a flat baseline plus noise) together with the ImageJ/FIJI ROI archive the
-signals were extracted from, and writes one row per detected spike.
+above a flat baseline plus noise), optionally together with the ImageJ/FIJI ROI
+archive the signals were extracted from, and writes one row per detected spike.
+When the ROI archive is given, each row also carries its ROI centroid (x, y);
+without it the x/y columns are left out.
 
 Spikes are found with the same robust rule ``select_active`` uses — a run of
 ``min_duration`` consecutive frames above ``median + k·1.4826·MAD`` — and are
@@ -20,6 +22,10 @@ never drop back below it — a doublet on a shared plateau — are measured as a
 single spike at the higher of the two. Lowering ``threshold_std`` separates them
 whenever the trace dips between them.
 
+The baseline (median) and noise SD (1.4826·MAD) are taken from a reference
+window, ``reference_start_s`` to ``reference_end_s`` (0 = the recording's end),
+which defaults to the whole recording — e.g. a quiet pre-stimulus period.
+
 Output (in the output folder):
   * <name>_spikes.xlsx (or .csv, per ``output_format``) — one row per spike
 
@@ -30,7 +36,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
@@ -59,24 +64,33 @@ def _is_ignored_column(column: str) -> bool:
     return str(column).strip() in IGNORED_COLUMNS
 
 
-def split_metric_and_index(column: str) -> Tuple[str, int]:
-    # Pattern 1: Mean123 / baseline_filt_123
-    match_metric_first = re.match(r"^([a-zA-Z_]+?)(\d+)$", column)
-    if match_metric_first:
-        return match_metric_first.group(1), int(match_metric_first.group(2))
-
-    # Pattern 2: 123_mean / 123_baseline_filt
-    match_index_first = re.match(r"^(\d+)_([a-zA-Z_]+)$", column)
-    if match_index_first:
-        return match_index_first.group(2), int(match_index_first.group(1))
-
-    raise ValueError(
-        f"Column name '{column}' does not match the supported patterns: "
-        "'(MetricName)(index)' or '(index)_(metric_name)'"
-    )
+# Signal columns are "<feature>_<neuron>" (e.g. "Mean_7", "dF/F0_7") or
+# "<neuron>_<feature>" (e.g. "7_Mean"), as set by the column_order parameter.
+# The feature name may hold any character except "_", which separates the parts.
+COLUMN_ORDERS = ("feature_neuron", "neuron_feature")
 
 
-def _iter_signal_columns(columns: Iterable[str]) -> Tuple[List[str], List[str]]:
+def parse_column_order(value: Any) -> str:
+    column_order = str(value or "feature_neuron").strip().lower()
+    if column_order not in COLUMN_ORDERS:
+        raise ValueError(
+            f"column_order must be one of {', '.join(COLUMN_ORDERS)} (got {value})."
+        )
+    return column_order
+
+
+def split_metric_and_index(column: str, column_order: str) -> Tuple[str, int]:
+    parts = str(column).strip().split("_")
+    if len(parts) == 2:
+        metric_name, index = parts if column_order == "feature_neuron" else parts[::-1]
+        if metric_name and index.isascii() and index.isdigit():
+            return metric_name, int(index)
+
+    expected = "<feature>_<neuron>" if column_order == "feature_neuron" else "<neuron>_<feature>"
+    raise ValueError(f"Column name '{column}' does not match the pattern '{expected}'")
+
+
+def _iter_signal_columns(columns: Iterable[str], column_order: str) -> Tuple[List[str], List[str]]:
     signal_columns: List[str] = []
     skipped_columns: List[str] = []
 
@@ -84,7 +98,7 @@ def _iter_signal_columns(columns: Iterable[str]) -> Tuple[List[str], List[str]]:
         if _is_ignored_column(col):
             continue
         try:
-            split_metric_and_index(col)
+            split_metric_and_index(col, column_order)
             signal_columns.append(col)
         except ValueError:
             skipped_columns.append(col)
@@ -92,13 +106,13 @@ def _iter_signal_columns(columns: Iterable[str]) -> Tuple[List[str], List[str]]:
     return signal_columns, skipped_columns
 
 
-def get_metrics_and_indices(df: pd.DataFrame) -> Tuple[List[str], List[int]]:
+def get_metrics_and_indices(df: pd.DataFrame, column_order: str) -> Tuple[List[str], List[int]]:
     metrics: Set[str] = set()
     indices: Set[int] = set()
 
-    signal_columns, _ = _iter_signal_columns(df.columns)
+    signal_columns, _ = _iter_signal_columns(df.columns, column_order)
     for col in signal_columns:
-        metric, idx = split_metric_and_index(col)
+        metric, idx = split_metric_and_index(col, column_order)
         metrics.add(metric)
         indices.add(idx)
 
@@ -127,13 +141,15 @@ def parse_metrics_param(metrics_param: str | None, available_metrics: Sequence[s
     return [available_by_lower[m.lower()] for m in requested]
 
 
-def build_target_columns(df: pd.DataFrame, selected_metrics: Iterable[str]) -> List[str]:
+def build_target_columns(
+    df: pd.DataFrame, selected_metrics: Iterable[str], column_order: str
+) -> List[str]:
     metric_set = set(selected_metrics)
     target_cols: List[str] = []
 
-    signal_columns, _ = _iter_signal_columns(df.columns)
+    signal_columns, _ = _iter_signal_columns(df.columns, column_order)
     for col in signal_columns:
-        metric, _ = split_metric_and_index(col)
+        metric, _ = split_metric_and_index(col, column_order)
         if metric in metric_set:
             target_cols.append(col)
 
@@ -181,11 +197,13 @@ def _load_roi_centroids(roi_zip: str) -> Tuple[List[str], List[Optional[Tuple[fl
     return names, [_roi_centroid(rois[name]) for name in names]
 
 
-def _map_columns_to_rois(columns: Sequence[str], n_rois: int) -> Tuple[List[Optional[int]], str]:
+def _map_columns_to_rois(
+    columns: Sequence[str], n_rois: int, column_order: str
+) -> Tuple[List[Optional[int]], str]:
     """Map each signal column to a 0-based ROI index.
 
-    *Indexed* — the neuron number carried by the column name (``7_mean`` and
-    ``Mean7`` both mean ROI 7) used as a 1-based ROI index. This survives
+    *Indexed* — the neuron number carried by the column name (``Mean_7`` or
+    ``7_Mean``, per ``column_order``, means ROI 7) used as a 1-based ROI index. This survives
     ``select_active`` dropping cells, since a surviving column keeps its original
     number, and it maps several metrics of the same cell to the same ROI.
 
@@ -194,7 +212,7 @@ def _map_columns_to_rois(columns: Sequence[str], n_rois: int) -> Tuple[List[Opti
     parsed: List[Optional[int]] = []
     for col in columns:
         try:
-            _, idx = split_metric_and_index(str(col))
+            _, idx = split_metric_and_index(str(col), column_order)
         except ValueError:
             idx = None
         parsed.append(idx)
@@ -220,6 +238,36 @@ def _interpolate_nans(y: np.ndarray) -> Optional[np.ndarray]:
         y = y.copy()
         y[nan_mask] = np.interp(np.flatnonzero(nan_mask), valid_idx, y[valid_idx])
     return y
+
+
+def parse_reference_window(params: Dict[str, Any]) -> Tuple[float, float]:
+    """(start_s, end_s) of the reference window; end_s <= 0 means the recording's end."""
+    start_s = float(params.get("reference_start_s", 0.0) or 0.0)
+    end_s = float(params.get("reference_end_s", 0.0) or 0.0)
+    if start_s < 0.0:
+        raise ValueError(f"reference_start_s must be >= 0 (got {start_s}).")
+    if end_s > 0.0 and end_s <= start_s:
+        raise ValueError(
+            f"reference_end_s ({end_s}) must be greater than reference_start_s ({start_s}), "
+            "or 0 to use the rest of the recording."
+        )
+    return start_s, end_s
+
+
+def _reference_mask(t: np.ndarray, start_s: float, end_s: float) -> np.ndarray:
+    """Samples inside the reference window [start_s, end_s] (end_s <= 0 = no end)."""
+    mask = t >= start_s
+    if end_s > 0.0:
+        mask &= t <= end_s
+    if np.count_nonzero(mask) < 3:
+        raise ValueError(
+            f"The reference window {start_s:g}-{end_s:g} s holds fewer than 3 samples; "
+            "widen it or check the time axis."
+            if end_s > 0.0
+            else f"The reference window from {start_s:g} s holds fewer than 3 samples; "
+            "lower its start or check the time axis."
+        )
+    return mask
 
 
 def _robust_baseline(y: np.ndarray) -> Tuple[float, float]:
@@ -345,13 +393,18 @@ def analyze_trace(
     threshold_std: float,
     height_fraction: float,
     min_duration: int,
+    reference: Optional[np.ndarray] = None,
 ) -> List[Dict[str, Any]]:
     """Detect and measure every spike in one trace.
+
+    The baseline and noise SD come from the samples selected by the boolean
+    mask *reference* (the whole trace when None); spikes are searched for over
+    the whole trace either way.
 
     Returns a list of per-spike dicts (empty when the trace is flat, unusable, or
     simply has no spike above the threshold).
     """
-    baseline, sigma = _robust_baseline(y)
+    baseline, sigma = _robust_baseline(y if reference is None else y[reference])
     if not np.isfinite(sigma) or sigma <= 0.0:
         return []
 
@@ -401,12 +454,15 @@ def _time_axis(df: pd.DataFrame, n_rows: int, fps: float) -> Tuple[np.ndarray, O
 
 def main(params: Dict[str, Any]) -> Dict[str, Any]:
     input_csv = os.path.abspath(os.path.normpath(params["input_csv"]))
-    roi_zip = os.path.abspath(os.path.normpath(params["roi_zip"]))
+    roi_zip_param = str(params.get("roi_zip") or "").strip()
+    roi_zip = os.path.abspath(os.path.normpath(roi_zip_param)) if roi_zip_param else None
     output_dir = os.path.abspath(os.path.normpath(params["output_dir"]))
+    column_order = parse_column_order(params.get("column_order"))
 
     threshold_std = float(params.get("threshold_std", 3.0))
     height_fraction = float(params.get("height_fraction", 0.5))
     min_duration = int(params.get("min_duration", 3))
+    reference_start_s, reference_end_s = parse_reference_window(params)
     fps = float(params.get("fps", 10.0))
     output_format = str(params.get("output_format", "xlsx")).lower()
 
@@ -418,7 +474,7 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError(f"fps must be positive (got {fps}).")
     if not os.path.isfile(input_csv):
         raise FileNotFoundError(f"input_csv not found: {input_csv}")
-    if not os.path.isfile(roi_zip):
+    if roi_zip and not os.path.isfile(roi_zip):
         raise FileNotFoundError(f"ROI file not found: {roi_zip}")
     os.makedirs(output_dir, exist_ok=True)
 
@@ -428,15 +484,15 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     if df.shape[0] < 3:
         raise ValueError("The input CSV needs at least 3 rows to measure a spike.")
 
-    signal_columns, skipped_columns = _iter_signal_columns(df.columns)
+    signal_columns, skipped_columns = _iter_signal_columns(df.columns, column_order)
     if skipped_columns:
         print("Skipping unsupported columns (no signal pattern): " + ", ".join(skipped_columns))
     if not signal_columns:
         raise ValueError("No signal columns found in the input CSV.")
 
-    available_metrics, _ = get_metrics_and_indices(df)
+    available_metrics, _ = get_metrics_and_indices(df, column_order)
     selected_metrics = parse_metrics_param(params.get("metrics"), available_metrics)
-    target_columns = build_target_columns(df, selected_metrics)
+    target_columns = build_target_columns(df, selected_metrics, column_order)
 
     print(f"Available metrics: {', '.join(available_metrics)}")
     print(f"Selected metrics: {', '.join(selected_metrics)}")
@@ -451,12 +507,25 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
         f"Detection: {threshold_std} SD over baseline, >= {min_duration} frame(s) | "
         f"width at {height_fraction:.0%} of each spike's amplitude"
     )
+    reference = _reference_mask(t, reference_start_s, reference_end_s)
+    if reference.all():
+        print("Baseline and SD reference: the whole recording")
+    else:
+        print(
+            f"Baseline and SD reference: {t[reference][0]:g}-{t[reference][-1]:g} s "
+            f"({np.count_nonzero(reference)} of {t.shape[0]} samples)"
+        )
 
-    print(f"Reading ROIs: {os.path.basename(roi_zip)}")
-    roi_names, roi_centroids = _load_roi_centroids(roi_zip)
-    print(f"  {len(roi_names)} ROI(s)")
-    mapping, strategy = _map_columns_to_rois(target_columns, len(roi_names))
-    print(f"  Signal -> ROI mapping: {strategy}")
+    roi_centroids: List[Optional[Tuple[float, float]]] = []
+    mapping: List[Optional[int]] = []
+    if roi_zip:
+        print(f"Reading ROIs: {os.path.basename(roi_zip)}")
+        roi_names, roi_centroids = _load_roi_centroids(roi_zip)
+        print(f"  {len(roi_names)} ROI(s)")
+        mapping, strategy = _map_columns_to_rois(target_columns, len(roi_names), column_order)
+        print(f"  Signal -> ROI mapping: {strategy}")
+    else:
+        print("No ROI file given: the spikes table will have no x/y columns.")
 
     rows: List[Dict[str, Any]] = []
     empty_signals = 0
@@ -472,14 +541,13 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
             print(f"PROGRESS:{i / total * 100:.0f}")
             continue
 
-        roi_index = mapping[i - 1]
-        centroid = (
-            roi_centroids[roi_index]
-            if roi_index is not None and 0 <= roi_index < len(roi_centroids)
-            else None
-        )
-        if centroid is None:
-            unmapped_signals += 1
+        centroid = None
+        if roi_zip:
+            roi_index = mapping[i - 1]
+            if roi_index is not None and 0 <= roi_index < len(roi_centroids):
+                centroid = roi_centroids[roi_index]
+            if centroid is None:
+                unmapped_signals += 1
 
         spikes = analyze_trace(
             y,
@@ -487,14 +555,16 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
             threshold_std=threshold_std,
             height_fraction=height_fraction,
             min_duration=min_duration,
+            reference=reference,
         )
         if not spikes:
             empty_signals += 1
 
         for spike in spikes:
             spike["signal"] = column
-            spike["x"] = centroid[0] if centroid else float("nan")
-            spike["y"] = centroid[1] if centroid else float("nan")
+            if roi_zip:
+                spike["x"] = centroid[0] if centroid else float("nan")
+                spike["y"] = centroid[1] if centroid else float("nan")
             rows.append(spike)
 
         print(f"PROGRESS:{i / total * 100:.0f}")
@@ -504,7 +574,8 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     if empty_signals:
         print(f"{empty_signals} of {total} signal(s) had no detectable spike.")
 
-    spikes_df = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
+    columns = OUTPUT_COLUMNS if roi_zip else [c for c in OUTPUT_COLUMNS if c not in ("x", "y")]
+    spikes_df = pd.DataFrame(rows, columns=columns)
     stem = os.path.splitext(os.path.basename(input_csv))[0]
     spikes_file = os.path.join(output_dir, f"{stem}_spikes.{output_format}")
     if output_format == "xlsx":
@@ -527,9 +598,15 @@ def preview(sample: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
     at most 800 points, so ``min_duration`` (counted in frames) is coarser here
     than in the real run on a long recording.
 
-    Returns the detection threshold and each spike's own half level over its
+    The reference window is placed on the sample's time axis: the CSV's own
+    ``"t"`` (seconds) when the app passes one, else the original frame numbers
+    ``"x"`` divided by ``fps``.
+
+    Returns the detection threshold, each spike's own half level over its
     window ("detected"), which sits at the baseline outside the spikes rather
-    than using NaN gaps.
+    than using NaN gaps, and the reference window ("reference_window"): a gate
+    at the trace's top inside the window and its bottom outside, whose vertical
+    edges mark the window's start and end.
     """
     y = np.asarray(sample.get("y"), dtype=float).ravel()
     y = _interpolate_nans(y)
@@ -539,22 +616,34 @@ def preview(sample: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
     threshold_std = float(params.get("threshold_std", 3.0))
     height_fraction = float(params.get("height_fraction", 0.5))
     min_duration = int(params.get("min_duration", 3))
+    reference_start_s, reference_end_s = parse_reference_window(params)
+    fps = float(params.get("fps", 10.0))
     if not 0.0 < height_fraction < 1.0:
         raise ValueError(f"height_fraction must be between 0 and 1 (got {height_fraction}).")
+    if fps <= 0:
+        raise ValueError(f"fps must be positive (got {fps}).")
 
-    baseline, sigma = _robust_baseline(y)
+    t = sample.get("t")
+    t = None if t is None else np.asarray(t, dtype=float).ravel()
+    if t is None or t.shape[0] != y.shape[0] or not np.isfinite(t).all():
+        x = sample.get("x")
+        x = None if x is None else np.asarray(x, dtype=float).ravel()
+        if x is None or x.shape[0] != y.shape[0]:
+            x = np.arange(y.shape[0], dtype=float)
+        t = x / fps
+
+    reference = _reference_mask(t, reference_start_s, reference_end_s)
+    baseline, sigma = _robust_baseline(y[reference])
     if not np.isfinite(sigma) or sigma <= 0.0:
         return {}
 
-    # The preview has no time axis; sample indices are enough to place the
-    # windows, and every reported time is derived from the same crossings.
-    t = np.arange(y.shape[0], dtype=float)
     spikes = analyze_trace(
         y,
         t,
         threshold_std=threshold_std,
         height_fraction=height_fraction,
         min_duration=min_duration,
+        reference=reference,
     )
 
     detected = np.full(y.shape[0], baseline, dtype=float)
@@ -562,9 +651,11 @@ def preview(sample: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
         detected[spike["lo_idx"]:spike["hi_idx"] + 1] = spike["half_level"]
 
     threshold = baseline + threshold_std * sigma
+    reference_window = np.where(reference, float(np.max(y)), float(np.min(y)))
     return {
         "threshold": [threshold] * y.shape[0],
         "detected": detected.tolist(),
+        "reference_window": reference_window.tolist(),
     }
 
 
@@ -584,11 +675,14 @@ if __name__ == "__main__":
     parser.add_argument("--input_csv", type=str)
     parser.add_argument("--roi_zip", type=str)
     parser.add_argument("--output_dir", type=str)
+    parser.add_argument("--column_order", choices=COLUMN_ORDERS, default="feature_neuron")
     parser.add_argument("--metrics", type=str, default="Mean")
 
     parser.add_argument("--threshold_std", type=float, default=3.0)
     parser.add_argument("--height_fraction", type=float, default=0.5)
     parser.add_argument("--min_duration", type=int, default=3)
+    parser.add_argument("--reference_start_s", type=float, default=0.0)
+    parser.add_argument("--reference_end_s", type=float, default=0.0)
     parser.add_argument("--fps", type=float, default=10.0)
     parser.add_argument("--output_format", choices=("xlsx", "csv"), default="xlsx")
 
@@ -609,17 +703,20 @@ if __name__ == "__main__":
             print(f"ERROR: invalid JSON in --params_json: {exc}", file=sys.stderr)
             sys.exit(1)
     else:
-        if not args.input_csv or not args.roi_zip or not args.output_dir:
-            parser.error("--input_csv, --roi_zip and --output_dir are required")
+        if not args.input_csv or not args.output_dir:
+            parser.error("--input_csv and --output_dir are required")
 
         params = {
             "input_csv": args.input_csv,
             "roi_zip": args.roi_zip,
             "output_dir": args.output_dir,
+            "column_order": args.column_order,
             "metrics": args.metrics,
             "threshold_std": args.threshold_std,
             "height_fraction": args.height_fraction,
             "min_duration": args.min_duration,
+            "reference_start_s": args.reference_start_s,
+            "reference_end_s": args.reference_end_s,
             "fps": args.fps,
             "output_format": args.output_format,
         }

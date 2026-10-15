@@ -14,9 +14,11 @@ matrix a drop-in replacement for the Pearson matrix: it shares the same [0, 1]
 scale, feeds ``connectivity_graph`` unchanged, and is thresholded later in the
 viewer rather than here.
 
-Column names are expected to carry a metric name and a neuron number, in either
-order, e.g. ``Mean7``/``Max7`` (ImageJ Multi-Measure style) or ``7_mean``
-(NeuroCrunch's generate_signals style). The neuron number identifies the cell —
+Column names carry a feature name and a neuron number joined by a single ``_``,
+in the order set by ``column_order``: ``<feature>_<neuron>`` (e.g. ``Mean_7``)
+or ``<neuron>_<feature>`` (e.g. ``7_Mean``). The feature may be a metric from
+generate_signals or any externally computed feature; it may hold any character
+except ``_``. The neuron number identifies the cell —
 because upstream steps (e.g. select_active) may drop cells, the numbers can skip
 values, but each metric is present for every kept neuron. Only the columns for
 the selected metric are used, and the resulting matrix is labelled by neuron
@@ -47,35 +49,42 @@ import pandas as pd
 # folder is self-contained (isolated namespace), so the copies are intentional —
 # keep the two in sync when editing.
 #
-# A column is <MetricName><neuron> (e.g. "Mean7") or <neuron><sep><MetricName>
-# (e.g. "7_mean"). Separators between the two parts are optional.
-_COL_METRIC_FIRST = re.compile(r"^([A-Za-z]+)[ _\-]*(\d+)$")
-_COL_NUMBER_FIRST = re.compile(r"^(\d+)[ _\-]*([A-Za-z]+)$")
+# A column is "<feature>_<neuron>" (e.g. "Mean_7") or "<neuron>_<feature>"
+# (e.g. "7_Mean"), as set by column_order. The feature may hold any character
+# except "_", which separates the two parts.
+COLUMN_ORDERS = ("feature_neuron", "neuron_feature")
 
 # Above this neuron count the full heatmap image is skipped (the matrix CSV is
 # still written) to avoid a multi-gigabyte figure.
 _HEATMAP_MAX_NEURONS = 1500
 
 
-def _parse_column(col) -> Optional[Tuple[str, int]]:
+def _parse_column_order(value) -> str:
+    column_order = str(value or "feature_neuron").strip().lower()
+    if column_order not in COLUMN_ORDERS:
+        raise ValueError(
+            f"column_order must be one of {', '.join(COLUMN_ORDERS)} (got {value})."
+        )
+    return column_order
+
+
+def _parse_column(col, column_order: str) -> Optional[Tuple[str, int]]:
     """Return ``(metric_name, neuron_number)`` for a column, or ``None``.
 
-    The metric name keeps its original casing. Handles both ``Mean7`` and
-    ``7_mean`` orderings; non-signal columns such as ``frame``, ``time_s`` or
-    ``Slice`` don't match and are ignored.
+    The metric name keeps its original casing. Non-signal columns such as
+    ``frame``, ``time_s`` or ``Slice`` don't match and are ignored.
     """
-    s = str(col).strip()
-    m = _COL_METRIC_FIRST.match(s)
-    if m:
-        return m.group(1), int(m.group(2))
-    m = _COL_NUMBER_FIRST.match(s)
-    if m:
-        return m.group(2), int(m.group(1))
-    return None
+    parts = str(col).strip().split("_")
+    if len(parts) != 2:
+        return None
+    metric_name, neuron = parts if column_order == "feature_neuron" else parts[::-1]
+    if not metric_name or not (neuron.isascii() and neuron.isdigit()):
+        return None
+    return metric_name, int(neuron)
 
 
 def _detect_columns(
-    columns,
+    columns, column_order: str
 ) -> Tuple[Dict[str, List[Tuple[str, int]]], Dict[str, str]]:
     """Group parseable columns by lower-cased metric token.
 
@@ -86,7 +95,7 @@ def _detect_columns(
     by_token: Dict[str, List[Tuple[str, int]]] = {}
     display: Dict[str, str] = {}
     for col in columns:
-        parsed = _parse_column(col)
+        parsed = _parse_column(col, column_order)
         if parsed is None:
             continue
         metric_name, neuron = parsed
@@ -109,8 +118,8 @@ def _select_metric(
     m = str(metric).strip().lower()
     if not by_token:
         raise ValueError(
-            "No columns of the form '<Metric><neuron>' (e.g. 'Mean7') or "
-            "'<neuron>_<metric>' (e.g. '7_mean') were found in the CSV."
+            "No columns of the form '<feature>_<neuron>' (e.g. 'Mean_7') or "
+            "'<neuron>_<feature>' (e.g. '7_Mean'), per column_order, were found in the CSV."
         )
 
     if m in by_token:
@@ -274,6 +283,7 @@ def run(params):
     input_csv = params["input_csv"]
     output_dir = params["output_dir"]
     metric = str(params.get("metric", "Mean"))
+    column_order = _parse_column_order(params.get("column_order"))
     bins_param = params.get("bins", "auto")
 
     if not os.path.isfile(input_csv):
@@ -282,7 +292,7 @@ def run(params):
 
     print(f"Reading columns: {os.path.basename(input_csv)}")
     header = pd.read_csv(input_csv, nrows=0)
-    by_token, display = _detect_columns(header.columns)
+    by_token, display = _detect_columns(header.columns, column_order)
     if by_token:
         summary = ", ".join(
             f"{display[t]} ({len(by_token[t])})" for t in sorted(by_token)
@@ -362,6 +372,7 @@ if __name__ == "__main__":
     parser.add_argument("--input_csv", required=True)
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--metric", default="Mean")
+    parser.add_argument("--column_order", choices=COLUMN_ORDERS, default="feature_neuron")
     parser.add_argument("--bins", default="auto")
     args = parser.parse_args()
     print(run(vars(args)))

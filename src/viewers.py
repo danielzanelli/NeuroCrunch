@@ -309,25 +309,30 @@ class _PreviewWorker(QThread):
     *samples* is ``{column_name: 1-D array}``; the result is
     ``{column_name: {series_name: array}}``. A monotonically increasing *token*
     lets the viewer discard a superseded run's result.
+
+    Each call gets ``{'y': trace}`` plus the shared *axes* — ``'x'`` (the
+    original frame index of every decimated sample) and, when the CSV has a
+    ``time_s`` column, ``'t'`` (its seconds) — for scripts that need a time base.
     """
 
     progress = Signal(int, int, int)  # token, done, total
     done = Signal(int, object)        # token, {col: result dict}
     failed = Signal(int, str)         # token, error message
 
-    def __init__(self, preview_fn, samples, params, token, parent=None):
+    def __init__(self, preview_fn, samples, params, token, axes=None, parent=None):
         super().__init__(parent)
         self._preview_fn = preview_fn
         self._samples = samples
         self._params = params
         self._token = token
+        self._axes = dict(axes or {})
 
     def run(self):
         try:
             out = {}
             total = len(self._samples)
             for i, (name, y) in enumerate(self._samples.items(), start=1):
-                result = self._preview_fn({'y': y}, self._params)
+                result = self._preview_fn({**self._axes, 'y': y}, self._params)
                 if isinstance(result, dict) and result:
                     out[name] = result
                 self.progress.emit(self._token, i, total)
@@ -632,27 +637,34 @@ class PlotViewer(BaseViewer):
     def _parse_signal_columns(self):
         """Map column names to (metric, neuron-id) pairs.
 
-        Recognises the two conventions the pipeline emits: 'Metric<idx>' (e.g.
-        ``Mean123``) and '<idx>_metric' (e.g. ``667_Max``). Fills
-        ``self._signal_col_by_key`` with {(metric, idx): column_name} and returns
-        (sorted metric names, sorted neuron ids). Columns matching neither
-        pattern (``frame``, ``time_s``, ...) are ignored.
+        Signal columns are '<feature>_<idx>' (e.g. ``Mean_123``) or
+        '<idx>_<feature>' (e.g. ``667_Max``); the feature may hold any character
+        except '_'. The scripts take the order as a parameter, but the viewer
+        has none, so it uses whichever order matches more columns in the file.
+        Fills ``self._signal_col_by_key`` with {(metric, idx): column_name} and
+        returns (sorted metric names, sorted neuron ids). Columns matching
+        neither pattern (``frame``, ``time_s``, ...) are ignored.
         """
-        metric_first = re.compile(r'^([a-zA-Z_]+?)(\d+)$')
-        index_first = re.compile(r'^(\d+)_([a-zA-Z_]+)$')
+        def is_index(s):
+            return s.isascii() and s.isdigit()
+
+        pairs = []
+        for col in self.data.columns:
+            parts = str(col).strip().split('_')
+            if len(parts) == 2 and all(parts):
+                pairs.append((col, parts[0], parts[1]))
+
+        feature_first = sum(1 for _, _, b in pairs if is_index(b))
+        index_first = sum(1 for _, a, _ in pairs if is_index(a))
+
         col_by_key = {}
         metrics = set()
         neurons = set()
-        for col in self.data.columns:
-            name = str(col).strip()
-            m = metric_first.match(name)
-            if m:
-                metric, idx = m.group(1), int(m.group(2))
-            else:
-                m = index_first.match(name)
-                if not m:
-                    continue
-                idx, metric = int(m.group(1)), m.group(2)
+        for col, a, b in pairs:
+            metric, idx = (a, b) if feature_first >= index_first else (b, a)
+            if not is_index(idx):
+                continue
+            idx = int(idx)
             col_by_key[(metric, idx)] = col
             metrics.add(metric)
             neurons.add(idx)
@@ -1081,7 +1093,12 @@ class PlotViewer(BaseViewer):
         note = _tr(' (showing first {0})').format(PREVIEW_MAX_TRACES) if capped else ''
         self._set_calib_status(_tr('Computing preview for {0} trace(s)…').format(len(samples)) + note)
 
-        worker = _PreviewWorker(preview_fn, samples, params, token, parent=self)
+        axes = {'x': idx.astype(float)}
+        time_col, t = self._time_axis()
+        if time_col is not None and t.shape[0] == n and np.isfinite(t[idx]).all():
+            axes['t'] = t[idx]
+
+        worker = _PreviewWorker(preview_fn, samples, params, token, axes=axes, parent=self)
         worker.progress.connect(self._on_preview_progress)
         worker.done.connect(self._on_preview_done)
         worker.failed.connect(self._on_preview_failed)

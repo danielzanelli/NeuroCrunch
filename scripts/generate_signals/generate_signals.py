@@ -8,6 +8,7 @@ frame by frame and saves the result as a CSV file.
 Command-line usage:
     python generate_signals.py --input_video video.tif --input_roi rois.zip \\
                    --output_dir ./results [--fps 10] [--normalize] \\
+                   [--column_order feature_neuron|neuron_feature] \\
                    [--no-metric_max] [--no-metric_mean] [--no-metric_std] [--no-metric_int]
 
     # Alternatively, passing all parameters as a JSON string:
@@ -329,13 +330,33 @@ def selected_metrics_from_params(params: Dict[str, Any]) -> List[str]:
     return selected
 
 
-def build_output_columns(neuron_ids: List[int], metrics: List[str]) -> List[str]:
-    """Create output columns: frame, time_s, then neuron_metric columns."""
-    return ["frame", "time_s"] + [
-        f"{neuron_id}_{metric}"
-        for neuron_id in neuron_ids
-        for metric in metrics
-    ]
+# Signal columns are "<feature>_<neuron>" (e.g. "mean_7") or "<neuron>_<feature>"
+# (e.g. "7_mean"), as set by the column_order parameter. Downstream scripts take
+# the same parameter to parse them back, so feature names must not contain "_".
+COLUMN_ORDERS = ("feature_neuron", "neuron_feature")
+
+
+def parse_column_order(value: Any) -> str:
+    column_order = str(value or "feature_neuron").strip().lower()
+    if column_order not in COLUMN_ORDERS:
+        raise ValueError(
+            f"column_order must be one of {', '.join(COLUMN_ORDERS)} (got {value})."
+        )
+    return column_order
+
+
+def build_output_columns(
+    neuron_ids: List[int], metrics: List[str], column_order: str
+) -> List[str]:
+    """Create output columns: frame, time_s, then one column per neuron/metric."""
+    for metric in metrics:
+        if "_" in metric:
+            raise ValueError(f"Metric name '{metric}' must not contain '_'.")
+    if column_order == "feature_neuron":
+        names = [f"{metric}_{neuron_id}" for neuron_id in neuron_ids for metric in metrics]
+    else:
+        names = [f"{neuron_id}_{metric}" for neuron_id in neuron_ids for metric in metrics]
+    return ["frame", "time_s"] + names
 
 
 def process_frames(
@@ -390,6 +411,7 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     output_dir  = params["output_dir"]
     fps         = int(params.get("fps", 10))
     normalize   = bool(params.get("normalize", False))
+    column_order = parse_column_order(params.get("column_order"))
 
     metrics = selected_metrics_from_params(params)
 
@@ -441,8 +463,8 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     # every ROI — not just the valid ones — keeps neuron numbers aligned with each
     # ROI's position in the file, so a skipped ROI leaves a gap instead of shifting
     # the rest. This is the identifier the downstream scripts rely on:
-    # select_active/pearson_matrix preserve it, and connectivity_graph maps column
-    # "N_mean" back to the N-th ROI in the same ZIP.
+    # select_active/pearson_matrix preserve it, and connectivity_graph maps
+    # neuron N (column "mean_N" or "N_mean") back to the N-th ROI in the same ZIP.
     valid_items = [
         (position, mask)
         for position, (_, mask) in enumerate(all_masks.items(), start=1)
@@ -454,8 +476,8 @@ def main(params: Dict[str, Any]) -> Dict[str, Any]:
     roi_flat_indices = [np.flatnonzero(mask.ravel()) for _, mask in valid_items]
 
     # ---- Build output column names -------------------------------------------
-    # Frame | Time (s) | ROI1_max | ROI1_mean | ... | ROIn_int
-    columns = build_output_columns(neuron_ids, metrics)
+    # frame | time_s | max_1 | mean_1 | ... | int_n  (or 1_max | 1_mean | ... | n_int)
+    columns = build_output_columns(neuron_ids, metrics, column_order)
 
     # ---- Process frames ------------------------------------------------------
     rows = process_frames(
@@ -519,6 +541,7 @@ if __name__ == "__main__":
     parser.add_argument("--fps",          type=int, default=10)
     parser.add_argument("--output_dir",   type=str, help="Output folder")
     parser.add_argument("--normalize",    action="store_true", default=False)
+    parser.add_argument("--column_order", choices=COLUMN_ORDERS, default="feature_neuron")
     parser.add_argument("--metric_max",  action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--metric_mean", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--metric_std",  action=argparse.BooleanOptionalAction, default=True)
@@ -549,6 +572,7 @@ if __name__ == "__main__":
             "fps":          args.fps,
             "output_dir":   args.output_dir,
             "normalize":    args.normalize,
+            "column_order": args.column_order,
             "metric_max":   args.metric_max,
             "metric_mean":  args.metric_mean,
             "metric_std":   args.metric_std,

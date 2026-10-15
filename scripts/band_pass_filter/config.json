@@ -16,10 +16,18 @@
       "link": "als_filter.smoothed_csv"
     },
     {
+      "name": "column_order",
+      "type": "choice",
+      "label": {"en": "Column naming", "es": "Nombre de columnas"},
+      "description": {"en": "Order of the parts in the signal column names: feature_neuron = <feature>_<neuron> (e.g. Mean_7), neuron_feature = <neuron>_<feature> (e.g. 7_Mean). The feature name may contain any character except '_'", "es": "Orden de las partes en los nombres de las columnas de señal: feature_neuron = <característica>_<neurona> (p. ej. Mean_7), neuron_feature = <neurona>_<característica> (p. ej. 7_Mean). El nombre de la característica puede contener cualquier carácter excepto '_'"},
+      "options": ["feature_neuron", "neuron_feature"],
+      "default": "feature_neuron"
+    },
+    {
       "name": "metrics",
       "type": "string",
       "label": {"en": "Metrics to process", "es": "Métricas a procesar"},
-      "description": {"en": "Comma-separated list (e.g. Mean,Max). Empty = all", "es": "Lista separada por comas (p. ej. Mean,Max). Vacío = todas"},
+      "description": {"en": "Comma-separated list of features (e.g. Mean,Max), matched case-insensitively. Empty = all", "es": "Lista de características separadas por comas (p. ej. Mean,Max), sin distinguir mayúsculas. Vacío = todas"},
       "default": "Mean"
     },
     {

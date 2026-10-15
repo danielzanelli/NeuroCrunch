@@ -22,7 +22,7 @@
       "description": {"en": "Robust deviations (median + k·MAD) above the median that a stretch of frames must exceed to count a cell as active", "es": "Desviaciones robustas (mediana + k·MAD) por encima de la mediana que un tramo de cuadros debe superar para considerar activa una célula"},
       "default": 2.5,
       "min": 0.5,
-      "max": 10.0,
+      "max": 100.0,
       "decimals": 2
     },
     {

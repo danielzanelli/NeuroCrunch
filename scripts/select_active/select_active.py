@@ -11,6 +11,11 @@ plus only the traces
 considered active. Preserves the format for the downstream scripts
 (pearson_matrix, connectivity_graph).
 
+The median and MAD are taken from a reference window, ``reference_start_s`` to
+``reference_end_s`` (0 = the recording's end), which defaults to the whole
+recording — e.g. a quiet pre-stimulus period. Times come from the CSV's
+``time_s``/``time`` column, or from ``fps`` when it has neither.
+
 Contract: see README.md > "<script_name>.py — execution contract".
 """
 from __future__ import annotations
@@ -65,11 +70,60 @@ def _robust_threshold(x: np.ndarray, threshold_std: float) -> float:
     return median + threshold_std * robust_std
 
 
+# The reference-window helpers mirror spike_analysis (scripts run in isolated
+# namespaces, so they are duplicated rather than imported).
+
+
+def parse_reference_window(params):
+    """(start_s, end_s) of the reference window; end_s <= 0 means the recording's end."""
+    start_s = float(params.get("reference_start_s", 0.0) or 0.0)
+    end_s = float(params.get("reference_end_s", 0.0) or 0.0)
+    if start_s < 0.0:
+        raise ValueError(f"reference_start_s must be >= 0 (got {start_s}).")
+    if end_s > 0.0 and end_s <= start_s:
+        raise ValueError(
+            f"reference_end_s ({end_s}) must be greater than reference_start_s ({start_s}), "
+            "or 0 to use the rest of the recording."
+        )
+    return start_s, end_s
+
+
+def _reference_mask(t: np.ndarray, start_s: float, end_s: float) -> np.ndarray:
+    """Samples inside the reference window [start_s, end_s] (end_s <= 0 = no end)."""
+    mask = t >= start_s
+    if end_s > 0.0:
+        mask &= t <= end_s
+    if np.count_nonzero(mask) < 3:
+        raise ValueError(
+            f"The reference window {start_s:g}-{end_s:g} s holds fewer than 3 samples; "
+            "widen it or check the time axis."
+            if end_s > 0.0
+            else f"The reference window from {start_s:g} s holds fewer than 3 samples; "
+            "lower its start or check the time axis."
+        )
+    return mask
+
+
+def _time_axis(df: pd.DataFrame, fps: float):
+    """The recording's time axis and its source column (None when derived from fps)."""
+    n_rows = df.shape[0]
+    for name in ("time_s", "time"):
+        if name in df.columns:
+            t = pd.to_numeric(df[name], errors="coerce").to_numpy(dtype=float)
+            if t.shape[0] == n_rows and np.isfinite(t).all():
+                return t, name
+    return np.arange(n_rows, dtype=float) / fps, None
+
+
 def run(params):
     input_csv = params["input_csv"]
     output_dir = params["output_dir"]
     threshold_std = float(params.get("threshold_std", 2.5))
     min_duration = int(params.get("min_duration", 3))
+    reference_start_s, reference_end_s = parse_reference_window(params)
+    fps = float(params.get("fps", 10.0))
+    if fps <= 0:
+        raise ValueError(f"fps must be positive (got {fps}).")
 
     if not os.path.isfile(input_csv):
         raise FileNotFoundError(f"Input CSV not found: {input_csv}")
@@ -86,11 +140,22 @@ def run(params):
     print(f"  Signal columns: {len(signal_cols)} | metadata: {len(meta_cols)}")
     print(f"  Criterion: > median + {threshold_std}·(robust MAD) for >= {min_duration} frames")
 
+    t, time_column = _time_axis(df, fps)
+    reference = _reference_mask(t, reference_start_s, reference_end_s)
+    time_source = f"'{time_column}' column" if time_column else f"fps={fps}"
+    if reference.all():
+        print(f"  Median/MAD reference: the whole recording (time from {time_source})")
+    else:
+        print(
+            f"  Median/MAD reference: {t[reference][0]:g}-{t[reference][-1]:g} s "
+            f"({np.count_nonzero(reference)} of {t.shape[0]} samples, time from {time_source})"
+        )
+
     active_cols = []
     total = len(signal_cols)
     for i, col in enumerate(signal_cols, start=1):
         x = df[col].to_numpy(dtype=float)
-        threshold = _robust_threshold(x, threshold_std)
+        threshold = _robust_threshold(x[reference], threshold_std)
         if _max_run_above(x, threshold) >= min_duration:
             active_cols.append(col)
 
@@ -128,6 +193,11 @@ def preview(sample, params):
     test runs on the decimated trace — the active/inactive call is therefore
     approximate right at the boundary.
 
+    The reference window is placed on the sample's time axis: the CSV's own
+    ``"t"`` (seconds) when the app passes one, else the plot's x values ``"x"``
+    (then frame numbers) divided by ``fps``. Its first and last samples are
+    returned as vertical markers (``"_vlines"``, in ``"x"`` units).
+
     Returns ``{}`` for an all-NaN or empty trace.
     """
     y = np.asarray(sample.get("y"), dtype=float).ravel()
@@ -140,12 +210,35 @@ def preview(sample, params):
 
     threshold_std = float(params.get("threshold_std", 2.5))
     min_duration = int(params.get("min_duration", 3))
-    threshold = _robust_threshold(y, threshold_std)
+    reference_start_s, reference_end_s = parse_reference_window(params)
+    fps = float(params.get("fps", 10.0))
+    if fps <= 0:
+        raise ValueError(f"fps must be positive (got {fps}).")
+
+    x = sample.get("x")
+    x = None if x is None else np.asarray(x, dtype=float).ravel()
+    if x is None or x.shape[0] != y.shape[0]:
+        x = np.arange(y.shape[0], dtype=float)
+    t = sample.get("t")
+    t = None if t is None else np.asarray(t, dtype=float).ravel()
+    if t is None or t.shape[0] != y.shape[0] or not np.isfinite(t).all():
+        t = x / fps
+
+    reference = _reference_mask(t, reference_start_s, reference_end_s)
+    threshold = _robust_threshold(y[reference], threshold_std)
     active = _max_run_above(y, threshold) >= min_duration
 
     key = "active" if active else "inactive"
     line = [float(threshold)] * y.shape[0]
-    return {key: y.tolist(), "threshold": line}
+    x_ref = x[reference]
+    return {
+        key: y.tolist(),
+        "threshold": line,
+        "_vlines": {
+            "SD reference start": float(x_ref[0]),
+            "SD reference end": float(x_ref[-1]),
+        },
+    }
 
 
 if __name__ == "__main__":
@@ -155,5 +248,8 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--threshold_std", type=float, default=2.5)
     parser.add_argument("--min_duration", type=int, default=3)
+    parser.add_argument("--reference_start_s", type=float, default=0.0)
+    parser.add_argument("--reference_end_s", type=float, default=0.0)
+    parser.add_argument("--fps", type=float, default=10.0)
     args = parser.parse_args()
     print(run(vars(args)))

@@ -58,6 +58,10 @@ PREVIEW_MAX_TRACES = 12
 # Sentinel series key for the untransformed input trace in the Filter-preview
 # series selector, kept distinct from any name a script's preview() may return.
 _PREVIEW_ORIGINAL = '__original__'
+# Reserved preview() result key for vertical markers: ``{label: x}``, with x in
+# the units of the sample's ``'x'`` (the plot's x-axis). Each label gets a checkbox
+# and is drawn once as a vertical line, not per trace.
+_PREVIEW_VLINES = '_vlines'
 
 # pyqtgraph backgrounds matched to the viewer_frame color in each QSS theme
 PLOT_BG = {True: '#1a1e23', False: '#ffffff'}
@@ -310,9 +314,10 @@ class _PreviewWorker(QThread):
     ``{column_name: {series_name: array}}``. A monotonically increasing *token*
     lets the viewer discard a superseded run's result.
 
-    Each call gets ``{'y': trace}`` plus the shared *axes* — ``'x'`` (the
-    original frame index of every decimated sample) and, when the CSV has a
-    ``time_s`` column, ``'t'`` (its seconds) — for scripts that need a time base.
+    Each call gets ``{'y': trace}`` plus the shared *axes* — ``'x'`` (the plot's
+    x value of every decimated sample: its ``time_s`` when the CSV has that
+    column, else its original frame index) and, with ``time_s``, ``'t'`` (the
+    same seconds) — for scripts that need a time base.
     """
 
     progress = Signal(int, int, int)  # token, done, total
@@ -369,7 +374,8 @@ class PlotViewer(BaseViewer):
         self._preview_fn_cache = {}       # {script_id: preview callable or None}
         self._preview_worker = None
         self._preview_token = 0
-        self._preview_idx = None          # shared x-axis (frame indices) of the run
+        self._preview_idx = None          # shared x-axis of the run (time_s, else frame index)
+        self._preview_x_label = ''        # bottom-axis label for that x-axis
         self._preview_raw_map = {}        # {column: decimated raw values}
         self._preview_result = {}         # {column: {series_name: array}} of the last run
         self._preview_series_state = {}   # {series_key: checked} persisted across runs
@@ -1085,18 +1091,24 @@ class PlotViewer(BaseViewer):
             samples[name] = yd
             raw_map[name] = yd
 
+        # Plot against the CSV's time_s column, like the column plots, when it
+        # has one; otherwise against the frame index. 'x' is always the plot's
+        # own x values, so a preview's vertical markers land where it means.
+        time_col, t = self._time_axis()
+        if time_col is not None and t.shape[0] == n and np.isfinite(t[idx]).all():
+            axes = {'x': t[idx], 't': t[idx]}
+            self._preview_x_label = str(time_col)
+        else:
+            axes = {'x': idx.astype(float)}
+            self._preview_x_label = ''
+
         params = self._calib_form.get_values()
         self._preview_token += 1
         token = self._preview_token
-        self._preview_idx = idx
+        self._preview_idx = axes['x']
         self._preview_raw_map = raw_map
         note = _tr(' (showing first {0})').format(PREVIEW_MAX_TRACES) if capped else ''
         self._set_calib_status(_tr('Computing preview for {0} trace(s)…').format(len(samples)) + note)
-
-        axes = {'x': idx.astype(float)}
-        time_col, t = self._time_axis()
-        if time_col is not None and t.shape[0] == n and np.isfinite(t[idx]).all():
-            axes['t'] = t[idx]
 
         worker = _PreviewWorker(preview_fn, samples, params, token, axes=axes, parent=self)
         worker.progress.connect(self._on_preview_progress)
@@ -1125,10 +1137,16 @@ class PlotViewer(BaseViewer):
         ordered = [_PREVIEW_ORIGINAL]
         seen = set()
         for col in self._preview_raw_map:
-            for name in (self._preview_result.get(col) or {}):
-                if name not in seen:
-                    seen.add(name)
-                    ordered.append(name)
+            result = self._preview_result.get(col) or {}
+            for name in result:
+                if name == _PREVIEW_VLINES:
+                    names = list((result.get(name) or {}).keys())
+                else:
+                    names = [name]
+                for key in names:
+                    if key not in seen:
+                        seen.add(key)
+                        ordered.append(key)
         self._rebuild_series_checks(ordered)
         self._render_preview()
 
@@ -1141,24 +1159,32 @@ class PlotViewer(BaseViewer):
         if not self._preview_raw_map:
             return
         self._showing_preview = True
+        self.plot_widget.setLabel('bottom', self._preview_x_label)
         checked = {k for k, cb in self._preview_series_checks.items() if cb.isChecked()}
         series = {}
+        vlines = {}  # {label: x}, shared by every trace so drawn once
         for col, y in self._preview_raw_map.items():
             if _PREVIEW_ORIGINAL in checked:
                 series[f'{col}: {self._series_label(_PREVIEW_ORIGINAL)}'] = y
             for name, values in (self._preview_result.get(col, {}) or {}).items():
+                if name == _PREVIEW_VLINES:
+                    for label, x in (values or {}).items():
+                        if label in checked and label not in vlines:
+                            vlines[label] = float(x)
+                    continue
                 if name not in checked:
                     continue
                 arr = np.asarray(values, dtype=float).ravel()
                 if arr.shape[0] == y.shape[0]:
                     series[f'{col}: {self._series_label(name)}'] = arr
-        self._plot_named_series(self._preview_idx, series)
+        self._plot_named_series(self._preview_idx, series, vlines)
         self._set_calib_status(_tr('Previewing {0} series (click legend to toggle).').format(
             len(series)))
 
-    def _plot_named_series(self, x, series_map):
+    def _plot_named_series(self, x, series_map, vlines=None):
         """Plot each named 1-D array in *series_map* over the shared x, with a
-        clickable/toggleable legend (shared with the column plots)."""
+        clickable/toggleable legend (shared with the column plots), plus a
+        dashed, labelled vertical line at each ``{label: x}`` in *vlines*."""
         try:
             self.plot_widget.clear()
             self._plot_items = {}
@@ -1171,6 +1197,14 @@ class PlotViewer(BaseViewer):
                 pen = pg.mkPen(PLOT_COLOR_PALETTE[i % len(PLOT_COLOR_PALETTE)], width=2)
                 item = self.plot_widget.plot(x, values, pen=pen, name=str(name))
                 self._plot_items[str(name)] = item
+            for label, pos in (vlines or {}).items():
+                text = self._series_label(label)
+                line = pg.InfiniteLine(
+                    pos=pos, angle=90, movable=False,
+                    pen=pg.mkPen(PLOT_AXIS[self._is_dark], width=1.5, style=Qt.DashLine),
+                    label=text, labelOpts={'position': 0.95, 'color': PLOT_AXIS[self._is_dark]},
+                )
+                self.plot_widget.addItem(line)
             self._attach_clickable_legend(legend)
         except Exception as e:
             self.log_message.emit(_tr('Error rendering preview:\n{0}').format(str(e)))

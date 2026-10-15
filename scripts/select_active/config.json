@@ -35,6 +35,33 @@
       "max": 1000
     },
     {
+      "name": "reference_start_s",
+      "type": "float",
+      "label": {"en": "SD reference start (s)", "es": "Inicio de referencia de DE (s)"},
+      "description": {"en": "Start of the time window whose median and robust deviation define the activity threshold. 0 = start of the recording", "es": "Inicio de la ventana temporal cuya mediana y desviación robusta definen el umbral de actividad. 0 = inicio del registro"},
+      "default": 0.0,
+      "min": 0.0,
+      "decimals": 3
+    },
+    {
+      "name": "reference_end_s",
+      "type": "float",
+      "label": {"en": "SD reference end (s)", "es": "Fin de referencia de DE (s)"},
+      "description": {"en": "End of the reference time window. 0 = end of the recording (with start 0, the whole signal is the reference)", "es": "Fin de la ventana temporal de referencia. 0 = fin del registro (con inicio 0, toda la señal es la referencia)"},
+      "default": 0.0,
+      "min": 0.0,
+      "decimals": 3
+    },
+    {
+      "name": "fps",
+      "type": "float",
+      "label": {"en": "Sampling rate (fps)", "es": "Frecuencia de muestreo (fps)"},
+      "description": {"en": "Frames per second, used to place the reference window only when the CSV has no time_s column", "es": "Cuadros por segundo, usado para ubicar la ventana de referencia solo cuando el CSV no tiene columna time_s"},
+      "default": 10.0,
+      "min": 0.001,
+      "decimals": 3
+    },
+    {
       "name": "output_dir",
       "type": "directory",
       "label": {"en": "Output folder", "es": "Carpeta de salida"},
@@ -46,6 +73,6 @@
   },
   "calibration": {
     "kind": "traces",
-    "params": ["threshold_std", "min_duration"]
+    "params": ["threshold_std", "min_duration", "reference_start_s", "reference_end_s", "fps"]
   }
 }

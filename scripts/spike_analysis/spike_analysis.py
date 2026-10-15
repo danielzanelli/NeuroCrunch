@@ -599,14 +599,13 @@ def preview(sample: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
     than in the real run on a long recording.
 
     The reference window is placed on the sample's time axis: the CSV's own
-    ``"t"`` (seconds) when the app passes one, else the original frame numbers
-    ``"x"`` divided by ``fps``.
+    ``"t"`` (seconds) when the app passes one, else the plot's x values
+    ``"x"`` (then frame numbers) divided by ``fps``.
 
     Returns the detection threshold, each spike's own half level over its
     window ("detected"), which sits at the baseline outside the spikes rather
-    than using NaN gaps, and the reference window ("reference_window"): a gate
-    at the trace's top inside the window and its bottom outside, whose vertical
-    edges mark the window's start and end.
+    than using NaN gaps, and the reference window's first and last samples as
+    vertical markers (``"_vlines"``, in the sample's ``"x"`` units).
     """
     y = np.asarray(sample.get("y"), dtype=float).ravel()
     y = _interpolate_nans(y)
@@ -623,13 +622,13 @@ def preview(sample: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
     if fps <= 0:
         raise ValueError(f"fps must be positive (got {fps}).")
 
+    x = sample.get("x")
+    x = None if x is None else np.asarray(x, dtype=float).ravel()
+    if x is None or x.shape[0] != y.shape[0]:
+        x = np.arange(y.shape[0], dtype=float)
     t = sample.get("t")
     t = None if t is None else np.asarray(t, dtype=float).ravel()
     if t is None or t.shape[0] != y.shape[0] or not np.isfinite(t).all():
-        x = sample.get("x")
-        x = None if x is None else np.asarray(x, dtype=float).ravel()
-        if x is None or x.shape[0] != y.shape[0]:
-            x = np.arange(y.shape[0], dtype=float)
         t = x / fps
 
     reference = _reference_mask(t, reference_start_s, reference_end_s)
@@ -651,11 +650,14 @@ def preview(sample: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
         detected[spike["lo_idx"]:spike["hi_idx"] + 1] = spike["half_level"]
 
     threshold = baseline + threshold_std * sigma
-    reference_window = np.where(reference, float(np.max(y)), float(np.min(y)))
+    x_ref = x[reference]
     return {
         "threshold": [threshold] * y.shape[0],
         "detected": detected.tolist(),
-        "reference_window": reference_window.tolist(),
+        "_vlines": {
+            "SD reference start": float(x_ref[0]),
+            "SD reference end": float(x_ref[-1]),
+        },
     }
 
 

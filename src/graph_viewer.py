@@ -6,8 +6,9 @@ Renders a connectivity graph (``.jgf``) produced by the ``connectivity_graph``
 script. The file stores every pairwise weight, so the viewer is where the graph
 becomes readable: a **threshold slider** filters edges live by ``|weight|`` and
 the network redraws dynamically. Node diameter and edge stroke width have their
-own sliders, edges are colour-graded by sign and strength with opacity
-proportional to ``|weight|``, nodes are shaded by how many edges they still
+own sliders (nodes can be hidden at size 0), edges are colour-graded by sign
+and strength with opacity proportional to ``|weight|`` (each sign's colour can
+be picked from a swatch), nodes are shaded by how many edges they still
 have at the current threshold so hubs stand out, and clicking a node highlights
 it and its neighbours (with their labels). Right-clicking opens a small menu
 that saves the current view as an image or the thresholded network as CSV.
@@ -41,6 +42,7 @@ from pyqtgraph.exporters import ImageExporter, SVGExporter
 from PySide6.QtCore import QCoreApplication, QRectF, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QPainter
 from PySide6.QtWidgets import (
+    QColorDialog,
     QFileDialog,
     QGridLayout,
     QHBoxLayout,
@@ -61,6 +63,7 @@ _POS_WEAK = (232, 150, 160)
 _POS_STRONG = (198, 36, 58)     # #c6243a
 _NEG_WEAK = (150, 186, 232)
 _NEG_STRONG = (28, 92, 200)     # #1c5cc8
+_WEAK_TINT = 0.55               # weak end of a user-picked gradient: this far to white
 _SELECT_COLOR = (230, 168, 23)    # #e6a817 amber — the selected node/edges
 _NEIGHBOR_COLOR = (25, 158, 112)  # #199e70 green — its neighbours
 
@@ -344,6 +347,12 @@ class GraphViewer(BaseViewer):
         self._degree = np.zeros(0, dtype=np.int64)  # per node, at the threshold
         self._node_diameter = 8.0
         self._edge_width = 1.0
+        # Base scatter / edge opacity; the selection overlay stays fully opaque.
+        self._node_opacity = 1.0  # multiplies the node alpha
+        self._edge_opacity = 0.5  # 0.5 = |weight| grading; 1.0 = all edges opaque
+        # (weak, strong) edge gradient per sign; the swatches replace these.
+        self._pos_colors = (_POS_WEAK, _POS_STRONG)
+        self._neg_colors = (_NEG_WEAK, _NEG_STRONG)
 
         self._worker: Optional[_GraphLoadWorker] = None
         self._token = 0
@@ -407,74 +416,152 @@ class GraphViewer(BaseViewer):
         self._render_timer.setInterval(40)
         self._render_timer.timeout.connect(self._render_edges)
 
-        # --- control bar: Reset button on top, sliders stacked vertically ---
+        # --- control panel: one grid, two sections ---
+        # Columns: 0 row label | 1 slider | 2 value | 3 slider | 4 value | 5 swatches.
+        # The threshold spans cols 1-3 so its value lines up with the others.
         controls = QWidget()
-        cbox = QVBoxLayout(controls)
-        cbox.setContentsMargins(4, 2, 4, 2)
-        cbox.setSpacing(4)
+        grid = QGridLayout(controls)
+        grid.setContentsMargins(8, 4, 8, 2)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(4)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(3, 1)
 
-        top_row = QHBoxLayout()
-        top_row.setContentsMargins(0, 0, 0, 0)
-        self.btn_reset = QPushButton(self.tr("Reset view"))
-        self.btn_reset.clicked.connect(self.reset_view)
-        top_row.addWidget(self.btn_reset)
-        top_row.addSpacing(6)
+        # Filter: the histogram sits right over the slider it describes.
+        grid.addWidget(self._section_label(self.tr("FILTER")), 0, 0)
         self.hist = _WeightHistogram()
         self.hist.setToolTip(
             self.tr("Edge count per |weight| bin; muted bars are below the threshold")
         )
-        top_row.addWidget(self.hist, 1)
-        cbox.addLayout(top_row)
+        grid.addWidget(self.hist, 0, 1, 1, 3)
 
-        # A grid keeps the row labels and slider tracks aligned in columns.
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(3)
-        grid.setColumnStretch(1, 1)  # sliders expand to fill the width
+        grid.addWidget(QLabel(self.tr("Min |weight|")), 1, 0)
+        self.slider = self._make_slider(0, 1000, 0, self._on_threshold_changed)
+        grid.addWidget(self.slider, 1, 1, 1, 3)
+        self.lbl_threshold = self._value_label("0.00")
+        grid.addWidget(self.lbl_threshold, 1, 4)
 
-        grid.addWidget(QLabel(self.tr("Min |weight|:")), 0, 0)
-        self.slider = QSlider(Qt.Horizontal)
-        self.slider.setMinimum(0)
-        self.slider.setMaximum(1000)
-        self.slider.setValue(0)
-        self.slider.valueChanged.connect(self._on_threshold_changed)
-        grid.addWidget(self.slider, 0, 1)
-        self.lbl_threshold = QLabel("0.00")
-        self.lbl_threshold.setMinimumWidth(34)
-        grid.addWidget(self.lbl_threshold, 0, 2)
+        grid.setRowMinimumHeight(2, 6)
 
-        grid.addWidget(QLabel(self.tr("Nodes:")), 1, 0)
-        self.node_slider = QSlider(Qt.Horizontal)
-        self.node_slider.setMinimum(2)
-        self.node_slider.setMaximum(30)
-        self.node_slider.setValue(int(self._node_diameter))
-        self.node_slider.valueChanged.connect(self._on_node_size_changed)
-        grid.addWidget(self.node_slider, 1, 1)
+        # Appearance: one row per element, columns per property.
+        grid.addWidget(self._section_label(self.tr("APPEARANCE")), 3, 0)
+        grid.addWidget(self._caption(self.tr("Size")), 3, 1)
+        grid.addWidget(self._caption(self.tr("Opacity")), 3, 3)
+        grid.addWidget(self._caption(self.tr("Colour")), 3, 5)
 
-        grid.addWidget(QLabel(self.tr("Edges:")), 2, 0)
-        self.edge_slider = QSlider(Qt.Horizontal)
-        self.edge_slider.setMinimum(1)   # width = value * 0.5  -> 0.5 .. 6.0
-        self.edge_slider.setMaximum(12)
-        self.edge_slider.setValue(int(self._edge_width / 0.5))
-        self.edge_slider.valueChanged.connect(self._on_edge_width_changed)
-        grid.addWidget(self.edge_slider, 2, 1)
+        grid.addWidget(QLabel(self.tr("Nodes")), 4, 0)
+        self.node_slider = self._make_slider(   # 0 hides the nodes
+            0, 30, int(self._node_diameter), self._on_node_size_changed)
+        self.node_slider.setToolTip(self.tr("Node diameter; 0 hides the nodes"))
+        grid.addWidget(self.node_slider, 4, 1)
+        self.lbl_node_size = self._value_label("")
+        grid.addWidget(self.lbl_node_size, 4, 2)
+        self.node_opacity_slider = self._make_slider(
+            0, 100, int(self._node_opacity * 100), self._on_node_opacity_changed)
+        grid.addWidget(self.node_opacity_slider, 4, 3)
+        self.lbl_node_opacity = self._value_label("")
+        grid.addWidget(self.lbl_node_opacity, 4, 4)
 
-        cbox.addLayout(grid)
+        grid.addWidget(QLabel(self.tr("Edges")), 5, 0)
+        self.edge_slider = self._make_slider(   # width = value * 0.5 -> 0.5 .. 6.0
+            1, 12, int(self._edge_width / 0.5), self._on_edge_width_changed)
+        self.edge_slider.setToolTip(self.tr("Edge stroke width"))
+        grid.addWidget(self.edge_slider, 5, 1)
+        self.lbl_edge_width = self._value_label("")
+        grid.addWidget(self.lbl_edge_width, 5, 2)
+        self.edge_opacity_slider = self._make_slider(
+            0, 100, int(self._edge_opacity * 100), self._on_edge_opacity_changed)
+        self.edge_opacity_slider.setToolTip(self.tr(
+            "50% grades opacity by |weight|; lower fades all edges, "
+            "higher makes them solid"))
+        grid.addWidget(self.edge_opacity_slider, 5, 3)
+        self.lbl_edge_opacity = self._value_label("")
+        grid.addWidget(self.lbl_edge_opacity, 5, 4)
+
+        swatches = QHBoxLayout()
+        swatches.setContentsMargins(0, 0, 0, 0)
+        swatches.setSpacing(4)
+        self.btn_pos_color = self._make_swatch(self.tr("Positive edge colour"), True)
+        self.btn_neg_color = self._make_swatch(self.tr("Negative edge colour"), False)
+        swatches.addWidget(self.btn_pos_color)
+        swatches.addWidget(self.btn_neg_color)
+        swatches.addStretch(1)
+        grid.addLayout(swatches, 5, 5)
+
         layout.addWidget(controls, 0)
 
+        # Status line: what is shown on the left, the view action on the right.
+        status = QHBoxLayout()
+        status.setContentsMargins(8, 0, 8, 4)
         self.info = QLabel(self.tr("No graph loaded."))
         self.info.setWordWrap(True)
         self.info.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(self.info, 0)
+        status.addWidget(self.info, 1)
+        self.btn_reset = QPushButton(self.tr("Reset view"))
+        self.btn_reset.setToolTip(self.tr("Fit the graph and clear the selection"))
+        self.btn_reset.clicked.connect(self.reset_view)
+        status.addWidget(self.btn_reset, 0, Qt.AlignTop)
+        layout.addLayout(status, 0)
 
+        self._update_value_labels()
         self._set_controls_enabled(False)
+
+    def _make_slider(self, lo: int, hi: int, value: int, slot) -> QSlider:
+        s = QSlider(Qt.Horizontal)
+        s.setRange(lo, hi)
+        s.setValue(value)
+        s.valueChanged.connect(slot)
+        return s
+
+    @staticmethod
+    def _value_label(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setMinimumWidth(42)
+        lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        return lbl
+
+    @staticmethod
+    def _section_label(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet(
+            "color: #888888; font-size: 10px; font-weight: 600; letter-spacing: 1px;")
+        return lbl
+
+    @staticmethod
+    def _caption(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet("color: #888888; font-size: 10px;")
+        return lbl
+
+    def _update_value_labels(self) -> None:
+        d = int(self._node_diameter)
+        self.lbl_node_size.setText(f"{d} px" if d else self.tr("Off"))
+        self.lbl_node_opacity.setText(f"{round(self._node_opacity * 100)}%")
+        self.lbl_edge_width.setText(f"{self._edge_width:.1f} px")
+        self.lbl_edge_opacity.setText(f"{round(self._edge_opacity * 100)}%")
 
     def tr(self, text: str) -> str:  # noqa: A003 - mirror QWidget.tr for i18n
         return QCoreApplication.translate("GraphViewer", text)
 
+    def _make_swatch(self, tip: str, positive: bool) -> QPushButton:
+        btn = QPushButton()
+        btn.setFixedSize(20, 20)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setToolTip(tip)
+        btn.clicked.connect(lambda: self._pick_edge_color(positive))
+        self._paint_swatch(btn, (self._pos_colors if positive else self._neg_colors)[1])
+        return btn
+
+    @staticmethod
+    def _paint_swatch(btn: QPushButton, rgb) -> None:
+        btn.setStyleSheet(
+            f"QPushButton {{ background-color: {QColor(*rgb).name()}; "
+            "border: 1px solid #888; border-radius: 10px; }"
+        )
+
     def _set_controls_enabled(self, enabled: bool) -> None:
-        for w in (self.btn_reset, self.slider, self.node_slider, self.edge_slider):
+        for w in (self.btn_reset, self.slider, self.node_slider, self.edge_slider,
+                  self.node_opacity_slider, self.edge_opacity_slider):
             w.setEnabled(enabled)
 
     # ------------------------------------------------------------------
@@ -577,7 +664,7 @@ class GraphViewer(BaseViewer):
             pos=data.pos,
             size=self._node_diameter,
             brush=pg.mkBrush(*theme["node_fill"]),
-            pen=pg.mkPen(color=theme["node_pen"], width=1.0),
+            pen=self._node_pen(),
             data=np.arange(len(data.ids)),
             hoverable=True,
             hoverPen=pg.mkPen(theme["text"], width=2),
@@ -601,8 +688,17 @@ class GraphViewer(BaseViewer):
         else:
             deg = np.zeros(n, dtype=np.int64)
         self._degree = deg
+        self._paint_nodes()
 
-        low = np.array(self._theme["node_fill"], dtype=np.float32)
+    def _node_pen(self):
+        r, g, b = self._theme["node_pen"]
+        return pg.mkPen(color=(r, g, b, int(round(255 * self._node_opacity))), width=1.0)
+
+    def _paint_nodes(self) -> None:
+        """Fill nodes from the cached degree: hub ramp, isolated fade, opacity."""
+        deg = self._degree
+        n = deg.size
+        low =np.array(self._theme["node_fill"], dtype=np.float32)
         high = np.array(self._theme["hub_high"], dtype=np.float32)
         peak = int(deg.max()) if n else 0
         if peak > 0:
@@ -611,17 +707,24 @@ class GraphViewer(BaseViewer):
             rgb = low + (high - low) * np.sqrt(deg / peak)[:, None]
         else:
             rgb = np.tile(low, (n, 1))
+        on = int(round(255 * self._node_opacity))
+        off = int(round(_ISOLATED_ALPHA * self._node_opacity))
         self._node_item.setBrush([
-            pg.mkBrush(int(r), int(g), int(b), 255 if d else _ISOLATED_ALPHA)
+            pg.mkBrush(int(r), int(g), int(b), on if d else off)
             for (r, g, b), d in zip(rgb, deg)
         ])
 
     def _bin_pen(self, positive: bool, b: int, dim: float):
         """Pen for weight bucket *b*: colour graded by strength, alpha ~ |weight|."""
         frac = (b + 0.5) / _NBINS
-        weak, strong = (_POS_WEAK, _POS_STRONG) if positive else (_NEG_WEAK, _NEG_STRONG)
+        weak, strong = self._pos_colors if positive else self._neg_colors
         color = tuple(int(round(weak[i] + (strong[i] - weak[i]) * frac)) for i in range(3))
-        alpha = int(round(255 * max(_ALPHA_FLOOR, frac) * dim))
+        # Edge opacity 0.5 is the plain |weight| grading; below it every edge
+        # fades toward invisible, above it every edge firms up to fully opaque.
+        a = max(_ALPHA_FLOOR, frac)
+        o = self._edge_opacity
+        a = a * (o / 0.5) if o <= 0.5 else a + (1.0 - a) * (o - 0.5) / 0.5
+        alpha = int(round(255 * a * dim))
         return pg.mkPen(color=(color[0], color[1], color[2], alpha), width=self._edge_width)
 
     def _render_edges(self) -> None:
@@ -834,13 +937,46 @@ class GraphViewer(BaseViewer):
 
     def _on_node_size_changed(self, value: int) -> None:
         self._node_diameter = float(value)
+        self._update_value_labels()
+        # Size 0 would still leave the 1 px outline, so hide the scatters outright.
+        self._node_item.setVisible(value > 0)
+        self._hl_nodes.setVisible(value > 0)
         if self._data is not None:
             self._node_item.setSize(self._node_diameter)
             self._draw_highlight(self._threshold())
 
     def _on_edge_width_changed(self, value: int) -> None:
         self._edge_width = value * 0.5
+        self._update_value_labels()
         self._render_timer.start()
+
+    def _on_node_opacity_changed(self, value: int) -> None:
+        self._node_opacity = value / 100.0
+        self._update_value_labels()
+        if self._data is not None:
+            self._node_item.setPen(self._node_pen())
+            self._paint_nodes()
+
+    def _on_edge_opacity_changed(self, value: int) -> None:
+        self._edge_opacity = value / 100.0
+        self._update_value_labels()
+        self._render_timer.start()
+
+    def _pick_edge_color(self, positive: bool) -> None:
+        """Pick the strong end of a sign's gradient; the weak end is a tint of it."""
+        current = (self._pos_colors if positive else self._neg_colors)[1]
+        color = QColorDialog.getColor(QColor(*current), self, self.tr("Edge colour"))
+        if not color.isValid():
+            return
+        strong = (color.red(), color.green(), color.blue())
+        weak = tuple(int(round(c + (255 - c) * _WEAK_TINT)) for c in strong)
+        if positive:
+            self._pos_colors = (weak, strong)
+            self._paint_swatch(self.btn_pos_color, strong)
+        else:
+            self._neg_colors = (weak, strong)
+            self._paint_swatch(self.btn_neg_color, strong)
+        self._render_edges()
 
     def reset_view(self) -> None:
         """Reset the pan/zoom and clear any selection."""
